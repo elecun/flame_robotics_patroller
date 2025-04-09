@@ -1,0 +1,61 @@
+{
+    "rt_cycle_ns" : 1000000000,
+    "verbose" : 1,
+
+    "parameters":{
+        "use_image_stream_monitoring":true,
+        "use_image_stream":false,
+        "acquisition_mode":"Continuous",
+        "trigger_selector":"FrameStart",
+        "trigger_mode":"Off",
+        "trigger_source":"Line2",
+        "trigger_activation":"RisingEdge",
+        "heartbeat_timeout":5000,
+        "cameras":[
+            {"id":1, "ip":"192.168.0.20", "sn":"40586212", "exposure_time":100.0},
+            {"id":2, "ip":"192.168.0.21", "sn":"40357011", "exposure_time":100.0}
+        ]
+    },
+
+    "dataport":{
+        "status" : {
+            "transport" : "tcp",
+            "host" : "*",
+            "port" : 5101,
+            "socket_type" : "pub",
+            "queue_size" : 1000
+        },
+        "image_stream_monitor_1":{
+            "transport":"tcp",
+            "host":"127.0.0.1",
+            "port":5102,
+            "socket_type" : "pub",
+            "queue_size" : 5000,
+            "resolution" : {
+                "width" : 320,
+                "height" : 240
+            }
+        },
+        "image_stream_monitor_2":{
+            "transport":"tcp",
+            "host":"127.0.0.1",
+            "port":5103,
+            "socket_type" : "pub",
+            "queue_size" : 5000,
+            "resolution" : {
+                "width" : 320,
+                "height" : 240
+            }
+        },
+        "image_stream_1" : {
+            "transport" : "inproc",
+            "socket_type" : "push",
+            "queue_size" : 10000
+        },
+        "image_stream_2" : {
+            "transport" : "inproc",
+            "socket_type" : "push",
+            "queue_size" : 10000
+        }
+    }
+}
