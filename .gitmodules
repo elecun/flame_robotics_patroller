@@ -1,3 +1,6 @@
 [submodule "flame"]
 	path = flame
 	url = https://github.com/elecun/flame.git
+[submodule "flame_devpack"]
+	path = flame_devpack
+	url = https://github.com/elecun/flame_devpack.git
