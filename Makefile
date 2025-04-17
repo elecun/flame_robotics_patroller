@@ -99,6 +99,11 @@ basler_gige_cam_grabber.comp:	$(BUILDDIR)basler.gige.cam.grabber.o
 $(BUILDDIR)basler.gige.cam.grabber.o:	$(CURRENT_DIR)/components/basler.gige.cam.grabber/basler.gige.cam.grabber.cc
 									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
 
+synerex_rtk_receiver.comp:	$(BUILDDIR)synerex.rtk.receiver.o
+							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) 
+$(BUILDDIR)synerex.rtk.receiver.o:	$(CURRENT_DIR)/components/synerex.rtk.receiver/synerex.rtk.receiver.cc
+									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
+
 
 all : flame
 
