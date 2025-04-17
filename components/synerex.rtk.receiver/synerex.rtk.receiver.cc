@@ -20,6 +20,12 @@ bool synerex_rtk_receiver::on_init(){
         /* get parameters from profile */
         json parameters = get_profile()->parameters();
 
+        string port = parameters.value("port", "/dev/ttyS0");
+        unsigned int baudrate = parameters.value("baudrate", 115200);
+        char err = _serial.openDevice(port.c_str(), baudrate);
+        if(err!=1)
+            return false;
+
         
 
     }
@@ -37,6 +43,8 @@ void synerex_rtk_receiver::on_loop(){
 
 
 void synerex_rtk_receiver::on_close(){
+
+    _serial.closeDevice();
 
 }
 
