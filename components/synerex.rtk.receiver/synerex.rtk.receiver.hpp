@@ -19,7 +19,7 @@
 #include <thread>
 #include <string>
 #include <atomic>
-#include "serial/serialib.h"
+#include "serial/serial.hpp"
 
 using namespace std;
 
@@ -36,7 +36,7 @@ class synerex_rtk_receiver : public flame::component::object {
 
     private:
         /* serial */
-        serialib _serial;
+        device::bus::serial _bus;
 
         atomic<bool> _worker_stop {false};
 

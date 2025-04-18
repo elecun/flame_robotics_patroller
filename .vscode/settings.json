@@ -9,6 +9,8 @@
         "regex": "cpp",
         "utility": "cpp",
         "valarray": "cpp",
-        "chrono": "cpp"
+        "chrono": "cpp",
+        "*.tcc": "cpp",
+        "fstream": "cpp"
     }
 }
