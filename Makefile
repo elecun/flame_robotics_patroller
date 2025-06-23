@@ -99,6 +99,11 @@ basler_gige_cam_grabber.comp:	$(BUILDDIR)basler.gige.cam.grabber.o
 $(BUILDDIR)basler.gige.cam.grabber.o:	$(CURRENT_DIR)/components/basler.gige.cam.grabber/basler.gige.cam.grabber.cc
 									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
 
+baumer_inclination_sensor.comp:	$(BUILDDIR)baumer.inclination.sensor.o
+							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) -lopencv_core -lopencv_imgcodecs -lopencv_highgui -lopencv_imgproc -lpylonbase -lpylonutility 
+$(BUILDDIR)baumer.inclination.sensor.o:	$(CURRENT_DIR)/components/baumer.inclination.sensor/baumer.inclination.sensor.cc
+									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
+
 synerex_rtk_receiver.comp:	$(BUILDDIR)synerex.rtk.receiver.o \
 							$(BUILDDIR)serial.o
 							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) 
@@ -110,7 +115,7 @@ $(BUILDDIR)serial.o:	$(CURRENT_DIR)/components/synerex.rtk.receiver/serial/seria
 
 all : flame
 
-patroller : flame basler_gige_cam_grabber.comp
+patroller : flame basler_gige_cam_grabber.comp baumner_inclination_sensor.comp
 
 deploy : FORCE
 	cp $(BUILDDIR)/*.comp $(BUILDDIR)/flame $(BINDIR)

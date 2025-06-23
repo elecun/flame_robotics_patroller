@@ -1,0 +1,3535 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <author>IAE</author>
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>1005</height>
+   </rect>
+  </property>
+  <property name="font">
+   <font>
+    <family>NanumSquare</family>
+   </font>
+  </property>
+  <property name="windowTitle">
+   <string>SDD Monitoring System</string>
+  </property>
+  <property name="windowIcon">
+   <iconset theme="document-save-as">
+    <normaloff>.</normaloff>.</iconset>
+  </property>
+  <property name="toolTip">
+   <string/>
+  </property>
+  <property name="styleSheet">
+   <string notr="true"/>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QTabWidget" name="tabWidget">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>590</y>
+      <width>1280</width>
+      <height>341</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>NanumSquare</family>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true"/>
+    </property>
+    <property name="tabPosition">
+     <enum>QTabWidget::West</enum>
+    </property>
+    <property name="tabShape">
+     <enum>QTabWidget::Rounded</enum>
+    </property>
+    <property name="currentIndex">
+     <number>0</number>
+    </property>
+    <property name="tabBarAutoHide">
+     <bool>false</bool>
+    </property>
+    <widget class="QWidget" name="tab_2">
+     <attribute name="title">
+      <string>Monitoring</string>
+     </attribute>
+     <widget class="Line" name="line_4">
+      <property name="geometry">
+       <rect>
+        <x>640</x>
+        <y>15</y>
+        <width>16</width>
+        <height>321</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+     </widget>
+     <widget class="QGroupBox" name="groupBox">
+      <property name="geometry">
+       <rect>
+        <x>1075</x>
+        <y>5</y>
+        <width>166</width>
+        <height>326</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="title">
+       <string>신호 및 시스템 연결 상태</string>
+      </property>
+      <widget class="QLabel" name="label_onsite_controller_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>30</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>On-Site 제어기 준비 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>Controller Ready</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_level2_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>90</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>레벨2 연결 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>Level2 Ready</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_nas_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>150</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>NAS 연결 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>NAS Ready</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_dmx_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>120</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>조명 제어기 연결 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>DMX Ready</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_hmd_signal_1_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>210</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>형강 진입 신호 #1</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>MD Signal #1</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_line_signal_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>180</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>장비 온라인 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>System On-Line</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_hmd_signal_2_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>240</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>형강 진입 신호 #2</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>MD Signal #2</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_sdd_processing_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>270</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>표면 결함 검출 처리 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>SDD Processing</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_server_status">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>60</y>
+         <width>136</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>12</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>On-Site 제어기 준비 상태</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(200,200,200);
+color: rgb(0,0,0);</string>
+       </property>
+       <property name="text">
+        <string>Server Ready</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </widget>
+     <widget class="QGroupBox" name="groupBox_10">
+      <property name="geometry">
+       <rect>
+        <x>15</x>
+        <y>5</y>
+        <width>276</width>
+        <height>326</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="title">
+       <string>결함 검출 요약정보</string>
+      </property>
+      <widget class="QLabel" name="label_total_defects">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>35</y>
+         <width>96</width>
+         <height>31</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:rgb(255,0,0);</string>
+       </property>
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_total_images">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>75</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:rgb(0,0,255);</string>
+       </property>
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>35</y>
+         <width>111</width>
+         <height>31</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>총 검출 결함 수 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_10">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>75</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>총 이미지 수 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_11">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>110</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>WEB 흠 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_12">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>145</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>WEB 찢어짐 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_13">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>180</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>딱지흠 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_14">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>215</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>플랜지 터짐 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_15">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>250</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>플랜지 거침 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_16">
+       <property name="geometry">
+        <rect>
+         <x>25</x>
+         <y>285</y>
+         <width>111</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>실 크랙 :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_web_defect">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>110</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_crack">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>285</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_web_tear">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>145</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_flange_burst">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>215</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_flange_roughness">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>250</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_count_scab_defect">
+       <property name="geometry">
+        <rect>
+         <x>150</x>
+         <y>180</y>
+         <width>96</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </widget>
+     <widget class="QLabel" name="label_system_2">
+      <property name="geometry">
+       <rect>
+        <x>751</x>
+        <y>55</y>
+        <width>201</width>
+        <height>226</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="pixmap">
+       <pixmap>../resource/cam.png</pixmap>
+      </property>
+      <property name="scaledContents">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_1">
+      <property name="geometry">
+       <rect>
+        <x>666</x>
+        <y>25</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_1">
+      <property name="geometry">
+       <rect>
+        <x>666</x>
+        <y>0</y>
+        <width>66</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #1</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_2">
+      <property name="geometry">
+       <rect>
+        <x>815</x>
+        <y>25</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_2">
+      <property name="geometry">
+       <rect>
+        <x>815</x>
+        <y>0</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #2</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_3">
+      <property name="geometry">
+       <rect>
+        <x>971</x>
+        <y>25</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_3">
+      <property name="geometry">
+       <rect>
+        <x>971</x>
+        <y>0</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #3</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_4">
+      <property name="geometry">
+       <rect>
+        <x>662</x>
+        <y>145</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_5">
+      <property name="geometry">
+       <rect>
+        <x>971</x>
+        <y>145</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_6">
+      <property name="geometry">
+       <rect>
+        <x>662</x>
+        <y>280</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_7">
+      <property name="geometry">
+       <rect>
+        <x>820</x>
+        <y>280</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_value_8">
+      <property name="geometry">
+       <rect>
+        <x>971</x>
+        <y>280</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color:rgb(0,0,0);
+border:3px solid #00F;
+color: rgb(255,255,255);</string>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_4">
+      <property name="geometry">
+       <rect>
+        <x>661</x>
+        <y>115</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #4</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_5">
+      <property name="geometry">
+       <rect>
+        <x>970</x>
+        <y>115</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #5</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_6">
+      <property name="geometry">
+       <rect>
+        <x>666</x>
+        <y>305</y>
+        <width>66</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #6</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_7">
+      <property name="geometry">
+       <rect>
+        <x>820</x>
+        <y>305</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #7</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_temperature_8">
+      <property name="geometry">
+       <rect>
+        <x>971</x>
+        <y>305</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0, 0, 255);</string>
+      </property>
+      <property name="text">
+       <string>TIC #8</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="Line" name="line_6">
+      <property name="geometry">
+       <rect>
+        <x>1055</x>
+        <y>15</y>
+        <width>16</width>
+        <height>321</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+     </widget>
+     <widget class="QGroupBox" name="groupBox_8">
+      <property name="geometry">
+       <rect>
+        <x>305</x>
+        <y>5</y>
+        <width>321</width>
+        <height>221</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <pointsize>13</pointsize>
+       </font>
+      </property>
+      <property name="title">
+       <string>Lv.2 정보</string>
+      </property>
+      <widget class="QLabel" name="label_25">
+       <property name="geometry">
+        <rect>
+         <x>15</x>
+         <y>70</y>
+         <width>76</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>Lot # :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_lotno">
+       <property name="geometry">
+        <rect>
+         <x>105</x>
+         <y>70</y>
+         <width>196</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_26">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>144</y>
+         <width>81</width>
+         <height>21</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>MT Stand :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_mt_stand_width">
+       <property name="geometry">
+        <rect>
+         <x>105</x>
+         <y>140</y>
+         <width>46</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>H (형강 폭)</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_27">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>175</y>
+         <width>81</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>Length :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_fm_length">
+       <property name="geometry">
+        <rect>
+         <x>105</x>
+         <y>175</y>
+         <width>196</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>총 이론 길이(mm)</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_mt_stand_height">
+       <property name="geometry">
+        <rect>
+         <x>155</x>
+         <y>140</y>
+         <width>46</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>B (형강 높이)</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_mt_stand_t1">
+       <property name="geometry">
+        <rect>
+         <x>205</x>
+         <y>140</y>
+         <width>46</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>T1 (Web 두께)</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_mt_stand_t2">
+       <property name="geometry">
+        <rect>
+         <x>255</x>
+         <y>140</y>
+         <width>46</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>T2 (Flange 두께)</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_28">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>35</y>
+         <width>81</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>Date :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_date">
+       <property name="geometry">
+        <rect>
+         <x>105</x>
+         <y>35</y>
+         <width>196</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_29">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>105</y>
+         <width>81</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>Mt. # :</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_mtno">
+       <property name="geometry">
+        <rect>
+         <x>105</x>
+         <y>105</y>
+         <width>196</width>
+         <height>26</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+         <pointsize>13</pointsize>
+        </font>
+       </property>
+       <property name="toolTip">
+        <string>강편 번호</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0,0,0);
+color:rgb(0,255,0);</string>
+       </property>
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab">
+     <attribute name="title">
+      <string>Control</string>
+     </attribute>
+     <widget class="QLabel" name="label_system_3">
+      <property name="geometry">
+       <rect>
+        <x>705</x>
+        <y>35</y>
+        <width>236</width>
+        <height>256</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="pixmap">
+       <pixmap>../resource/control.png</pixmap>
+      </property>
+      <property name="scaledContents">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_7">
+      <property name="geometry">
+       <rect>
+        <x>600</x>
+        <y>50</y>
+        <width>21</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>10</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_3">
+      <property name="geometry">
+       <rect>
+        <x>680</x>
+        <y>15</y>
+        <width>21</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>10</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_9">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>105</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#9 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_1">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>45</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#1 조명 밝기 값</string>
+      </property>
+      <property name="statusTip">
+       <string/>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_3">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>135</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#3 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_6">
+      <property name="geometry">
+       <rect>
+        <x>710</x>
+        <y>295</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string extracomment="test">#6 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_5">
+      <property name="geometry">
+       <rect>
+        <x>870</x>
+        <y>295</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#5 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_4">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>225</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#4 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_8">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>165</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#8 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_2">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>75</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#2 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_2">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>105</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#2 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_4">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>195</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#4 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_7">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>225</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#7 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_10">
+      <property name="geometry">
+       <rect>
+        <x>710</x>
+        <y>10</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#10 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_4">
+      <property name="geometry">
+       <rect>
+        <x>1025</x>
+        <y>50</y>
+        <width>21</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>1</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_2">
+      <property name="geometry">
+       <rect>
+        <x>840</x>
+        <y>15</y>
+        <width>21</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>1</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_7">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>195</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#7 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_3">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>165</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#3 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_1">
+      <property name="geometry">
+       <rect>
+        <x>870</x>
+        <y>10</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#1 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_5">
+      <property name="geometry">
+       <rect>
+        <x>950</x>
+        <y>255</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#5 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_exposure_time_set_all">
+      <property name="geometry">
+       <rect>
+        <x>1040</x>
+        <y>140</y>
+        <width>196</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string/>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+border: 3px solid #0d0;
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>카메라 노출 적용</string>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_9">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>75</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#9 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_10">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>45</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#10 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_light_level_value_6">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>255</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#6 조명 밝기 값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #F00;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_exposure_time_value_8">
+      <property name="geometry">
+       <rect>
+        <x>625</x>
+        <y>135</y>
+        <width>71</width>
+        <height>26</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>#8 카메라 노출값</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border:3px solid #0D0;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_light_level_set_all">
+      <property name="geometry">
+       <rect>
+        <x>1040</x>
+        <y>180</y>
+        <width>196</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+border: 3px solid #f00;
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>조명 밝기 적용</string>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_8">
+      <property name="geometry">
+       <rect>
+        <x>370</x>
+        <y>160</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_5">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>230</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #05 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_8">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>160</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #08 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_8">
+      <property name="geometry">
+       <rect>
+        <x>440</x>
+        <y>160</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_5">
+      <property name="geometry">
+       <rect>
+        <x>205</x>
+        <y>230</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_4">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>195</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #04 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="Line" name="line">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>265</y>
+        <width>456</width>
+        <height>21</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NEXON Lv2 Gothic</family>
+       </font>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_2">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>125</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #02 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QComboBox" name="combobox_preset">
+      <property name="geometry">
+       <rect>
+        <x>40</x>
+        <y>45</y>
+        <width>256</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_preset_load">
+      <property name="geometry">
+       <rect>
+        <x>300</x>
+        <y>45</y>
+        <width>96</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Load</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_6">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>90</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #06 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_3">
+      <property name="geometry">
+       <rect>
+        <x>135</x>
+        <y>160</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_preset_set_all">
+      <property name="geometry">
+       <rect>
+        <x>400</x>
+        <y>285</y>
+        <width>101</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set All</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_6">
+      <property name="geometry">
+       <rect>
+        <x>440</x>
+        <y>90</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_1">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>90</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #01 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_2">
+      <property name="geometry">
+       <rect>
+        <x>205</x>
+        <y>125</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_7">
+      <property name="geometry">
+       <rect>
+        <x>370</x>
+        <y>125</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_6">
+      <property name="geometry">
+       <rect>
+        <x>370</x>
+        <y>90</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_9">
+      <property name="geometry">
+       <rect>
+        <x>370</x>
+        <y>195</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_9">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>195</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #09 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_7">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>125</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #07 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_10">
+      <property name="geometry">
+       <rect>
+        <x>370</x>
+        <y>230</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_2">
+      <property name="geometry">
+       <rect>
+        <x>135</x>
+        <y>125</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_4">
+      <property name="geometry">
+       <rect>
+        <x>135</x>
+        <y>195</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_3">
+      <property name="geometry">
+       <rect>
+        <x>205</x>
+        <y>160</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_1">
+      <property name="geometry">
+       <rect>
+        <x>205</x>
+        <y>90</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_7">
+      <property name="geometry">
+       <rect>
+        <x>440</x>
+        <y>125</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_4">
+      <property name="geometry">
+       <rect>
+        <x>205</x>
+        <y>195</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_10">
+      <property name="geometry">
+       <rect>
+        <x>440</x>
+        <y>230</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_10">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>235</y>
+        <width>86</width>
+        <height>21</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #10 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_lens_3">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>160</y>
+        <width>86</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>Lens #03 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_5">
+      <property name="geometry">
+       <rect>
+        <x>45</x>
+        <y>25</y>
+        <width>131</width>
+        <height>21</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>사용자 프리셋 파일</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_5">
+      <property name="geometry">
+       <rect>
+        <x>135</x>
+        <y>230</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLineEdit" name="edit_focus_value_1">
+      <property name="geometry">
+       <rect>
+        <x>135</x>
+        <y>90</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="text">
+       <string>0</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_focus_set_9">
+      <property name="geometry">
+       <rect>
+        <x>440</x>
+        <y>195</y>
+        <width>61</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>Set</string>
+      </property>
+     </widget>
+     <widget class="Line" name="line_7">
+      <property name="geometry">
+       <rect>
+        <x>545</x>
+        <y>25</y>
+        <width>16</width>
+        <height>321</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NEXON Lv2 Gothic</family>
+       </font>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+     </widget>
+     <widget class="QGroupBox" name="groupBox_4">
+      <property name="geometry">
+       <rect>
+        <x>1055</x>
+        <y>10</y>
+        <width>176</width>
+        <height>81</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="title">
+       <string>Info</string>
+      </property>
+      <widget class="QLabel" name="label_8">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>30</y>
+         <width>161</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+        </font>
+       </property>
+       <property name="text">
+        <string>- 조명 밝기 레벨 : 0 ~ 255 </string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_9">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>50</y>
+         <width>161</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>NanumSquare</family>
+        </font>
+       </property>
+       <property name="text">
+        <string>- 노출값 단위 : us</string>
+       </property>
+      </widget>
+     </widget>
+     <widget class="QPushButton" name="btn_light_off">
+      <property name="geometry">
+       <rect>
+        <x>1040</x>
+        <y>220</y>
+        <width>196</width>
+        <height>31</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgb(0,0,0);
+border: 3px solid #f00;
+background-color: rgb(212, 212, 212);</string>
+      </property>
+      <property name="text">
+       <string>조명 전체 OFF</string>
+      </property>
+     </widget>
+    </widget>
+   </widget>
+   <widget class="QTabWidget" name="tab_monitor">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>0</y>
+      <width>1280</width>
+      <height>580</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>NanumSquare</family>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true"/>
+    </property>
+    <property name="tabPosition">
+     <enum>QTabWidget::South</enum>
+    </property>
+    <property name="currentIndex">
+     <number>0</number>
+    </property>
+    <widget class="QWidget" name="tab_4">
+     <attribute name="title">
+      <string>카메라 모니터링</string>
+     </attribute>
+     <widget class="QLabel" name="window_camera_10">
+      <property name="geometry">
+       <rect>
+        <x>320</x>
+        <y>360</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="lineWidth">
+       <number>1</number>
+      </property>
+      <property name="midLineWidth">
+       <number>0</number>
+      </property>
+      <property name="text">
+       <string>Camera #10</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_7">
+      <property name="geometry">
+       <rect>
+        <x>640</x>
+        <y>180</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #7</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_2">
+      <property name="geometry">
+       <rect>
+        <x>320</x>
+        <y>0</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #2</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_1">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #1</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_6">
+      <property name="geometry">
+       <rect>
+        <x>320</x>
+        <y>180</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #6</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_8">
+      <property name="geometry">
+       <rect>
+        <x>960</x>
+        <y>180</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #8</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_9">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>360</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #9</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_3">
+      <property name="geometry">
+       <rect>
+        <x>640</x>
+        <y>0</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #3</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_4">
+      <property name="geometry">
+       <rect>
+        <x>960</x>
+        <y>0</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #4</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_5">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>180</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="text">
+       <string>Camera #5</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_11">
+      <property name="geometry">
+       <rect>
+        <x>640</x>
+        <y>360</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="lineWidth">
+       <number>1</number>
+      </property>
+      <property name="midLineWidth">
+       <number>0</number>
+      </property>
+      <property name="text">
+       <string>Camera #11</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QLabel" name="window_camera_12">
+      <property name="geometry">
+       <rect>
+        <x>960</x>
+        <y>360</y>
+        <width>320</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NanumSquare</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color:rgb(255,255,255);
+border-color: rgb(255, 255, 255);
+border: 1px solid white;</string>
+      </property>
+      <property name="lineWidth">
+       <number>1</number>
+      </property>
+      <property name="midLineWidth">
+       <number>0</number>
+      </property>
+      <property name="text">
+       <string>Camera #12</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_3">
+     <attribute name="title">
+      <string>결함상태 모니터링</string>
+     </attribute>
+     <widget class="QFrame" name="frame_defect_grid">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1280</width>
+        <height>541</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(255,255,255);</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Plain</enum>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_5">
+     <attribute name="title">
+      <string>온도 모니터링</string>
+     </attribute>
+     <widget class="QFrame" name="frame_temperature_grid">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1280</width>
+        <height>541</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <family>NEXON Lv2 Gothic</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(255,255,255);</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Plain</enum>
+      </property>
+     </widget>
+    </widget>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1280</width>
+     <height>43</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuControl">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionExit"/>
+   </widget>
+   <addaction name="menuControl"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionOpen_CSV_File">
+   <property name="text">
+    <string>Open CSV File</string>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="text">
+    <string>Exit</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+ <designerdata>
+  <property name="gridDeltaX">
+   <number>5</number>
+  </property>
+  <property name="gridDeltaY">
+   <number>5</number>
+  </property>
+  <property name="gridSnapX">
+   <bool>true</bool>
+  </property>
+  <property name="gridSnapY">
+   <bool>true</bool>
+  </property>
+  <property name="gridVisible">
+   <bool>true</bool>
+  </property>
+ </designerdata>
+</ui>
