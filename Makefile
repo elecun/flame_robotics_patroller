@@ -100,7 +100,7 @@ $(BUILDDIR)basler.gige.cam.grabber.o:	$(CURRENT_DIR)/components/basler.gige.cam.
 									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
 
 baumer_inclination_sensor.comp:	$(BUILDDIR)baumer.inclination.sensor.o
-							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) -lopencv_core -lopencv_imgcodecs -lopencv_highgui -lopencv_imgproc -lpylonbase -lpylonutility 
+							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) -lcanlib
 $(BUILDDIR)baumer.inclination.sensor.o:	$(CURRENT_DIR)/components/baumer.inclination.sensor/baumer.inclination.sensor.cc
 									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
 
