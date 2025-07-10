@@ -36,7 +36,22 @@ bool baumer_inclination_sensor::on_init(){
         }
 
         /* set bitrate */
-        canStatus stat = canSetBusParams(_can_handle, canBITRATE_500K, 0, 0, 0, 0, 0);
+        unsigned long bitrate = parameters.value("can_bitrate", 500000);
+        canStatus stat;
+        switch(bitrate){
+            case 1000000: stat = canSetBusParams(_can_handle, canBITRATE_1M, 0, 0, 0, 0, 0); break;
+            case 500000: stat = canSetBusParams(_can_handle, canBITRATE_500K, 0, 0, 0, 0, 0); break;
+            case 250000: stat = canSetBusParams(_can_handle, canBITRATE_250K, 0, 0, 0, 0, 0); break;
+            case 125000: stat = canSetBusParams(_can_handle, canBITRATE_125K, 0, 0, 0, 0, 0); break;
+            case 100000: stat = canSetBusParams(_can_handle, canBITRATE_100K, 0, 0, 0, 0, 0); break;
+            case 62000: stat = canSetBusParams(_can_handle, canBITRATE_62K, 0, 0, 0, 0, 0); break;
+            case 50000: stat = canSetBusParams(_can_handle, canBITRATE_50K, 0, 0, 0, 0, 0); break;
+            case 83000: stat = canSetBusParams(_can_handle, canBITRATE_83K, 0, 0, 0, 0, 0); break;
+            case 10000: stat = canSetBusParams(_can_handle, canBITRATE_10K, 0, 0, 0, 0, 0); break;
+            default:
+                stat = canSetBusParams(_can_handle, canBITRATE_500K, 0, 0, 0, 0, 0);
+        }
+
         if(stat!=canOK){
             char err[512] = {0,};
             canGetErrorText(stat, err, sizeof(err));

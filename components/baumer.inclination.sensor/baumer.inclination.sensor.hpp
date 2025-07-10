@@ -54,7 +54,7 @@ class baumer_inclination_sensor : public flame::component::object {
 
     private:
         int _can_channel {0};
-        CanHandle _can_handle;
+        CanHandle _can_handle { canINVALID_HANDLE };
         thread _can_rcv_worker;
         int _node_id {0};
 

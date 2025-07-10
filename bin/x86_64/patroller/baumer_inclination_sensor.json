@@ -4,6 +4,7 @@
 
     "parameters":{
         "can_channel":0,
+        "can_bitrate":500000,
         "node_id":1
 
     },
