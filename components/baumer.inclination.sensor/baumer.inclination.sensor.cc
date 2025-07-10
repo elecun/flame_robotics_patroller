@@ -173,6 +173,7 @@ void baumer_inclination_sensor::_can_rcv_task(){
         /* realse */
         canBusOff(_can_handle);
         canClose(_can_handle);
+        canUnloadLibrary();
         logger::info("[{}] Close Device", get_name());
     }
     catch(const std::out_of_range& e){
