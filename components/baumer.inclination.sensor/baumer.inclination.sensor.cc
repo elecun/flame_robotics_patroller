@@ -95,8 +95,16 @@ void baumer_inclination_sensor::on_close(){
     _worker_stop.store(true);
     if(_can_rcv_worker.joinable()){
         _can_rcv_worker.join();
-        logger::info("[{}] Component successfully closed.", get_name());
     }
+    
+    if(_can_handle != canINVALID_HANDLE){
+        canBusOff(_can_handle);
+        canClose(_can_handle);
+        _can_handle = canINVALID_HANDLE;
+    }
+    canUnloadLibrary();
+    
+    logger::info("[{}] Component successfully closed.", get_name());
 
 }
 
@@ -170,11 +178,7 @@ void baumer_inclination_sensor::_can_rcv_task(){
 
         } /* end while */
 
-        /* realse */
-        canBusOff(_can_handle);
-        canClose(_can_handle);
-        canUnloadLibrary();
-        logger::info("[{}] Close Device", get_name());
+        logger::info("[{}] CAN receive task stopped", get_name());
     }
     catch(const std::out_of_range& e){
         logger::error("[{}] Invalid parameter access", get_name());
