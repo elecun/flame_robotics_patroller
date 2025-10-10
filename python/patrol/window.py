@@ -22,9 +22,13 @@ import re
 import numpy as np
 import math
 from functools import partial
+from pyvistaqt import QtInteractor
 
 from util.logger.console import ConsoleLogger
 from common.zpipe import AsyncZSocket, ZPipe
+from .geometry import geometry
+from module.ouster_lidar import ouster_os0_128
+
 
 class PatrolWindow(QMainWindow):
     def __init__(self, config:dict, zpipe:ZPipe):
@@ -44,6 +48,17 @@ class PatrolWindow(QMainWindow):
 
                     if config.get("fullscreen", False):
                         self.showFullScreen()
+
+                    # device instances
+                    self.ouster_os0_thread = ouster_os0_128(hostname="192.168.0.10")
+                    self.ouster_os0_thread.packet_received.connect(self.on_packet_received)
+
+
+                    # UI component event proc.
+                    self.btn_record.clicked.connect(self.on_btn_record)
+
+                    # lazy loading for 3D viewer
+                    QTimer.singleShot(10, self.__init_3d_viewer)
 
                     # create & join asynczsocket
                     self.__socket = AsyncZSocket(f"{self.__class__.__name__}", "subscribe")
@@ -65,6 +80,56 @@ class PatrolWindow(QMainWindow):
                 
         except Exception as e:
             self.__console.error(f"{e}")
+
+    def on_btn_record(self):
+        """ start record """
+        if self.ouster_os0_thread.isRunning():
+            filepath = "/"
+            self.ouster_os0_thread.start_record(filepath)
+        else:
+            print(f"streaming is not active")
+
+    def on_packet_received(self, packet):
+        if isinstance(packet, tuple): # (idx, packet)
+            packet = packet[1]
+            print(f"received pacekt : {packet}")
+
+    def start_scanner_streaming(self):
+        """ start scanner streaming """
+        if not self.ouster_os0_thread.isRunning():
+            self.ouster_os0_thread.start()
+            print("LiDAR streaming started")
+
+    def stop_scanner_streaming(self):
+        """ stop scanner streaming """
+        if self.ouster_os0_thread.isRunning():
+            self.ouster_os0_thread.stop()
+            print("LiDAR streaming stopped")
+
+
+    def __init_3d_viewer(self):
+        """initialize 3D viewer"""
+        try:
+            # using pyvistaqt
+            self.plotter = QtInteractor(self.widget_3d_frame)
+            self.plotter.background_color = self.__config.get("background-color", [0.2, 0.2, 0.2])
+            layout = self.widget_3d_frame.layout()
+            if layout is None:
+                layout = QVBoxLayout(self.widget_3d_frame)
+                layout.setContentsMargins(0, 0, 0, 0) # zero margin
+                layout.setSpacing(0)  # zero spacing
+                self.widget_3d_frame.setLayout(layout)
+            else:
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(0)
+            layout.addWidget(self.plotter.interactor)
+
+            # render geometry
+            self.geometry_api = geometry()
+            self.geometry_api.API_add_coord_frame(self.plotter, "origin", pos=[0,0,0], ori=[0,0,0], size=0.1)
+            self.__console.debug("3D Viewer is initialized")
+        except Exception as e:
+            self.__console.error(f"Failed to initialize 3D viewer: {e}")
 
     def __on_data_received(self, multipart_data):
         """Callback function for zpipe data reception"""

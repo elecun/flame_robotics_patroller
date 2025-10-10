@@ -7,8 +7,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1024</width>
-    <height>768</height>
+    <width>1290</width>
+    <height>769</height>
    </rect>
   </property>
   <property name="font">
@@ -33,16 +33,19 @@
    <widget class="QTabWidget" name="tabWidget">
     <property name="geometry">
      <rect>
-      <x>60</x>
-      <y>10</y>
-      <width>791</width>
-      <height>741</height>
+      <x>240</x>
+      <y>44</y>
+      <width>1041</width>
+      <height>686</height>
      </rect>
     </property>
     <property name="font">
      <font>
       <family>Arial</family>
      </font>
+    </property>
+    <property name="autoFillBackground">
+     <bool>false</bool>
     </property>
     <property name="styleSheet">
      <string notr="true">QTabBar::tab {
@@ -62,8 +65,23 @@
      <enum>QTabWidget::Rounded</enum>
     </property>
     <property name="currentIndex">
-     <number>1</number>
+     <number>0</number>
     </property>
+    <widget class="QWidget" name="tab_robot">
+     <attribute name="title">
+      <string>Patrol Robot</string>
+     </attribute>
+     <widget class="QWidget" name="widget_3d_frame" native="true">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1040</width>
+        <height>642</height>
+       </rect>
+      </property>
+     </widget>
+    </widget>
     <widget class="QWidget" name="tab">
      <attribute name="icon">
       <iconset>
@@ -100,46 +118,535 @@
       <string>3D Scan</string>
      </attribute>
     </widget>
-    <widget class="QWidget" name="tab_5">
-     <attribute name="icon">
-      <iconset>
-       <normaloff>../resource/setting.png</normaloff>../resource/setting.png</iconset>
-     </attribute>
-     <attribute name="title">
-      <string>Settings</string>
-     </attribute>
-    </widget>
    </widget>
-   <widget class="QToolButton" name="toolButton">
+   <widget class="QProgressBar" name="progress_base_soc">
     <property name="geometry">
      <rect>
-      <x>850</x>
-      <y>600</y>
-      <width>166</width>
-      <height>146</height>
+      <x>245</x>
+      <y>15</y>
+      <width>226</width>
+      <height>21</height>
      </rect>
     </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QProgressBar {
+        border: 2px solid gray;
+        border-radius: 5px;
+        text-align: center;
+	   color:white;
+}
+    QProgressBar::chunk {
+        background-color: rgb(255,0,0);
+        width: 20px;
+    }</string>
+    </property>
+    <property name="value">
+     <number>50</number>
+    </property>
+    <property name="format">
+     <string>Base System SoC : %p%</string>
+    </property>
+   </widget>
+   <widget class="QProgressBar" name="progress_topmodule_soc">
+    <property name="geometry">
+     <rect>
+      <x>485</x>
+      <y>15</y>
+      <width>226</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QProgressBar {
+        border: 2px solid gray;
+        border-radius: 5px;
+        text-align: center;
+	   color:white;
+}
+    QProgressBar::chunk {
+        background-color: rgb(255,0,0);
+        width: 20px;
+    }</string>
+    </property>
+    <property name="value">
+     <number>50</number>
+    </property>
+    <property name="format">
+     <string>Top Module SoC : %p%</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>15</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
     <property name="text">
-     <string>...</string>
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_2">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>15</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_3">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>115</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_4">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>115</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_5">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>215</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_6">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>215</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_7">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>315</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_8">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>315</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_9">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>415</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_10">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>415</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_11">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>515</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_12">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>515</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>-</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btn_setup">
+    <property name="geometry">
+     <rect>
+      <x>130</x>
+      <y>615</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+color:rgb(0,0,0);
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>Setup</string>
     </property>
     <property name="icon">
      <iconset>
-      <normaloff>../resource/emg.png</normaloff>../resource/emg.png</iconset>
+      <normaloff>../resource/setup.png</normaloff>../resource/setup.png</iconset>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btn_record">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>615</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+     </font>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+padding: 5px 15px;
+color:rgb(0,0,0);
+}
+QPushButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>REC</string>
+    </property>
+    <property name="icon">
+     <iconset>
+      <normaloff>../resource/rec.png</normaloff>../resource/rec.png</iconset>
     </property>
     <property name="iconSize">
      <size>
-      <width>256</width>
-      <height>256</height>
+      <width>16</width>
+      <height>16</height>
      </size>
     </property>
    </widget>
-   <widget class="QProgressBar" name="progressBar">
+   <widget class="QProgressBar" name="progress_network_traffic">
     <property name="geometry">
      <rect>
-      <x>865</x>
-      <y>35</y>
-      <width>150</width>
-      <height>26</height>
+      <x>725</x>
+      <y>15</y>
+      <width>226</width>
+      <height>21</height>
      </rect>
     </property>
     <property name="font">
@@ -152,156 +659,18 @@
         border: 2px solid gray;
         border-radius: 5px;
         text-align: center;
+	   color:white;
 }
     QProgressBar::chunk {
-        background-color: green;
+        background-color: rgb(100,200,100);
         width: 20px;
     }</string>
     </property>
     <property name="value">
-     <number>24</number>
+     <number>50</number>
     </property>
-   </widget>
-   <widget class="QLabel" name="label">
-    <property name="geometry">
-     <rect>
-      <x>865</x>
-      <y>10</y>
-      <width>150</width>
-      <height>16</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">color: rgb(255, 255, 255);</string>
-    </property>
-    <property name="text">
-     <string>Base System SoC :</string>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_2">
-    <property name="geometry">
-     <rect>
-      <x>865</x>
-      <y>75</y>
-      <width>150</width>
-      <height>16</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-      <pointsize>13</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">color: rgb(255, 255, 255);</string>
-    </property>
-    <property name="text">
-     <string>Payload System SoC :</string>
-    </property>
-   </widget>
-   <widget class="QProgressBar" name="progressBar_2">
-    <property name="geometry">
-     <rect>
-      <x>865</x>
-      <y>100</y>
-      <width>150</width>
-      <height>26</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">QProgressBar {
-        border: 2px solid gray;
-        border-radius: 5px;
-        text-align: center;
-}
-    QProgressBar::chunk {
-        background-color: green;
-        width: 20px;
-    }</string>
-    </property>
-    <property name="value">
-     <number>24</number>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_3">
-    <property name="geometry">
-     <rect>
-      <x>860</x>
-      <y>195</y>
-      <width>150</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-      <pointsize>13</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: #333333;
-color: white;
-border: 1px solid #555555;</string>
-    </property>
-    <property name="text">
-     <string>RTK-GNSS</string>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_4">
-    <property name="geometry">
-     <rect>
-      <x>860</x>
-      <y>140</y>
-      <width>150</width>
-      <height>16</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">color: rgb(255, 255, 255);</string>
-    </property>
-    <property name="text">
-     <string>System Status :</string>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_5">
-    <property name="geometry">
-     <rect>
-      <x>860</x>
-      <y>165</y>
-      <width>150</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Arial</family>
-      <pointsize>13</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: #333333;
-color: white;
-border: 1px solid #555555;</string>
-    </property>
-    <property name="text">
-     <string>Mobility</string>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
+    <property name="format">
+     <string>Network Traffic : %p%</string>
     </property>
    </widget>
   </widget>

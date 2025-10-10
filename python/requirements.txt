@@ -3,3 +3,6 @@ PyQt6-WebEngine
 zmq
 colorlog
 numpy
+scipu
+pyvistaqt
+ouster-sdk
