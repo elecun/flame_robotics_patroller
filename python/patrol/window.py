@@ -27,7 +27,12 @@ from pyvistaqt import QtInteractor
 from util.logger.console import ConsoleLogger
 from common.zpipe import AsyncZSocket, ZPipe
 from .geometry import geometry
+
+# for device
 from module.ouster_lidar import ouster_os0_128
+from module.pylon_camera import pylonCamera
+from module.rtk_gnss import smc2000_rtk
+from module.velodyne_lidar import velodyne_vlp16
 
 
 class PatrolWindow(QMainWindow):
