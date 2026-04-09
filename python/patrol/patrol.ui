@@ -36,7 +36,7 @@
       <x>0</x>
       <y>30</y>
       <width>1186</width>
-      <height>661</height>
+      <height>676</height>
      </rect>
     </property>
     <property name="font">
@@ -217,7 +217,7 @@ QProgressBar::chunk {
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>345</y>
+      <y>360</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -265,7 +265,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>175</y>
+      <y>190</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -310,7 +310,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>600</y>
+      <y>615</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -355,7 +355,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>90</y>
+      <y>105</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -400,7 +400,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>5</y>
+      <y>20</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -445,7 +445,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>260</y>
+      <y>275</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -490,7 +490,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>515</y>
+      <y>530</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -538,7 +538,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>430</y>
+      <y>445</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -583,7 +583,6 @@ background-color: #d0d0d0;
     </property>
    </widget>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
  </widget>
  <resources/>
  <connections/>
