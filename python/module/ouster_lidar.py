@@ -23,7 +23,7 @@ from ouster.sdk import client
 from ouster.sdk.pcap import RecordingPacketSource
 
 
-class ouster_os0_128(QThread):
+class component(QThread):
     """
     Ouster OS0-128 LiDAR sensor communication thread.
     Handles real-time data streaming and recording of Lidar and IMU packets.

@@ -20,7 +20,7 @@ from typing import Optional
 from scapy.all import wrpcap, Ether, IP, UDP
 
 
-class velodyne_vlp16(QThread):
+class component(QThread):
     """
     Velodyne VLP-16 LiDAR sensor communication thread.
     Handles real-time data streaming and recording of Lidar packets.

@@ -29,10 +29,7 @@ from common.zpipe import AsyncZSocket, ZPipe
 from .geometry import geometry
 
 # for device
-from module.ouster_lidar import ouster_os0_128
-from module.pylon_camera import pylonCamera
-from module.rtk_gnss import smc2000_rtk
-from module.velodyne_lidar import velodyne_vlp16
+# Modules will be loaded dynamically using importlib.
 
 
 class PatrolWindow(QMainWindow):
@@ -54,13 +51,36 @@ class PatrolWindow(QMainWindow):
                     if config.get("fullscreen", False):
                         self.showFullScreen()
 
-                    # device instances
-                    self.ouster_os0_thread = ouster_os0_128(hostname="192.168.0.10")
-                    self.ouster_os0_thread.packet_received.connect(self.on_packet_received)
+                    # device instances (dynamic loading based on config)
+                    self.active_modules = {}
+                    use_modules = config.get("use_module", [])
+                    if isinstance(use_modules, list):
+                        import importlib
+                        for mod_name in use_modules:
+                            try:
+                                mod = importlib.import_module(f"module.{mod_name}")
+                                
+                                kwargs = {}
+                                cfg_path = pathlib.Path(__file__).parent.parent / "module" / f"{mod_name}.cfg"
+                                if cfg_path.is_file():
+                                    with open(cfg_path, 'r', encoding='utf-8') as f:
+                                        kwargs = json.load(f)
+                                else:
+                                    self.__console.warning(f"Configuration file not found: {cfg_path.name}")
+                                    
+                                module = mod.component(**kwargs)
+                                
+                                if hasattr(module, 'packet_received'):
+                                    module.packet_received.connect(self.on_packet_received)
+                                
+                                self.active_modules[mod_name] = module
+                                
+                                # Start thread
+                                self.active_modules[mod_name].start()
+                                self.__console.info(f"Loaded and started module: {mod_name}")
+                            except Exception as e:
+                                self.__console.error(f"Failed to load module {mod_name}: {e}")
 
-
-                    # UI component event proc.
-                    self.btn_record.clicked.connect(self.on_btn_record)
 
                     # lazy loading for 3D viewer
                     QTimer.singleShot(10, self.__init_3d_viewer)
@@ -86,14 +106,6 @@ class PatrolWindow(QMainWindow):
         except Exception as e:
             self.__console.error(f"{e}")
 
-    def on_btn_record(self):
-        """ start record """
-        if self.ouster_os0_thread.isRunning():
-            filepath = "/"
-            self.ouster_os0_thread.start_record(filepath)
-        else:
-            print(f"streaming is not active")
-
     def on_packet_received(self, packet):
         if isinstance(packet, tuple): # (idx, packet)
             packet = packet[1]
@@ -101,14 +113,16 @@ class PatrolWindow(QMainWindow):
 
     def start_scanner_streaming(self):
         """ start scanner streaming """
-        if not self.ouster_os0_thread.isRunning():
-            self.ouster_os0_thread.start()
+        ouster = self.active_modules.get("ouster_lidar")
+        if ouster and not ouster.isRunning():
+            ouster.start()
             print("LiDAR streaming started")
 
     def stop_scanner_streaming(self):
         """ stop scanner streaming """
-        if self.ouster_os0_thread.isRunning():
-            self.ouster_os0_thread.stop()
+        ouster = self.active_modules.get("ouster_lidar")
+        if ouster and ouster.isRunning():
+            ouster.stop()
             print("LiDAR streaming stopped")
 
 
@@ -164,6 +178,15 @@ class PatrolWindow(QMainWindow):
             self.__console.info("Terminating System")
             # self.__call(socket=self.__socket, function="API_system_termination", kwargs={})
 
+
+            # Stop all active modules
+            if hasattr(self, 'active_modules'):
+                for name, module in self.active_modules.items():
+                    if module.isRunning():
+                        if hasattr(module, 'stop'):
+                            module.stop()
+                        module.wait()
+                        self.__console.debug(f"Stopped module: {name}")
 
             # Clean up subscriber socket first
             if hasattr(self, '_PatrolWindow__socket') and self.__socket:

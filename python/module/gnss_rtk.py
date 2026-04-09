@@ -16,13 +16,13 @@ import re
 from typing import Optional, Dict, Any
 
 
-class smc2000_rtk(QThread):
+class component(QThread):
     data_received = pyqtSignal(str)
     
-    def __init__(self, port: str, baudrate: int = 9600):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.port = port
-        self.baudrate = baudrate
+        self.port = kwargs.get("port", "/dev/ttyACM0")
+        self.baudrate = kwargs.get("baudrate", 9600)
         self.serial_connection: Optional[serial.Serial] = None
         self.running = False
         

@@ -23,7 +23,7 @@ except ImportError:
 from typing import Optional
 
 
-class pylonCamera(QThread):
+class component(QThread):
     """
     Pylon camera communication thread using a Basler camera.
     Handles real-time image streaming in continuous or trigger mode.

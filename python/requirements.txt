@@ -8,3 +8,4 @@ pyvistaqt
 ouster-sdk
 pypylon
 scipy
+pyserial
