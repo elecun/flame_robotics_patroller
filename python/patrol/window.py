@@ -186,3 +186,9 @@ class PatrolWindow(QMainWindow):
             else: # off | critical
                 widget.setStyleSheet("background-color: red;color: white;border: 1px solid #555555;")
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Q or event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
