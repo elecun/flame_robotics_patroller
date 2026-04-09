@@ -1,0 +1,54 @@
+# aka Puck LITE
+# converted from https://gitlab.kitware.com/LidarView/velodyneplugin/-/tree/0cddc1f92e69b7b26ffc5619aceb1c00854442e6/CalibrationsFiles
+# using https://wiki.ros.org/velodyne_pointcloud#gen_calibration.py
+distance_resolution: 0.002
+lasers:
+  - laser_id: 0
+    rot_correction: 0
+    vert_correction: -0.2617994
+  - laser_id: 1
+    rot_correction: 0
+    vert_correction: 0.01745329
+  - laser_id: 2
+    rot_correction: 0
+    vert_correction: -0.2268928
+  - laser_id: 3
+    rot_correction: 0
+    vert_correction: 0.05235988
+  - laser_id: 4
+    rot_correction: 0
+    vert_correction: -0.1919862
+  - laser_id: 5
+    rot_correction: 0
+    vert_correction: 0.08726646
+  - laser_id: 6
+    rot_correction: 0
+    vert_correction: -0.1570796
+  - laser_id: 7
+    rot_correction: 0
+    vert_correction: 0.122173
+  - laser_id: 8
+    rot_correction: 0
+    vert_correction: -0.122173
+  - laser_id: 9
+    rot_correction: 0
+    vert_correction: 0.1570796
+  - laser_id: 10
+    rot_correction: 0
+    vert_correction: -0.08726646
+  - laser_id: 11
+    rot_correction: 0
+    vert_correction: 0.1919862
+  - laser_id: 12
+    rot_correction: 0
+    vert_correction: -0.05235988
+  - laser_id: 13
+    rot_correction: 0
+    vert_correction: 0.2268928
+  - laser_id: 14
+    rot_correction: 0
+    vert_correction: -0.01745329
+  - laser_id: 15
+    rot_correction: 0
+    vert_correction: 0.2617994
+num_lasers: 16
