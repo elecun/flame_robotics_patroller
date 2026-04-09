@@ -7,3 +7,4 @@ scipu
 pyvistaqt
 ouster-sdk
 pypylon
+scipy
