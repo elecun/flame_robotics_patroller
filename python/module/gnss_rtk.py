@@ -224,15 +224,16 @@ class component(QThread):
                             json_data = json.dumps(parsed_data, default=str)
                             self.data_received.emit(json_data)
                 
-                self.msleep(10)
+                time.sleep(0.01)
                 
             except Exception as e:
                 print(f"Error reading serial data: {e}")
-                self.msleep(100)
+                time.sleep(0.1)
         
         self.disconnect_serial()
         print("RTK GNSS receiver disconnected")
     
     def stop(self):
+        print("Stopping GNSS RTK stream...")
         self.running = False
-        self.wait()
+        self.wait(2000)
