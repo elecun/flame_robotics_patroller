@@ -5,7 +5,7 @@ Patroller Operation/Monitoring Window
 
 try:
     # using PyQt6
-    from PyQt6.QtGui import QImage, QPixmap, QCloseEvent, QStandardItem, QStandardItemModel
+    from PyQt6.QtGui import QImage, QPixmap, QCloseEvent, QStandardItem, QStandardItemModel, QShortcut, QKeySequence
     from PyQt6.QtWidgets import QApplication, QFrame, QMainWindow, QLabel, QPushButton, QCheckBox, QComboBox, QDialog
     from PyQt6.QtWidgets import QMessageBox, QProgressBar, QFileDialog, QComboBox, QLineEdit, QSlider, QVBoxLayout
     from PyQt6.uic import loadUi
@@ -22,14 +22,9 @@ import re
 import numpy as np
 import math
 from functools import partial
-from pyvistaqt import QtInteractor
 
 from util.logger.console import ConsoleLogger
 from common.zpipe import AsyncZSocket, ZPipe
-from .geometry import geometry
-
-# for device
-# Modules will be loaded dynamically using importlib.
 
 
 class PatrolWindow(QMainWindow):
@@ -50,6 +45,23 @@ class PatrolWindow(QMainWindow):
 
                     if config.get("fullscreen", False):
                         self.showFullScreen()
+
+                    # Global shortcuts for Exit
+                    QShortcut(QKeySequence("Esc"), self, self.close)
+                    QShortcut(QKeySequence("Q"), self, self.close)
+
+                    # Connect button events
+                    try:
+                        self.btn_snap.clicked.connect(self.on_btn_snap_clicked)
+                        self.btn_3dscan.clicked.connect(self.on_btn_3dscan_clicked)
+                        self.btn_setup.clicked.connect(self.on_btn_setup_clicked)
+                        self.btn_camera.clicked.connect(self.on_btn_camera_clicked)
+                        self.btn_location.clicked.connect(self.on_btn_location_clicked)
+                        self.btn_acoustic.clicked.connect(self.on_btn_acoustic_clicked)
+                        self.btn_data.clicked.connect(self.on_btn_data_clicked)
+                        self.btn_sequence.clicked.connect(self.on_btn_sequence_clicked)
+                    except AttributeError as e:
+                        self.__console.warning(f"Button connection failed: {e}")
 
                     # device instances (dynamic loading based on config)
                     self.active_modules = {}
@@ -81,9 +93,6 @@ class PatrolWindow(QMainWindow):
                             except Exception as e:
                                 self.__console.error(f"Failed to load module {mod_name}: {e}")
 
-
-                    # lazy loading for 3D viewer
-                    QTimer.singleShot(10, self.__init_3d_viewer)
 
                     # create & join asynczsocket
                     self.__socket = AsyncZSocket(f"{self.__class__.__name__}", "subscribe")
@@ -126,30 +135,6 @@ class PatrolWindow(QMainWindow):
             print("LiDAR streaming stopped")
 
 
-    def __init_3d_viewer(self):
-        """initialize 3D viewer"""
-        try:
-            # using pyvistaqt
-            self.plotter = QtInteractor(self.widget_3d_frame)
-            self.plotter.background_color = self.__config.get("background-color", [0.2, 0.2, 0.2])
-            layout = self.widget_3d_frame.layout()
-            if layout is None:
-                layout = QVBoxLayout(self.widget_3d_frame)
-                layout.setContentsMargins(0, 0, 0, 0) # zero margin
-                layout.setSpacing(0)  # zero spacing
-                self.widget_3d_frame.setLayout(layout)
-            else:
-                layout.setContentsMargins(0, 0, 0, 0)
-                layout.setSpacing(0)
-            layout.addWidget(self.plotter.interactor)
-
-            # render geometry
-            self.geometry_api = geometry()
-            self.geometry_api.API_add_coord_frame(self.plotter, "origin", pos=[0,0,0], ori=[0,0,0], size=0.1)
-            self.__console.debug("3D Viewer is initialized")
-        except Exception as e:
-            self.__console.error(f"Failed to initialize 3D viewer: {e}")
-
     def __on_data_received(self, multipart_data):
         """Callback function for zpipe data reception"""
         if len(multipart_data) < 2:
@@ -174,7 +159,6 @@ class PatrolWindow(QMainWindow):
 
     def closeEvent(self, event:QCloseEvent) -> None:
         try:            
-            # Clear all geometry in viewer3d before closing
             self.__console.info("Terminating System")
             # self.__call(socket=self.__socket, function="API_system_termination", kwargs={})
 
@@ -197,7 +181,7 @@ class PatrolWindow(QMainWindow):
             self.__console.error(f"Error during window close: {e}")
         finally:
             self.__console.info("Successfully Closed")
-            return super().closeEvent(event)
+            event.accept()
         
     def set_label_status(self, widget_name:str, status:int):
         widget = self.findChild(QLabel, widget_name)
@@ -209,9 +193,42 @@ class PatrolWindow(QMainWindow):
             else: # off | critical
                 widget.setStyleSheet("background-color: red;color: white;border: 1px solid #555555;")
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Q or event.key() == Qt.Key.Key_Escape:
-            self.close()
-        else:
-            super().keyPressEvent(event)
+    # Button Event Handlers ----------------------------------------------------
+    def __switch_tab(self, target: str):
+        if not hasattr(self, 'tabview'):
+            return
+            
+        for i in range(self.tabview.count()):
+            widget = self.tabview.widget(i)
+            # Match by title or objectName
+            if (self.tabview.tabText(i).lower() == target.lower() or 
+                widget.objectName() == target or 
+                widget.objectName() == f"tab_{target}" or 
+                widget.objectName() == f"btn_{target}"):
+                self.tabview.setCurrentIndex(i)
+                return
+        self.__console.warning(f"Tab matching '{target}' not found!")
 
+    def on_btn_snap_clicked(self):
+        self.__switch_tab("snap")
+
+    def on_btn_3dscan_clicked(self):
+        self.__switch_tab("3dscan")
+
+    def on_btn_setup_clicked(self):
+        self.__switch_tab("setup")
+
+    def on_btn_camera_clicked(self):
+        self.__switch_tab("camera")
+
+    def on_btn_location_clicked(self):
+        self.__switch_tab("location")
+
+    def on_btn_acoustic_clicked(self):
+        self.__switch_tab("acoustic")
+
+    def on_btn_data_clicked(self):
+        self.__switch_tab("data")
+
+    def on_btn_sequence_clicked(self):
+        self.__switch_tab("sequence")

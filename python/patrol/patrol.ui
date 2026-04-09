@@ -51,10 +51,6 @@
      <string notr="true">QTabBar::tab {
         background: white;
         color: black;
-       height: 0px; 
-       width: 0px; 
-       margin: 0px; 
-       padding: 0px;
 }
 QTabBar::tab:selected {
         background: lightgray;
@@ -74,19 +70,6 @@ QTabBar::tab:selected {
      <attribute name="title">
       <string>location</string>
      </attribute>
-     <widget class="QWidget" name="widget_3d_frame" native="true">
-      <property name="geometry">
-       <rect>
-        <x>0</x>
-        <y>0</y>
-        <width>1040</width>
-        <height>642</height>
-       </rect>
-      </property>
-      <property name="styleSheet">
-       <string notr="true">background-color: rgb(0, 0, 0);</string>
-      </property>
-     </widget>
     </widget>
     <widget class="QWidget" name="tab">
      <attribute name="title">
@@ -144,7 +127,7 @@ QTabBar::tab:selected {
         border: 2px solid gray;
         border-radius: 5px;
         text-align: center;
-	   color:black;
+	   color:white;
 }
 QProgressBar::chunk {
        background-color: rgb(255,0,0);
@@ -179,7 +162,7 @@ QProgressBar::chunk {
         border: 2px solid gray;
         border-radius: 5px;
         text-align: center;
-	   color:black;
+	   color:white;
 }
     QProgressBar::chunk {
         background-color: rgb(255,0,0);
@@ -213,7 +196,7 @@ QProgressBar::chunk {
         border: 2px solid gray;
         border-radius: 5px;
         text-align: center;
-	   color:black;
+	   color:white;
 }
     QProgressBar::chunk {
         background-color: rgb(100,200,100);
@@ -248,6 +231,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -277,7 +261,7 @@ background-color: #d0d0d0;
      <bool>false</bool>
     </property>
    </widget>
-   <widget class="QToolButton" name="toolButton">
+   <widget class="QToolButton" name="btn_3dscan">
     <property name="geometry">
      <rect>
       <x>1190</x>
@@ -295,6 +279,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -325,7 +310,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>1190</x>
-      <y>605</y>
+      <y>600</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -339,6 +324,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -383,6 +369,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -427,6 +414,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -471,6 +459,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -497,7 +486,7 @@ background-color: #d0d0d0;
      <enum>Qt::ToolButtonTextUnderIcon</enum>
     </property>
    </widget>
-   <widget class="QToolButton" name="btn_snap_2">
+   <widget class="QToolButton" name="btn_data">
     <property name="geometry">
      <rect>
       <x>1190</x>
@@ -515,6 +504,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
@@ -544,7 +534,7 @@ background-color: #d0d0d0;
      <bool>false</bool>
     </property>
    </widget>
-   <widget class="QToolButton" name="btn_snap_4">
+   <widget class="QToolButton" name="btn_sequence">
     <property name="geometry">
      <rect>
       <x>1190</x>
@@ -562,6 +552,7 @@ border-left-color: white;
 border-bottom-color: #555555; 
 border-right-color: #555555;  
 font-size: 15pt;
+color:black;
 }
 QToolButton:pressed {
 border-top-color: #555555; 
