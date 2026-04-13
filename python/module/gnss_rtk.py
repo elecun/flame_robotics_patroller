@@ -25,6 +25,7 @@ class component(QThread):
         self.__console = ConsoleLogger.get_logger()
         self.port = kwargs.get("port", "/dev/ttyACM0")
         self.baudrate = kwargs.get("baudrate", 9600)
+        self.utc_offset = kwargs.get("utc_offset", 0)
         self.serial_connection: Optional[serial.Serial] = None
         self.running = False
         
@@ -47,6 +48,30 @@ class component(QThread):
         if self.serial_connection and self.serial_connection.is_open:
             self.serial_connection.close()
     
+    def format_time(self, utc_str: str) -> str:
+        if not utc_str:
+            return ""
+        try:
+            # NMEA time format is typically hhmmss.sss
+            if "." in utc_str:
+                time_part, ms_part = utc_str.split(".")
+            else:
+                time_part, ms_part = utc_str, "000"
+            
+            if len(time_part) >= 6:
+                hh = int(time_part[0:2])
+                mm = int(time_part[2:4])
+                ss = int(time_part[4:6])
+            else:
+                return utc_str
+            
+            # Apply utc_offset
+            hh = (hh + self.utc_offset) % 24
+            
+            return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms_part}"
+        except Exception:
+            return str(utc_str)
+
     def parse_nmea_sentence(self, sentence: str) -> Dict[str, Any]:
         sentence = sentence.strip()
         if not sentence.startswith('$'):
@@ -228,14 +253,14 @@ class component(QThread):
                                 lat = parsed_data.get("latitude")
                                 lon = parsed_data.get("longitude")
                                 quality = parsed_data.get("fix_quality")
-                                utc = parsed_data.get("utc_time")
-                                self.__console.info(f"[GNSS GGA] UTC: {utc}, Lat: {lat}, Lon: {lon}, Quality: {quality}")
+                                utc = self.format_time(parsed_data.get("utc_time"))
+                                self.__console.info(f"[GNSS GGA] Time: {utc}, Lat: {lat}, Lon: {lon}, Quality: {quality}")
                             elif msg_type == "RMC":
                                 lat = parsed_data.get("latitude")
                                 lon = parsed_data.get("longitude")
                                 speed = parsed_data.get("speed_knots")
-                                utc = parsed_data.get("utc_time")
-                                self.__console.info(f"[GNSS RMC] UTC: {utc}, Lat: {lat}, Lon: {lon}, Speed: {speed} knots")
+                                utc = self.format_time(parsed_data.get("utc_time"))
+                                self.__console.info(f"[GNSS RMC] Time: {utc}, Lat: {lat}, Lon: {lon}, Speed: {speed} knots")
 
                             json_data = json.dumps(parsed_data, default=str)
                             self.data_received.emit(json_data)
