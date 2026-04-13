@@ -52,14 +52,14 @@ class PatrolWindow(QMainWindow):
 
                     # Connect button events
                     try:
-                        self.btn_snap.clicked.connect(self.on_btn_snap_clicked)
-                        self.btn_3dscan.clicked.connect(self.on_btn_3dscan_clicked)
-                        self.btn_setup.clicked.connect(self.on_btn_setup_clicked)
-                        self.btn_camera.clicked.connect(self.on_btn_camera_clicked)
-                        self.btn_location.clicked.connect(self.on_btn_location_clicked)
-                        self.btn_acoustic.clicked.connect(self.on_btn_acoustic_clicked)
-                        self.btn_data.clicked.connect(self.on_btn_data_clicked)
-                        self.btn_sequence.clicked.connect(self.on_btn_sequence_clicked)
+                        self.btn_snap.clicked.connect(self.handle_btn_snap_clicked)
+                        self.btn_3dscan.clicked.connect(self.handle_btn_3dscan_clicked)
+                        self.btn_setup.clicked.connect(self.handle_btn_setup_clicked)
+                        self.btn_camera.clicked.connect(self.handle_btn_camera_clicked)
+                        self.btn_location.clicked.connect(self.handle_btn_location_clicked)
+                        self.btn_acoustic.clicked.connect(self.handle_btn_acoustic_clicked)
+                        self.btn_data.clicked.connect(self.handle_btn_data_clicked)
+                        self.btn_sequence.clicked.connect(self.handle_btn_sequence_clicked)
                     except AttributeError as e:
                         self.__console.warning(f"Button connection failed: {e}")
 
@@ -209,26 +209,26 @@ class PatrolWindow(QMainWindow):
                 return
         self.__console.warning(f"Tab matching '{target}' not found!")
 
-    def on_btn_snap_clicked(self):
+    def handle_btn_snap_clicked(self):
         self.__switch_tab("snap")
 
-    def on_btn_3dscan_clicked(self):
+    def handle_btn_3dscan_clicked(self):
         self.__switch_tab("3dscan")
 
-    def on_btn_setup_clicked(self):
+    def handle_btn_setup_clicked(self):
         self.__switch_tab("setup")
 
-    def on_btn_camera_clicked(self):
+    def handle_btn_camera_clicked(self):
         self.__switch_tab("camera")
 
-    def on_btn_location_clicked(self):
+    def handle_btn_location_clicked(self):
         self.__switch_tab("location")
 
-    def on_btn_acoustic_clicked(self):
+    def handle_btn_acoustic_clicked(self):
         self.__switch_tab("acoustic")
 
-    def on_btn_data_clicked(self):
+    def handle_btn_data_clicked(self):
         self.__switch_tab("data")
 
-    def on_btn_sequence_clicked(self):
+    def handle_btn_sequence_clicked(self):
         self.__switch_tab("sequence")

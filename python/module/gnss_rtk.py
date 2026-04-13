@@ -14,6 +14,7 @@ import json
 import time
 import re
 from typing import Optional, Dict, Any
+from util.logger.console import ConsoleLogger
 
 
 class component(QThread):
@@ -21,6 +22,7 @@ class component(QThread):
     
     def __init__(self, **kwargs):
         super().__init__()
+        self.__console = ConsoleLogger.get_logger()
         self.port = kwargs.get("port", "/dev/ttyACM0")
         self.baudrate = kwargs.get("baudrate", 9600)
         self.serial_connection: Optional[serial.Serial] = None
@@ -38,7 +40,7 @@ class component(QThread):
             )
             return self.serial_connection.is_open
         except Exception as e:
-            print(f"Serial connection failed: {e}")
+            self.__console.error(f"Serial connection failed: {e}")
             return False
     
     def disconnect_serial(self):
@@ -208,11 +210,11 @@ class component(QThread):
     
     def run(self):
         if not self.connect_serial():
-            print(f"Failed to connect to serial port {self.port}")
+            self.__console.error(f"Failed to connect to serial port {self.port}")
             return
         
         self.running = True
-        print(f"RTK GNSS receiver connected on {self.port} at {self.baudrate} baud")
+        self.__console.info(f"RTK GNSS receiver connected on {self.port} at {self.baudrate} baud")
         
         while self.running:
             try:
@@ -221,19 +223,33 @@ class component(QThread):
                     if line.startswith('$'):
                         parsed_data = self.parse_nmea_sentence(line)
                         if parsed_data:
+                            msg_type = parsed_data.get("message_type")
+                            if msg_type == "GGA":
+                                lat = parsed_data.get("latitude")
+                                lon = parsed_data.get("longitude")
+                                quality = parsed_data.get("fix_quality")
+                                utc = parsed_data.get("utc_time")
+                                self.__console.info(f"[GNSS GGA] UTC: {utc}, Lat: {lat}, Lon: {lon}, Quality: {quality}")
+                            elif msg_type == "RMC":
+                                lat = parsed_data.get("latitude")
+                                lon = parsed_data.get("longitude")
+                                speed = parsed_data.get("speed_knots")
+                                utc = parsed_data.get("utc_time")
+                                self.__console.info(f"[GNSS RMC] UTC: {utc}, Lat: {lat}, Lon: {lon}, Speed: {speed} knots")
+
                             json_data = json.dumps(parsed_data, default=str)
                             self.data_received.emit(json_data)
                 
                 time.sleep(0.01)
                 
             except Exception as e:
-                print(f"Error reading serial data: {e}")
+                self.__console.error(f"Error reading serial data: {e}")
                 time.sleep(0.1)
         
         self.disconnect_serial()
-        print("RTK GNSS receiver disconnected")
+        self.__console.info("RTK GNSS receiver disconnected")
     
     def stop(self):
-        print("Stopping GNSS RTK stream...")
+        self.__console.info("Stopping GNSS RTK stream...")
         self.running = False
         self.wait(2000)
