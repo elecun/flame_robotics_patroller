@@ -146,6 +146,11 @@ class PatrolWindow(QMainWindow):
         if module_name == "gnss_rtk":
             self.__update_gnss_rtk(data)
 
+        # Pylon Camera Signal Update
+        elif module_name == "pylon_camera":
+            if hasattr(self, "tab_controllers") and "camera" in self.tab_controllers:
+                self.tab_controllers["camera"].on_image_received(data)
+
     def __update_gnss_rtk(self, data):
         # Delegate GNSS RTK update to location tab controller
         if hasattr(self, "tab_controllers") and "location" in self.tab_controllers:
