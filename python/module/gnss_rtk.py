@@ -13,21 +13,34 @@ import serial
 import json
 import time
 import re
+import threading
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from util.logger.console import ConsoleLogger
 
 
 class component(QThread):
-    data_received = pyqtSignal(str)
+    signal_updated = pyqtSignal(dict)
     
     def __init__(self, **kwargs):
         super().__init__()
         self.__console = ConsoleLogger.get_logger()
-        self.port = kwargs.get("port", "/dev/ttyACM0")
+        self.port = kwargs.get("port", "/dev/ttyACM0") # linux
         self.baudrate = kwargs.get("baudrate", 9600)
         self.utc_offset = kwargs.get("utc_offset", 0)
+        self.update_interval_sec = kwargs.get("update_interval_sec", 1.0)
+        
         self.serial_connection: Optional[serial.Serial] = None
         self.running = False
+        
+        # Shared data between receive thread and emit thread
+        self._lock = threading.Lock()
+        self.latest_data = {}
+        
+        # Emit thread setup
+        self.emit_running = True
+        self.emit_thread = threading.Thread(target=self._emit_loop, daemon=True)
+        self.emit_thread.start()
         
     def connect_serial(self) -> bool:
         try:
@@ -47,30 +60,55 @@ class component(QThread):
     def disconnect_serial(self):
         if self.serial_connection and self.serial_connection.is_open:
             self.serial_connection.close()
+
+    def quality2str(self, quality: int) -> str:
+        quality_map = {
+            0: "Invalid",
+            1: "3D",
+            2: "DGPS",
+            4: "RTK Fixed",
+            5: "RTK Float",
+            6: "Estimated/DR"
+        }
+        return quality_map.get(quality, "Unknown")
     
-    def format_time(self, utc_str: str) -> str:
-        if not utc_str:
+    def get_local_datetime(self, utc_time: str, date_str: str = None) -> str:
+        if not utc_time:
             return ""
         try:
-            # NMEA time format is typically hhmmss.sss
-            if "." in utc_str:
-                time_part, ms_part = utc_str.split(".")
+            # Parsing time
+            if "." in utc_time:
+                time_part, ms_part = utc_time.split(".")
             else:
-                time_part, ms_part = utc_str, "000"
+                time_part, ms_part = utc_time, "000"
+                
+            time_part = time_part.zfill(6) # hhmmss
             
-            if len(time_part) >= 6:
-                hh = int(time_part[0:2])
-                mm = int(time_part[2:4])
-                ss = int(time_part[4:6])
+            # Parsing date
+            if date_str and len(date_str) == 6:
+                # date_str is ddmmyy
+                date_part = date_str
             else:
-                return utc_str
+                # default to today if date not provided
+                date_part = datetime.utcnow().strftime("%d%m%y")
+                
+            # Create a datetime object
+            dt_str = f"{date_part} {time_part}"
+            dt = datetime.strptime(dt_str, "%d%m%y %H%M%S")
             
-            # Apply utc_offset
-            hh = (hh + self.utc_offset) % 24
+            # Add utc offset
+            dt = dt + timedelta(hours=self.utc_offset)
             
-            return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms_part}"
+            # Format yy-mm-dd hh:mm:ss.millisecond
+            return f"{dt.strftime('%y-%m-%d %H:%M:%S')}.{ms_part}"
         except Exception:
-            return str(utc_str)
+            return str(utc_time)
+
+    def __parse_coordinates(self, lat_raw: str, lat_dir: str, lon_raw: str, lon_dir: str) -> tuple:
+        """Private helper function to parse raw latitude and longitude strings to decimal."""
+        latitude = self.convert_to_decimal_degrees(lat_raw, lat_dir) if lat_raw else None
+        longitude = self.convert_to_decimal_degrees(lon_raw, lon_dir) if lon_raw else None
+        return latitude, longitude
 
     def parse_nmea_sentence(self, sentence: str) -> Dict[str, Any]:
         sentence = sentence.strip()
@@ -104,13 +142,10 @@ class component(QThread):
             return {}
         
         try:
-            lat_raw = parts[2]
-            lat_dir = parts[3]
-            lon_raw = parts[4]
-            lon_dir = parts[5]
-            
-            latitude = self.convert_to_decimal_degrees(lat_raw, lat_dir) if lat_raw else None
-            longitude = self.convert_to_decimal_degrees(lon_raw, lon_dir) if lon_raw else None
+            latitude, longitude = self.__parse_coordinates(
+                lat_raw=parts[2], lat_dir=parts[3],
+                lon_raw=parts[4], lon_dir=parts[5]
+            )
             
             return {
                 "message_type": "GGA",
@@ -135,13 +170,10 @@ class component(QThread):
             return {}
         
         try:
-            lat_raw = parts[3]
-            lat_dir = parts[4]
-            lon_raw = parts[5]
-            lon_dir = parts[6]
-            
-            latitude = self.convert_to_decimal_degrees(lat_raw, lat_dir) if lat_raw else None
-            longitude = self.convert_to_decimal_degrees(lon_raw, lon_dir) if lon_raw else None
+            latitude, longitude = self.__parse_coordinates(
+                lat_raw=parts[3], lat_dir=parts[4],
+                lon_raw=parts[5], lon_dir=parts[6]
+            )
             
             return {
                 "message_type": "RMC",
@@ -171,7 +203,7 @@ class component(QThread):
             return {
                 "message_type": "GSA",
                 "mode": parts[1],
-                "fix_type": int(parts[2]) if parts[2] else 0,
+                "quality": int(parts[2]) if parts[2] else 0,
                 "satellites": satellites,
                 "pdop": float(parts[15]) if parts[15] else None,
                 "hdop": float(parts[16]) if parts[16] else None,
@@ -232,49 +264,88 @@ class component(QThread):
             decimal_degrees = -decimal_degrees
         
         return decimal_degrees
+
+    def _emit_loop(self):
+        """Separate thread for emitting data at regular intervals."""
+        while self.emit_running:
+            try:
+                # Capture connection status
+                is_connected = bool(self.serial_connection and self.serial_connection.is_open)
+                
+                # Fetch latest parsed data
+                with self._lock:
+                    emit_payload = self.latest_data.copy()
+                
+                # Add connection status to the payload
+                emit_payload["connected"] = is_connected
+
+                # Calculate local_datetime
+                utc_time_str = emit_payload.get("utc_time")
+                date_str = emit_payload.get("date")
+                if utc_time_str:
+                    emit_payload["local_datetime"] = self.get_local_datetime(utc_time_str, date_str)
+
+                # Emit data
+                self.signal_updated.emit(emit_payload)
+
+            except Exception as e:
+                self.__console.error(f"Error in emit loop: {e}")
+
+            # Sleep for the configured interval
+            time.sleep(self.update_interval_sec)
     
     def run(self):
-        if not self.connect_serial():
-            self.__console.error(f"Failed to connect to serial port {self.port}")
-            return
-        
         self.running = True
-        self.__console.info(f"RTK GNSS receiver connected on {self.port} at {self.baudrate} baud")
+
+        if not self.connect_serial():
+            self.__console.error(f"Failed to connect to serial port {self.port}. Reading loop will wait for reconnection.")
+        else:
+            self.__console.info(f"RTK GNSS receiver connected on {self.port} at {self.baudrate} baud")
         
         while self.running:
             try:
-                if self.serial_connection and self.serial_connection.in_waiting > 0:
-                    line = self.serial_connection.readline().decode('utf-8').strip()
-                    if line.startswith('$'):
-                        parsed_data = self.parse_nmea_sentence(line)
-                        if parsed_data:
-                            msg_type = parsed_data.get("message_type")
-                            if msg_type == "GGA":
-                                lat = parsed_data.get("latitude")
-                                lon = parsed_data.get("longitude")
-                                quality = parsed_data.get("fix_quality")
-                                utc = self.format_time(parsed_data.get("utc_time"))
-                                self.__console.info(f"[GNSS GGA] Time: {utc}, Lat: {lat}, Lon: {lon}, Quality: {quality}")
-                            elif msg_type == "RMC":
-                                lat = parsed_data.get("latitude")
-                                lon = parsed_data.get("longitude")
-                                speed = parsed_data.get("speed_knots")
-                                utc = self.format_time(parsed_data.get("utc_time"))
-                                self.__console.info(f"[GNSS RMC] Time: {utc}, Lat: {lat}, Lon: {lon}, Speed: {speed} knots")
+                if self.serial_connection and self.serial_connection.is_open:
+                    if self.serial_connection.in_waiting > 0:
+                        line = self.serial_connection.readline().decode('utf-8').strip()
+                        if line.startswith('$'):
+                            parsed_data = self.parse_nmea_sentence(line)
+                            if parsed_data:
+                                msg_type = parsed_data.get("message_type")
+                                if msg_type == "GGA":
+                                    lat = parsed_data.get("latitude")
+                                    lon = parsed_data.get("longitude")
+                                    quality = parsed_data.get("fix_quality")
+                                    utc = self.get_local_datetime(parsed_data.get("utc_time"), parsed_data.get("date"))
+                                    #self.__console.info(f"[GNSS GGA] Time: {utc}, Lat: {lat}, Lon: {lon}, Quality: {quality}")
+                                elif msg_type == "RMC":
+                                    lat = parsed_data.get("latitude")
+                                    lon = parsed_data.get("longitude")
+                                    speed = parsed_data.get("speed_knots")
+                                    utc = self.get_local_datetime(parsed_data.get("utc_time"), parsed_data.get("date"))
+                                    #self.__console.info(f"[GNSS RMC] Time: {utc}, Lat: {lat}, Lon: {lon}, Speed: {speed} knots")
 
-                            json_data = json.dumps(parsed_data, default=str)
-                            self.data_received.emit(json_data)
-                
+                                # Update the latest data safely
+                                with self._lock:
+                                    self.latest_data.update(parsed_data)
+                else:
+                    # If disconnected, try to stay alive without blocking
+                    time.sleep(0.5)
+
                 time.sleep(0.01)
                 
+            except serial.SerialException:
+                # If serial disconnects unexpectedly
+                time.sleep(0.5)
+                self.disconnect_serial()
             except Exception as e:
                 self.__console.error(f"Error reading serial data: {e}")
                 time.sleep(0.1)
         
         self.disconnect_serial()
-        self.__console.info("RTK GNSS receiver disconnected")
+        self.__console.info("RTK GNSS receiver loop finished")
     
     def stop(self):
         self.__console.info("Stopping GNSS RTK stream...")
         self.running = False
+        self.emit_running = False
         self.wait(2000)

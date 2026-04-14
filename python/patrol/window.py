@@ -26,6 +26,16 @@ from functools import partial
 from util.logger.console import ConsoleLogger
 from common.zpipe import AsyncZSocket, ZPipe
 
+from patrol.tab_robot import TabRobot
+from patrol.tab_snap import TabSnap
+from patrol.tab_3dscan import Tab3DScan
+from patrol.tab_setup import TabSetup
+from patrol.tab_camera import TabCamera
+from patrol.tab_location import TabLocation
+from patrol.tab_acoustic import TabAcoustic
+from patrol.tab_data import TabData
+from patrol.tab_sequence import TabSequence
+
 
 class PatrolWindow(QMainWindow):
     def __init__(self, config:dict, zpipe:ZPipe):
@@ -63,6 +73,19 @@ class PatrolWindow(QMainWindow):
                     except AttributeError as e:
                         self.__console.warning(f"Button connection failed: {e}")
 
+                    # Initialize UI tab controllers
+                    self.tab_controllers = {
+                        "robot": TabRobot(self),
+                        "snap": TabSnap(self),
+                        "3dscan": Tab3DScan(self),
+                        "setup": TabSetup(self),
+                        "camera": TabCamera(self),
+                        "location": TabLocation(self),
+                        "acoustic": TabAcoustic(self),
+                        "data": TabData(self),
+                        "sequence": TabSequence(self)
+                    }
+
                     # device instances (dynamic loading based on config)
                     self.active_modules = {}
                     use_modules = config.get("use_module", [])
@@ -82,8 +105,8 @@ class PatrolWindow(QMainWindow):
                                     
                                 module = mod.component(**kwargs)
                                 
-                                if hasattr(module, 'packet_received'):
-                                    module.packet_received.connect(self.on_packet_received)
+                                if hasattr(module, 'signal_updated'):
+                                    module.signal_updated.connect(partial(self.on_signal_updated, mod_name))
                                 
                                 self.active_modules[mod_name] = module
                                 
@@ -115,10 +138,18 @@ class PatrolWindow(QMainWindow):
         except Exception as e:
             self.__console.error(f"{e}")
 
-    def on_packet_received(self, packet):
-        if isinstance(packet, tuple): # (idx, packet)
-            packet = packet[1]
-            print(f"received pacekt : {packet}")
+    def on_signal_updated(self, module_name, data):
+        if isinstance(data, tuple): # (idx, data)
+            data = data[1]
+
+        # GNSS RTK Module Signal Update
+        if module_name == "gnss_rtk":
+            self.__update_gnss_rtk(data)
+
+    def __update_gnss_rtk(self, data):
+        # Delegate GNSS RTK update to location tab controller
+        if hasattr(self, "tab_controllers") and "location" in self.tab_controllers:
+            self.tab_controllers["location"].update_gnss_rtk(data)
 
     def start_scanner_streaming(self):
         """ start scanner streaming """

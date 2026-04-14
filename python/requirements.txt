@@ -9,3 +9,5 @@ ouster-sdk
 pypylon
 scipy
 pyserial
+PyQtWebEnginewebsockets
+websockets

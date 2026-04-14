@@ -8,8 +8,9 @@ try:
     from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QMessageBox
     from PyQt6.uic import loadUi
     from PyQt6.QtCore import QObject, Qt, QTimer, QThread, pyqtSignal
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
 except ImportError:
-    print("PyQt6 is required to run this application.")
+    print("PyQt6 and PyQt6-WebEngine are required to run this application.")
 
 import sys, os
 import pathlib

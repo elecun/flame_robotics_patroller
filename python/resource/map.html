@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Patrol Location</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Local Leaflet references (base URL is set to resource dir by Qt) -->
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        #coordOverlay {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="coordOverlay">Lat: -, Lon: -</div>
+    <script>
+        // Init Leaflet map centered precisely at the bounding box of the stored offline maptiles
+        var map = L.map('map').setView([34.824652, 127.660848], 16);
+        
+        // Use local tiles from the resource/maptile directory
+        // Expected structure is maptile/{z}/{x}/{y}.png
+        L.tileLayer('maptile/{z}/{x}/{y}.png', {
+            minZoom: 15, // As requested by folder structure
+            maxZoom: 16, 
+            attribution: 'Local Patrol Map',
+            errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' // Transparent 1x1 image on error
+        }).addTo(map);
+
+        // A stub JS function that can be called from Python to update marker/view
+        var currentLocationMarker = null;
+        
+        function updateLocation(lat, lon) {
+            if(!currentLocationMarker) {
+                currentLocationMarker = L.marker([lat, lon]).addTo(map);
+            } else {
+                currentLocationMarker.setLatLng([lat, lon]);
+            }
+            map.setView([lat, lon]);
+        }
+
+        // Display current center coordinates on the overlay
+        var coordOverlay = document.getElementById('coordOverlay');
+        function updateCoordDisplay() {
+            var center = map.getCenter();
+            var zoom = map.getZoom();
+            coordOverlay.innerHTML = "Lat: " + center.lat.toFixed(6) + ", Lon: " + center.lng.toFixed(6) + " (Zoom: " + zoom + ")";
+        }
+        
+        map.on('move', updateCoordDisplay);
+        map.on('zoomend', updateCoordDisplay);
+        updateCoordDisplay(); // Initialize with current center
+        
+        // Setup WebSocket Client
+        var ws = new WebSocket("ws://127.0.0.1:9090");
+        ws.onopen = function() {
+            console.log("WebSocket connection established with map server");
+        };
+        ws.onmessage = function(evt) {
+            try {
+                var data = JSON.parse(evt.data);
+                if (data.lat !== undefined && data.lon !== undefined) {
+                    updateLocation(data.lat, data.lon);
+                }
+            } catch(e) {
+                console.error("Error parsing websocket message: ", e);
+            }
+        };
+        ws.onclose = function() {
+            console.log("WebSocket connection closed");
+        };
+    </script>
+</body>
+</html>
