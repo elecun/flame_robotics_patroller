@@ -26,7 +26,6 @@ from functools import partial
 from util.logger.console import ConsoleLogger
 from common.zpipe import AsyncZSocket, ZPipe
 
-from patrol.tab_robot import TabRobot
 from patrol.tab_snap import TabSnap
 from patrol.tab_3dscan import Tab3DScan
 from patrol.tab_setup import TabSetup
@@ -75,7 +74,6 @@ class PatrolWindow(QMainWindow):
 
                     # Initialize UI tab controllers
                     self.tab_controllers = {
-                        "robot": TabRobot(self),
                         "snap": TabSnap(self),
                         "3dscan": Tab3DScan(self),
                         "setup": TabSetup(self),
