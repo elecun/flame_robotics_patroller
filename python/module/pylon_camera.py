@@ -49,6 +49,8 @@ class component(QThread):
         resolution     : [w, h]     - Camera sensor resolution to configure on hardware
         roi_resolution : [w, h]     - Fixed output resolution (what gets emitted)
         zoom_step      : float      - Fraction of base resolution per zoom step (e.g. 0.1)
+        exposure_time  : int        - Fixed exposure time in microseconds (default: 5000)
+                                     Applied at startup with ExposureAuto=Off.
     """
     signal_updated = pyqtSignal(object)
 
@@ -58,7 +60,8 @@ class component(QThread):
                  rotate: str = "",
                  resolution: list = None,
                  roi_resolution: list = None,
-                 zoom_step: float = 0.1):
+                 zoom_step: float = 0.1,
+                 exposure_time: int = 5000):
         super().__init__()
 
         self.__console = ConsoleLogger.get_logger()
@@ -109,6 +112,9 @@ class component(QThread):
         self._roi_w: int = self._hw_w
         self._roi_h: int = self._hw_h
 
+        # -- Exposure --
+        self._exposure_time: int = int(exposure_time)
+
     # ------------------------------------------------------------------
     # Public zoom control API (called from UI thread)
     # ------------------------------------------------------------------
@@ -127,6 +133,20 @@ class component(QThread):
                 self._zoom_level -= 1
                 self._roi_w = self._hw_w - self._zoom_level * self._step_w
                 self._roi_h = self._hw_h - self._zoom_level * self._step_h
+
+    # ------------------------------------------------------------------
+    # Public exposure control API (called from UI thread)
+    # ------------------------------------------------------------------
+    def exposure_once(self):
+        """Trigger a single auto-exposure adjustment (ExposureAuto = Once)."""
+        try:
+            if self._camera is not None and self._camera.IsOpen():
+                self._camera.ExposureAuto.SetValue("Once")
+                self.__console.debug("ExposureAuto set to Once")
+            else:
+                self.__console.warning("Cannot set exposure: camera is not open.")
+        except Exception as e:
+            self.__console.error(f"Failed to set ExposureAuto to Once: {e}")
 
     # ------------------------------------------------------------------
     # Thread main loop
@@ -152,6 +172,14 @@ class component(QThread):
             self._camera.Width.SetValue(self._hw_w)
             self._camera.Height.SetValue(self._hw_h)
             self.__console.debug(f"Camera hardware resolution set to {self._hw_w}x{self._hw_h}")
+
+            # Exposure: disable auto, apply fixed value from cfg
+            try:
+                self._camera.ExposureAuto.SetValue("Off")
+                self._camera.ExposureTime.SetValue(self._exposure_time)
+                self.__console.debug(f"Exposure set to {self._exposure_time} us (Auto=Off)")
+            except Exception as e:
+                self.__console.warning(f"Failed to set exposure: {e}")
 
             # Acquisition mode
             if self.mode == "continuous":

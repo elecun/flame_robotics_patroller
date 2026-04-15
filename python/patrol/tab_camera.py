@@ -9,14 +9,16 @@ class TabCamera(QObject):
         self.__console = ConsoleLogger.get_logger()
         self.main_ui = main_ui
 
-        # Connect zoom buttons if they exist
+        # Connect camera control buttons if they exist
         try:
             if hasattr(self.main_ui, "btn_camera_zoomin"):
                 self.main_ui.btn_camera_zoomin.clicked.connect(self._on_zoom_in)
             if hasattr(self.main_ui, "btn_camera_zoomout"):
                 self.main_ui.btn_camera_zoomout.clicked.connect(self._on_zoom_out)
+            if hasattr(self.main_ui, "btn_camera_exposure"):
+                self.main_ui.btn_camera_exposure.clicked.connect(self._on_exposure_once)
         except Exception as e:
-            self.__console.warning(f"Failed to connect zoom buttons: {e}")
+            self.__console.warning(f"Failed to connect camera buttons: {e}")
 
         self.__console.debug("TabCamera initialized")
 
@@ -32,6 +34,14 @@ class TabCamera(QObject):
         camera = self._get_camera_module()
         if camera:
             camera.zoom_out()
+
+    # ------------------------------------------------------------------
+    # Exposure button handler
+    # ------------------------------------------------------------------
+    def _on_exposure_once(self):
+        camera = self._get_camera_module()
+        if camera:
+            camera.exposure_once()
 
     def _get_camera_module(self):
         """Retrieve the pylon_camera module from the active modules dict."""
