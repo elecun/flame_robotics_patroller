@@ -7,8 +7,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1280</width>
-    <height>720</height>
+    <width>1920</width>
+    <height>1080</height>
    </rect>
   </property>
   <property name="font">
@@ -33,10 +33,10 @@
    <widget class="QTabWidget" name="tabview">
     <property name="geometry">
      <rect>
-      <x>125</x>
-      <y>30</y>
-      <width>1060</width>
-      <height>676</height>
+      <x>180</x>
+      <y>35</y>
+      <width>1636</width>
+      <height>1036</height>
      </rect>
     </property>
     <property name="font">
@@ -64,7 +64,7 @@ QTabBar::tab:selected {
      <enum>QTabWidget::Rounded</enum>
     </property>
     <property name="currentIndex">
-     <number>1</number>
+     <number>0</number>
     </property>
     <widget class="QWidget" name="tab_navigation">
      <attribute name="title">
@@ -73,10 +73,10 @@ QTabBar::tab:selected {
      <widget class="QWidget" name="widget_map" native="true">
       <property name="geometry">
        <rect>
-        <x>0</x>
-        <y>0</y>
-        <width>526</width>
-        <height>646</height>
+        <x>5</x>
+        <y>5</y>
+        <width>816</width>
+        <height>1001</height>
        </rect>
       </property>
       <property name="styleSheet">
@@ -86,10 +86,10 @@ QTabBar::tab:selected {
      <widget class="QWidget" name="widget_navigation" native="true">
       <property name="geometry">
        <rect>
-        <x>530</x>
-        <y>0</y>
-        <width>526</width>
-        <height>646</height>
+        <x>825</x>
+        <y>5</y>
+        <width>801</width>
+        <height>1001</height>
        </rect>
       </property>
       <property name="styleSheet">
@@ -104,10 +104,10 @@ QTabBar::tab:selected {
      <widget class="QLabel" name="label_camera">
       <property name="geometry">
        <rect>
-        <x>90</x>
-        <y>30</y>
-        <width>375</width>
-        <height>600</height>
+        <x>95</x>
+        <y>5</y>
+        <width>624</width>
+        <height>998</height>
        </rect>
       </property>
       <property name="styleSheet">
@@ -124,7 +124,7 @@ color: rgb(255, 255, 255);</string>
      <widget class="QToolButton" name="btn_camera_zoomin">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>20</y>
         <width>85</width>
         <height>85</height>
@@ -169,7 +169,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_zoomout">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>110</y>
         <width>85</width>
         <height>85</height>
@@ -214,7 +214,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_exposure">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>200</y>
         <width>85</width>
         <height>85</height>
@@ -259,7 +259,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_process">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>560</y>
         <width>85</width>
         <height>85</height>
@@ -304,7 +304,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_1">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>290</y>
         <width>85</width>
         <height>85</height>
@@ -345,7 +345,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_2">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>380</y>
         <width>85</width>
         <height>85</height>
@@ -386,7 +386,7 @@ background-color: #d0d0d0;
      <widget class="QToolButton" name="btn_camera_3">
       <property name="geometry">
        <rect>
-        <x>0</x>
+        <x>5</x>
         <y>470</y>
         <width>85</width>
         <height>85</height>
@@ -581,8 +581,8 @@ QProgressBar::chunk {
    <widget class="QToolButton" name="btn_snap">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>360</y>
+      <x>1825</x>
+      <y>370</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -629,8 +629,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_3dscan">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>190</y>
+      <x>1825</x>
+      <y>200</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -674,8 +674,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_setup">
     <property name="geometry">
      <rect>
-      <x>20</x>
-      <y>525</y>
+      <x>1825</x>
+      <y>625</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -719,8 +719,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_camera">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>105</y>
+      <x>1825</x>
+      <y>115</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -764,8 +764,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_navigation">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>20</y>
+      <x>1825</x>
+      <y>30</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -809,8 +809,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_acoustic">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>275</y>
+      <x>1825</x>
+      <y>285</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -854,8 +854,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_data">
     <property name="geometry">
      <rect>
-      <x>20</x>
-      <y>440</y>
+      <x>1825</x>
+      <y>540</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -902,8 +902,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_patrol">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>445</y>
+      <x>1825</x>
+      <y>455</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -950,16 +950,16 @@ background-color: #d0d0d0;
    <widget class="QLabel" name="label">
     <property name="geometry">
      <rect>
-      <x>5</x>
-      <y>35</y>
-      <width>111</width>
+      <x>0</x>
+      <y>45</y>
+      <width>171</width>
       <height>16</height>
      </rect>
     </property>
     <property name="font">
      <font>
       <family>Arial</family>
-      <pointsize>15</pointsize>
+      <pointsize>17</pointsize>
       <weight>75</weight>
       <bold>true</bold>
      </font>
@@ -975,9 +975,9 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>55</y>
-      <width>116</width>
-      <height>46</height>
+      <y>65</y>
+      <width>170</width>
+      <height>65</height>
      </rect>
     </property>
     <property name="styleSheet">
@@ -1006,16 +1006,16 @@ background-color: #00C853;</string>
    <widget class="QLabel" name="label_time">
     <property name="geometry">
      <rect>
-      <x>1025</x>
-      <y>10</y>
-      <width>156</width>
-      <height>16</height>
+      <x>1560</x>
+      <y>5</y>
+      <width>256</width>
+      <height>26</height>
      </rect>
     </property>
     <property name="font">
      <font>
       <family>Arial</family>
-      <pointsize>15</pointsize>
+      <pointsize>20</pointsize>
      </font>
     </property>
     <property name="text">
@@ -1028,8 +1028,8 @@ background-color: #00C853;</string>
    <widget class="QLabel" name="label_2">
     <property name="geometry">
      <rect>
-      <x>10</x>
-      <y>120</y>
+      <x>35</x>
+      <y>155</y>
       <width>111</width>
       <height>16</height>
      </rect>
@@ -1037,7 +1037,7 @@ background-color: #00C853;</string>
     <property name="font">
      <font>
       <family>Arial</family>
-      <pointsize>15</pointsize>
+      <pointsize>17</pointsize>
       <weight>75</weight>
       <bold>true</bold>
      </font>
@@ -1053,9 +1053,9 @@ background-color: #00C853;</string>
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>140</y>
-      <width>116</width>
-      <height>46</height>
+      <y>175</y>
+      <width>170</width>
+      <height>65</height>
      </rect>
     </property>
     <property name="styleSheet">
@@ -1084,8 +1084,8 @@ background-color: #00C853;</string>
    <widget class="QToolButton" name="btn_exit">
     <property name="geometry">
      <rect>
-      <x>20</x>
-      <y>610</y>
+      <x>1825</x>
+      <y>985</y>
       <width>85</width>
       <height>85</height>
      </rect>
