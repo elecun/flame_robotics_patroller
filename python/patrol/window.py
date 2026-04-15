@@ -69,6 +69,7 @@ class PatrolWindow(QMainWindow):
                         self.btn_acoustic.clicked.connect(self.handle_btn_acoustic_clicked)
                         self.btn_data.clicked.connect(self.handle_btn_data_clicked)
                         self.btn_patrol.clicked.connect(self.handle_btn_patrol_clicked)
+                        self.btn_exit.clicked.connect(self.handle_btn_exit_clicked)
                     except AttributeError as e:
                         self.__console.warning(f"Button connection failed: {e}")
 
@@ -271,3 +272,9 @@ class PatrolWindow(QMainWindow):
 
     def handle_btn_patrol_clicked(self):
         self.__switch_tab("patrol")
+
+    def handle_btn_exit_clicked(self):
+        reply = QMessageBox.question(
+            self,"Exit","Exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.close()
