@@ -36,15 +36,22 @@ class component(QThread):
     Handles real-time image streaming in continuous or trigger mode.
 
     Config keys (pylon_camera.cfg):
-        resolution     : [w, h]  - Camera sensor resolution to configure on hardware
-        roi_resolution : [w, h]  - Fixed output resolution (what gets emitted)
-        zoom_step      : float   - Fraction of base resolution per zoom step (e.g. 0.1)
+        mode           : str        - Acquisition mode: 'continuous' or 'trigger'
+        rotate         : str        - Rotation applied after capture:
+                                     'cw'    -> 90° clockwise
+                                     'ccw'   -> 90° counter-clockwise
+                                     'vflip' -> 180° (vertical flip)
+                                     ''      -> no rotation (default)
+        resolution     : [w, h]     - Camera sensor resolution to configure on hardware
+        roi_resolution : [w, h]     - Fixed output resolution (what gets emitted)
+        zoom_step      : float      - Fraction of base resolution per zoom step (e.g. 0.1)
     """
     signal_updated = pyqtSignal(object)
 
     def __init__(self,
-                 mode: str = "continuous",
                  device_index: int = 0,
+                 mode: str = "continuous",
+                 rotate: str = "",
                  resolution: list = None,
                  roi_resolution: list = None,
                  zoom_step: float = 0.1):
@@ -54,8 +61,11 @@ class component(QThread):
             raise ImportError("pypylon library is not installed.")
         if mode not in ["continuous", "trigger"]:
             raise ValueError("Mode must be either 'continuous' or 'trigger'.")
+        if rotate not in ["", "cw", "ccw", "vflip"]:
+            raise ValueError("rotate must be one of: '', 'cw', 'ccw', 'vflip'.")
 
         self.mode = mode
+        self.rotate = rotate
         self.device_index = device_index
         self.running = False
         self._camera: Optional[pylon.InstantCamera] = None
@@ -183,13 +193,31 @@ class component(QThread):
     # ------------------------------------------------------------------
     def _process_frame(self, image: "np.ndarray") -> "np.ndarray":
         """
-        1. Center-crop according to current ROI (zoom level).
-        2. Resize to fixed emit resolution (roi_resolution from cfg).
+        1. Apply rotation (cw / ccw / vflip) from cfg immediately after capture.
+        2. Center-crop according to current ROI (zoom level).
+        3. Resize to fixed emit resolution (roi_resolution from cfg).
         """
-        # Step 1: center-crop to current ROI
+        # Step 1: rotate
+        if cv2 is not None and self.rotate:
+            if self.rotate == "cw":
+                image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            elif self.rotate == "ccw":
+                image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            elif self.rotate == "vflip":
+                image = cv2.rotate(image, cv2.ROTATE_180)
+
+        # Step 2: center-crop to current ROI
+        # After 90° rotation the canvas is transposed (w↔h), so swap roi dims
+        # to match the rotated image's coordinate space.
+        # _emit_w/_emit_h (= roi_resolution) always define the final output size
+        # regardless of rotation, so they are NOT swapped.
         with self._lock:
             roi_w = self._roi_w
             roi_h = self._roi_h
+
+        rotated_90 = self.rotate in ("cw", "ccw")
+        if rotated_90:
+            roi_w, roi_h = roi_h, roi_w  # canvas is transposed: hw 1920x1200 → 1200x1920
 
         if image.ndim == 2:
             src_h, src_w = image.shape
@@ -206,7 +234,9 @@ class component(QThread):
         else:
             cropped = image[y1:y1 + crop_h, x1:x1 + crop_w, :]
 
-        # Step 2: resize to fixed emit resolution
+        # Step 3: resize to fixed emit resolution (roi_resolution from cfg).
+        # roi_resolution is defined in the rotated output coordinate space,
+        # so emit_w/_emit_h are used as-is for all rotation settings.
         if cv2 is not None:
             resized = cv2.resize(cropped, (self._emit_w, self._emit_h), interpolation=cv2.INTER_LINEAR)
         else:
