@@ -38,7 +38,7 @@ class WSServerThread(QThread):
     async def _broadcast(self, message: str):
         websockets.broadcast(self.clients, message)
 
-class TabLocation(QObject):
+class TabNavigation(QObject):
     def __init__(self, main_ui):
         super().__init__()
         self.__console = ConsoleLogger.get_logger()

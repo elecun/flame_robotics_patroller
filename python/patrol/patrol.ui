@@ -35,7 +35,7 @@
      <rect>
       <x>125</x>
       <y>30</y>
-      <width>1061</width>
+      <width>1060</width>
       <height>676</height>
      </rect>
     </property>
@@ -66,11 +66,370 @@ QTabBar::tab:selected {
     <property name="currentIndex">
      <number>0</number>
     </property>
-    <widget class="QWidget" name="tab_robot">
+    <widget class="QWidget" name="tab_navigation">
      <attribute name="title">
-      <string>location</string>
+      <string>navigation</string>
      </attribute>
      <widget class="QWidget" name="widget_map" native="true">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>526</width>
+        <height>646</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: #aaaaaa;</string>
+      </property>
+     </widget>
+     <widget class="QWidget" name="widget_navigation" native="true">
+      <property name="geometry">
+       <rect>
+        <x>530</x>
+        <y>0</y>
+        <width>526</width>
+        <height>646</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: #bbbbbb;</string>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_camera">
+     <attribute name="title">
+      <string>camera</string>
+     </attribute>
+     <widget class="QLabel" name="label_camera">
+      <property name="geometry">
+       <rect>
+        <x>90</x>
+        <y>30</y>
+        <width>960</width>
+        <height>600</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">background-color: rgb(0, 0, 0);
+color: rgb(255, 255, 255);</string>
+      </property>
+      <property name="text">
+       <string>Camera</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_zoomin">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>20</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string>Zoom In</string>
+      </property>
+      <property name="icon">
+       <iconset>
+        <normaloff>../resource/zoom-in-64.png</normaloff>../resource/zoom-in-64.png</iconset>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_zoomout">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>110</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string>Zoom Out</string>
+      </property>
+      <property name="icon">
+       <iconset>
+        <normaloff>../resource/zoom-out-64.png</normaloff>../resource/zoom-out-64.png</iconset>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_exposure">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>200</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string>Exposure</string>
+      </property>
+      <property name="icon">
+       <iconset>
+        <normaloff>../resource/exposure-64.png</normaloff>../resource/exposure-64.png</iconset>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_process">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>560</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string>Process</string>
+      </property>
+      <property name="icon">
+       <iconset>
+        <normaloff>../resource/vision-process-64.png</normaloff>../resource/vision-process-64.png</iconset>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_1">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>290</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_2">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>380</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+     <widget class="QToolButton" name="btn_camera_3">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>470</y>
+        <width>85</width>
+        <height>85</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>42</width>
+        <height>42</height>
+       </size>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextUnderIcon</enum>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_3dscan">
+     <attribute name="title">
+      <string>3dscan</string>
+     </attribute>
+     <widget class="QWidget" name="widget_3d" native="true">
       <property name="geometry">
        <rect>
         <x>0</x>
@@ -84,37 +443,27 @@ QTabBar::tab:selected {
       </property>
      </widget>
     </widget>
-    <widget class="QWidget" name="tab">
-     <attribute name="title">
-      <string>camera</string>
-     </attribute>
-    </widget>
-    <widget class="QWidget" name="tab_2">
-     <attribute name="title">
-      <string>3dscan</string>
-     </attribute>
-    </widget>
-    <widget class="QWidget" name="tab_4">
+    <widget class="QWidget" name="tab_acoustic">
      <attribute name="title">
       <string>acoustic</string>
      </attribute>
     </widget>
-    <widget class="QWidget" name="tab_3">
+    <widget class="QWidget" name="tab_snap">
      <attribute name="title">
       <string>snap</string>
      </attribute>
     </widget>
-    <widget class="QWidget" name="tab_5">
+    <widget class="QWidget" name="tab_patrol">
      <attribute name="title">
-      <string>sequence</string>
+      <string>patrol</string>
      </attribute>
     </widget>
-    <widget class="QWidget" name="tab_6">
+    <widget class="QWidget" name="tab_data">
      <attribute name="title">
       <string>data</string>
      </attribute>
     </widget>
-    <widget class="QWidget" name="tab_7">
+    <widget class="QWidget" name="tab_setup">
      <attribute name="title">
       <string>setup</string>
      </attribute>
@@ -325,8 +674,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_setup">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>615</y>
+      <x>10</x>
+      <y>610</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -412,7 +761,7 @@ background-color: #d0d0d0;
      <enum>Qt::ToolButtonTextUnderIcon</enum>
     </property>
    </widget>
-   <widget class="QToolButton" name="btn_location">
+   <widget class="QToolButton" name="btn_navigation">
     <property name="geometry">
      <rect>
       <x>1190</x>
@@ -441,7 +790,7 @@ background-color: #d0d0d0;
 }</string>
     </property>
     <property name="text">
-     <string>Location</string>
+     <string>Navi</string>
     </property>
     <property name="icon">
      <iconset>
@@ -505,8 +854,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_data">
     <property name="geometry">
      <rect>
-      <x>1190</x>
-      <y>530</y>
+      <x>10</x>
+      <y>525</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -550,7 +899,7 @@ background-color: #d0d0d0;
      <bool>false</bool>
     </property>
    </widget>
-   <widget class="QToolButton" name="btn_sequence">
+   <widget class="QToolButton" name="btn_patrol">
     <property name="geometry">
      <rect>
       <x>1190</x>
@@ -579,7 +928,7 @@ background-color: #d0d0d0;
 }</string>
     </property>
     <property name="text">
-     <string>Sequence</string>
+     <string>Patrol</string>
     </property>
     <property name="icon">
      <iconset>

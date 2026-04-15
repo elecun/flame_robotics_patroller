@@ -30,10 +30,10 @@ from patrol.tab_snap import TabSnap
 from patrol.tab_3dscan import Tab3DScan
 from patrol.tab_setup import TabSetup
 from patrol.tab_camera import TabCamera
-from patrol.tab_location import TabLocation
+from patrol.tab_navigation import TabNavigation
 from patrol.tab_acoustic import TabAcoustic
 from patrol.tab_data import TabData
-from patrol.tab_sequence import TabSequence
+from patrol.tab_patrol import TabPatrol
 
 
 class PatrolWindow(QMainWindow):
@@ -65,10 +65,10 @@ class PatrolWindow(QMainWindow):
                         self.btn_3dscan.clicked.connect(self.handle_btn_3dscan_clicked)
                         self.btn_setup.clicked.connect(self.handle_btn_setup_clicked)
                         self.btn_camera.clicked.connect(self.handle_btn_camera_clicked)
-                        self.btn_location.clicked.connect(self.handle_btn_location_clicked)
+                        self.btn_navigation.clicked.connect(self.handle_btn_navigation_clicked)
                         self.btn_acoustic.clicked.connect(self.handle_btn_acoustic_clicked)
                         self.btn_data.clicked.connect(self.handle_btn_data_clicked)
-                        self.btn_sequence.clicked.connect(self.handle_btn_sequence_clicked)
+                        self.btn_patrol.clicked.connect(self.handle_btn_patrol_clicked)
                     except AttributeError as e:
                         self.__console.warning(f"Button connection failed: {e}")
 
@@ -78,10 +78,10 @@ class PatrolWindow(QMainWindow):
                         "3dscan": Tab3DScan(self),
                         "setup": TabSetup(self),
                         "camera": TabCamera(self),
-                        "location": TabLocation(self),
+                        "navigation": TabNavigation(self),
                         "acoustic": TabAcoustic(self),
                         "data": TabData(self),
-                        "sequence": TabSequence(self)
+                        "sequence": TabPatrol(self)
                     }
 
                     # device instances (dynamic loading based on config)
@@ -149,10 +149,15 @@ class PatrolWindow(QMainWindow):
             if hasattr(self, "tab_controllers") and "camera" in self.tab_controllers:
                 self.tab_controllers["camera"].on_image_received(data)
 
+        # Velodyne LiDAR Signal Update
+        elif module_name == "velodyne_lidar":
+            if hasattr(self, "tab_controllers") and "3dscan" in self.tab_controllers:
+                self.tab_controllers["3dscan"].on_lidar_data_received(data)
+
     def __update_gnss_rtk(self, data):
         # Delegate GNSS RTK update to location tab controller
-        if hasattr(self, "tab_controllers") and "location" in self.tab_controllers:
-            self.tab_controllers["location"].update_gnss_rtk(data)
+        if hasattr(self, "tab_controllers") and "navigation" in self.tab_controllers:
+            self.tab_controllers["navigation"].update_gnss_rtk(data)
 
     def start_scanner_streaming(self):
         """ start scanner streaming """
@@ -255,8 +260,8 @@ class PatrolWindow(QMainWindow):
     def handle_btn_camera_clicked(self):
         self.__switch_tab("camera")
 
-    def handle_btn_location_clicked(self):
-        self.__switch_tab("location")
+    def handle_btn_navigation_clicked(self):
+        self.__switch_tab("navigation")
 
     def handle_btn_acoustic_clicked(self):
         self.__switch_tab("acoustic")
@@ -264,5 +269,5 @@ class PatrolWindow(QMainWindow):
     def handle_btn_data_clicked(self):
         self.__switch_tab("data")
 
-    def handle_btn_sequence_clicked(self):
-        self.__switch_tab("sequence")
+    def handle_btn_patrol_clicked(self):
+        self.__switch_tab("patrol")

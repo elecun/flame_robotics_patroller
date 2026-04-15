@@ -11,3 +11,4 @@ scipy
 pyserial
 PyQtWebEnginewebsockets
 websockets
+vedo
