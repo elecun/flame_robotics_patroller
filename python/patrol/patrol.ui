@@ -678,8 +678,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_setup">
     <property name="geometry">
      <rect>
-      <x>10</x>
-      <y>610</y>
+      <x>20</x>
+      <y>525</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -858,8 +858,8 @@ background-color: #d0d0d0;
    <widget class="QToolButton" name="btn_data">
     <property name="geometry">
      <rect>
-      <x>10</x>
-      <y>525</y>
+      <x>20</x>
+      <y>440</y>
       <width>85</width>
       <height>85</height>
      </rect>
@@ -1083,6 +1083,51 @@ background-color: #00C853;</string>
     </property>
     <property name="value" stdset="0">
      <double>0.000000000000000</double>
+    </property>
+   </widget>
+   <widget class="QToolButton" name="btn_exit">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>610</y>
+      <width>85</width>
+      <height>85</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QToolButton {
+background-color: #e0e0e0;
+border: 5px solid #aaaaaa;
+border-top-color: white; 
+border-left-color: white; 
+border-bottom-color: #555555; 
+border-right-color: #555555;  
+font-size: 15pt;
+color:black;
+}
+QToolButton:pressed {
+border-top-color: #555555; 
+border-left-color: #555555;
+border-bottom-color: white;
+border-right-color: white;
+background-color: #d0d0d0;
+}</string>
+    </property>
+    <property name="text">
+     <string>Exit</string>
+    </property>
+    <property name="icon">
+     <iconset>
+      <normaloff>../resource/exit-64.png</normaloff>../resource/exit-64.png</iconset>
+    </property>
+    <property name="iconSize">
+     <size>
+      <width>42</width>
+      <height>42</height>
+     </size>
+    </property>
+    <property name="toolButtonStyle">
+     <enum>Qt::ToolButtonTextUnderIcon</enum>
     </property>
    </widget>
   </widget>
