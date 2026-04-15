@@ -28,6 +28,7 @@ try:
 except ImportError:
     np = None
     cv2 = None
+    print("Import Error, required opencv-python, numpy")
 
 
 class component(QThread):
@@ -71,6 +72,12 @@ class component(QThread):
         self._camera: Optional[pylon.InstantCamera] = None
         self._stop_requested = False
         self._lock = threading.Lock()
+        self._debug_saved = False  # save only the first processed frame for debugging
+
+        # Image format converter: Bayer (raw sensor) → RGB8 for color cameras
+        self._converter = pylon.ImageFormatConverter()
+        self._converter.OutputPixelFormat = pylon.PixelType_RGB8packed
+        self._converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
 
         # -- Hardware resolution (set on camera at startup) --
         self._hw_w: int = int(resolution[0]) if resolution and len(resolution) >= 2 else 1920
@@ -167,7 +174,24 @@ class component(QThread):
 
                     if grab_result is not None and grab_result.IsValid():
                         if grab_result.GrabSucceeded():
-                            image = grab_result.Array.copy()
+                            # Convert Bayer → RGB8 for color cameras
+                            if not self._converter.ImageHasDestinationFormat(grab_result):
+                                converted = self._converter.Convert(grab_result)
+                                image = converted.GetArray().copy()
+                            else:
+                                image = grab_result.Array.copy()
+                            # --- DEBUG: save raw frame (before any processing) ---
+                            if not self._debug_saved and cv2 is not None:
+                                try:
+                                    raw = image
+                                    if raw.dtype != np.uint8:
+                                        raw = (raw / max(raw.max(), 1) * 255).astype(np.uint8)
+                                    cv2.imwrite("./pylon_raw_frame.jpg", raw)
+                                    print(f"[DEBUG] Raw frame saved → ./pylon_raw_frame.jpg  shape={image.shape}  dtype={image.dtype}")
+                                except Exception as _e:
+                                    print(f"[DEBUG] raw save error: {_e}")
+                                self._debug_saved = True
+                            # -----------------------------------------------------
                             image = self._process_frame(image)
                             self.signal_updated.emit(image)
                         else:

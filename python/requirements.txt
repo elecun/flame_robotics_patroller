@@ -12,3 +12,4 @@ pyserial
 PyQtWebEngine
 websockets
 vedo
+opencv-python
