@@ -3,6 +3,8 @@ Ouster Lidar Module
 @author Byunghun Hwang<bh.hwang@iae.re.kr>
 """
 
+from util.logger.console import ConsoleLogger
+
 try:
     from PyQt6.QtCore import QThread, pyqtSignal
 except ImportError:
@@ -15,15 +17,19 @@ except ImportError:
 
 import queue
 import threading
-from contextlib import closing
 from typing import Optional
 
 try:
-    from ouster.sdk import client
-    from ouster.sdk.client import SensorConfig, ScanSource
+    from ouster.sdk import core
+    from ouster.sdk import sensor as sensor_mod
+    from ouster.sdk._bindings.client import Sensor as OusterSensor
+    from ouster.sdk.core import SensorConfig
 except ImportError:
     print("ouster-sdk is required. Install via 'pip install ouster-sdk'")
-    client = None
+    core = None
+    sensor_mod = None
+    OusterSensor = None
+    SensorConfig = None
 
 
 class component(QThread):
@@ -47,56 +53,33 @@ class component(QThread):
     # independent of the ouster-sdk object lifecyle.
     signal_updated = pyqtSignal(object)
 
-    def __init__(self,
-                 hostname: str,
-                 lidar_port: int = 7502,
-                 imu_port: int = 7503,
-                 lidar_mode: str = "1024x10",
-                 timestamp_mode: str = "TIME_FROM_INTERNAL_OSC",
-                 sync_pulse_in: bool = False,
-                 return_mode: str = "SINGLE_RETURN_FIRST",
-                 signal_multiplier: int = 1,
-                 range_filter_min_m: float = 0.5,
-                 range_filter_max_m: float = 100.0,
-                 max_queue_size: int = 2):
+    def __init__(self, **kwargs):
         """
-        Parameters loaded from ouster_lidar.cfg:
-
-        hostname           : Sensor hostname or IP (e.g. "os-1234.local" or "192.168.1.100")
-        lidar_port         : UDP port for lidar packets (default 7502)
-        imu_port           : UDP port for IMU packets  (default 7503)
-        lidar_mode         : Resolution x FPS, e.g. "512x10" / "1024x10" / "2048x10"
-                             Controls point density vs update rate tradeoff.
-        timestamp_mode     : "TIME_FROM_INTERNAL_OSC" | "TIME_FROM_SYNC_PULSE_IN"
-                             | "TIME_FROM_PTP_1588"
-        sync_pulse_in      : Enable sync-pulse input for hardware trigger
-        return_mode        : "SINGLE_RETURN_FIRST" | "SINGLE_RETURN_STRONGEST"
-                             | "DUAL_RETURN" — governs echo selection
-        signal_multiplier  : Amplifies the return signal intensity (1–32)
-        range_filter_min_m : Points closer than this (meters) are discarded
-        range_filter_max_m : Points farther than this (meters) are discarded
-        max_queue_size     : Max pending scans before the oldest is dropped
-                             (prevents memory growth when the consumer is slow)
+        Parameters loaded from ouster_lidar.cfg via **kwargs.
         """
         super().__init__()
 
-        self.hostname = hostname
-        self.lidar_port = lidar_port
-        self.imu_port = imu_port
-        self.lidar_mode = lidar_mode
-        self.timestamp_mode = timestamp_mode
-        self.sync_pulse_in = sync_pulse_in
-        self.return_mode = return_mode
-        self.signal_multiplier = int(signal_multiplier)
-        self.range_min = float(range_filter_min_m)
-        self.range_max = float(range_filter_max_m)
+        self.__console = ConsoleLogger.get_logger()
 
-        self.running = False
+        self.hostname = kwargs.get("hostname", "os-1234.local")
+        self.lidar_port = int(kwargs.get("lidar_port", 7502))
+        self.imu_port = int(kwargs.get("imu_port", 7503))
+        self.lidar_mode = kwargs.get("lidar_mode", "1024x10")
+        self.timestamp_mode = kwargs.get("timestamp_mode", "TIME_FROM_INTERNAL_OSC")
+        self.sync_pulse_in = kwargs.get("sync_pulse_in", False)
+        self.return_mode = kwargs.get("return_mode", "SINGLE_RETURN_FIRST")
+        self.signal_multiplier = int(kwargs.get("signal_multiplier", 1))
+        self.range_min = float(kwargs.get("range_filter_min_m", 0.5))
+        self.range_max = float(kwargs.get("range_filter_max_m", 100.0))
+        self.max_queue_size = int(kwargs.get("max_queue_size", 2))
+        self.coordinate = kwargs.get("coordinate", "standard")
+        self.show_coordinate = bool(kwargs.get("show_coordinate", True))
+        self.filter_angles = kwargs.get("filter", [-45, 45])
+
+        self._scan_queue: queue.Queue = queue.Queue(maxsize=self.max_queue_size)
         self._stop_event = threading.Event()
-
         # Bounded queue — producer drops oldest when full
-        self._scan_queue: queue.Queue = queue.Queue(maxsize=int(max_queue_size))
-
+        
         # Recording
         self._recording = False
         self._record_path: Optional[str] = None
@@ -105,45 +88,54 @@ class component(QThread):
     # Thread entry point
     # ------------------------------------------------------------------
     def run(self):
-        if client is None:
-            print("ouster-sdk not available — aborting LiDAR thread.")
+        if core is None:
+            self.__console.error("ouster-sdk not available — aborting LiDAR thread.")
             return
 
         self.running = True
         self._stop_event.clear()
-        print(f"[Ouster] Connecting to {self.hostname} "
+        self.__console.debug(f"[Ouster] Connecting to {self.hostname} "
               f"(lidar={self.lidar_port}, imu={self.imu_port}) ...")
 
+        scan_source = None
         try:
-            # -- Optional sensor configuration --
+            # -- Sensor configuration --
             config = SensorConfig()
-            config.lidar_mode = client.LidarMode.from_string(self.lidar_mode)
-            config.timestamp_mode = client.TimestampMode.from_string(self.timestamp_mode)
-            config.operating_mode = client.OperatingMode.OPERATING_NORMAL
-            client.set_config(self.hostname, config, persist=False)
+            config.lidar_mode = core.LidarMode.from_string(self.lidar_mode)
+            config.timestamp_mode = core.TimestampMode.from_string(self.timestamp_mode)
+            config.operating_mode = core.OperatingMode.OPERATING_NORMAL
+            sensor_mod.set_config(self.hostname, config, persist=False)
 
-            # -- Open packet source and build scan assembler --
-            with closing(client.Sensor(self.hostname,
-                                       self.lidar_port,
-                                       self.imu_port,
-                                       buf_size=640)) as sensor:
-                info = sensor.metadata
-                print(f"[Ouster] Connected. Mode={info.config.lidar_mode} "
-                      f"Product={info.prod_line}")
+            # -- Create sensor and scan source (ouster-sdk 0.16.1 API) --
+            ouster_sensor = OusterSensor(self.hostname, config)
+            scan_source = sensor_mod.SensorScanSource(
+                [ouster_sensor], config_timeout=40, queue_size=2)
 
-                scans = client.Scans(sensor)
-                for scan in scans:
-                    if self._stop_event.is_set():
-                        break
+            info = scan_source.sensor_info[0]
+            self.__console.debug(f"[Ouster] Connected. Mode={info.config.lidar_mode} "
+                  f"Product={info.prod_line}")
 
-                    payload = self._build_payload(scan, info)
-                    self._enqueue_and_emit(payload)
+            for scan_set in scan_source.single_iter(0):
+                if self._stop_event.is_set():
+                    break
+
+                scan = scan_set[0]
+                if scan is None:
+                    continue
+
+                payload = self._build_payload(scan, info)
+                self._enqueue_and_emit(payload)
 
         except Exception as e:
-            print(f"[Ouster] Stream error: {e}")
+            self.__console.error(f"[Ouster] Stream error: {e}")
         finally:
+            if scan_source is not None:
+                try:
+                    scan_source.close()
+                except Exception:
+                    pass
             self.running = False
-            print("[Ouster] Stream stopped.")
+            self.__console.debug("[Ouster] Stream stopped.")
 
     # ------------------------------------------------------------------
     # Payload construction
@@ -158,16 +150,37 @@ class component(QThread):
         """
         import numpy as np
 
-        xyzlut = client.XYZLut(info)
+        xyzlut = core.XYZLut(info)
         xyz = xyzlut(scan)                    # (H, W, 3) float64, metres
 
-        range_m = scan.field(client.ChanField.RANGE) * 0.001  # mm → m
+        # Coordinate transformation based on physical mounting
+        if self.coordinate == "rotate_ccw_90":
+            # CCW 90 degrees around X-axis: x'=x, y'=-z, z'=y
+            tmp_y = xyz[..., 1].copy()
+            xyz[..., 1] = -xyz[..., 2]
+            xyz[..., 2] = tmp_y
+        elif self.coordinate == "rotate_cw_90":
+            # CW 90 degrees around X-axis: x'=x, y'=z, z'=-y
+            tmp_y = xyz[..., 1].copy()
+            xyz[..., 1] = xyz[..., 2]
+            xyz[..., 2] = -tmp_y
 
-        # Range filter
-        mask = (range_m >= self.range_min) & (range_m <= self.range_max)
+        range_m = scan.field(core.ChanField.RANGE) * 0.001  # mm → m
 
-        signal = scan.field(client.ChanField.SIGNAL) * self.signal_multiplier
-        reflectivity = scan.field(client.ChanField.REFLECTIVITY)
+        # Azimuth filter
+        angles_deg = np.degrees(np.arctan2(xyz[..., 1], xyz[..., 0]))
+        if len(self.filter_angles) >= 2:
+            min_ang, max_ang = self.filter_angles[0], self.filter_angles[1]
+        else:
+            min_ang, max_ang = -180, 180
+            
+        angle_mask = (angles_deg >= min_ang) & (angles_deg <= max_ang)
+
+        # Range filter & combine masks
+        mask = (range_m >= self.range_min) & (range_m <= self.range_max) & angle_mask
+
+        signal = scan.field(core.ChanField.SIGNAL) * self.signal_multiplier
+        reflectivity = scan.field(core.ChanField.REFLECTIVITY)
 
         return {
             "xyz":          xyz,           # (H, W, 3) full cloud
@@ -177,6 +190,7 @@ class component(QThread):
             "valid_mask":   mask,          # (H, W) bool — passes range filter
             "timestamp":    scan.timestamp,
             "frame_id":     scan.frame_id,
+            "show_coordinate": self.show_coordinate,
         }
 
     # ------------------------------------------------------------------
@@ -194,6 +208,9 @@ class component(QThread):
             self._scan_queue.put_nowait(payload)
 
         # Emit a reference to the payload (no copy — Qt signals pass refs)
+        # if "valid_mask" in payload:
+        #     valid_pts = payload["valid_mask"].sum()
+        #     self.__console.debug(f"[Ouster] Emitting scan: {valid_pts} valid points.")
         self.signal_updated.emit(payload)
 
     # ------------------------------------------------------------------
@@ -211,9 +228,9 @@ class component(QThread):
     # Shutdown
     # ------------------------------------------------------------------
     def stop(self):
-        print("[Ouster] Stopping ...")
+        self.__console.debug("[Ouster] Stopping ...")
         self.running = False
         self._recording = False
         self._stop_event.set()
         if not self.wait(5000):
-            print("[Ouster] Warning: thread did not terminate in time.")
+            self.__console.warning("[Ouster] Thread did not terminate in time.")

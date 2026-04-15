@@ -118,29 +118,20 @@ class component(QThread):
 
     signal_updated = pyqtSignal(object)
 
-    def __init__(self,
-                 device_ip:            str   = "192.168.1.201",
-                 port:                 int   = 2368,
-                 rpm:                  int   = 600,
-                 range_filter_min_m:   float = 0.5,
-                 range_filter_max_m:   float = 100.0,
-                 max_points_per_frame: int   = 30000,
-                 point_size:           int   = 3,
-                 colormap:             str   = "jet",
-                 background_color:     str   = "#1a1a2e"):
+    def __init__(self, **kwargs):
         super().__init__()
 
-        self.device_ip   = device_ip
-        self.port        = int(port)
-        self.rpm         = int(rpm)
-        self.range_min   = float(range_filter_min_m)
-        self.range_max   = float(range_filter_max_m)
-        self.max_pts     = int(max_points_per_frame)
+        self.device_ip   = kwargs.get("device_ip", "192.168.1.201")
+        self.port        = int(kwargs.get("port", 2368))
+        self.rpm         = int(kwargs.get("rpm", 600))
+        self.range_min   = float(kwargs.get("range_filter_min_m", 0.5))
+        self.range_max   = float(kwargs.get("range_filter_max_m", 100.0))
+        self.max_pts     = int(kwargs.get("max_points_per_frame", 30000))
 
         # Rendering hints — read by tab_3dscan
-        self.point_size       = int(point_size)
-        self.colormap         = colormap
-        self.background_color = background_color
+        self.point_size       = int(kwargs.get("point_size", 3))
+        self.colormap         = kwargs.get("colormap", "jet")
+        self.background_color = kwargs.get("background_color", "#1a1a2e")
 
         self.running      = False
         self._stop_event  = threading.Event()

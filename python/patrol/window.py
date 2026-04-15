@@ -150,8 +150,8 @@ class PatrolWindow(QMainWindow):
             if hasattr(self, "tab_controllers") and "camera" in self.tab_controllers:
                 self.tab_controllers["camera"].on_image_received(data)
 
-        # Velodyne LiDAR Signal Update
-        elif module_name == "velodyne_lidar":
+        # Ouster LiDAR Signal Update
+        elif module_name == "ouster_lidar":
             if hasattr(self, "tab_controllers") and "3dscan" in self.tab_controllers:
                 self.tab_controllers["3dscan"].on_lidar_data_received(data)
 

@@ -54,17 +54,18 @@ class component(QThread):
     """
     signal_updated = pyqtSignal(object)
 
-    def __init__(self,
-                 device_index: int = 0,
-                 mode: str = "continuous",
-                 rotate: str = "",
-                 resolution: list = None,
-                 roi_resolution: list = None,
-                 zoom_step: float = 0.1,
-                 exposure_time: int = 5000):
+    def __init__(self, **kwargs):
         super().__init__()
 
         self.__console = ConsoleLogger.get_logger()
+
+        mode = kwargs.get("mode", "continuous")
+        rotate = kwargs.get("rotate", "")
+        device_index = int(kwargs.get("device_index", 0))
+        resolution = kwargs.get("resolution", [1920, 1200])
+        roi_resolution = kwargs.get("roi_resolution", [1920, 1200])
+        zoom_step = float(kwargs.get("zoom_step", 0.1))
+        exposure_time = int(kwargs.get("exposure_time", 5000))
 
         if pylon is None:
             raise ImportError("pypylon library is not installed.")
