@@ -64,7 +64,7 @@ QTabBar::tab:selected {
      <enum>QTabWidget::Rounded</enum>
     </property>
     <property name="currentIndex">
-     <number>1</number>
+     <number>2</number>
     </property>
     <property name="tabBarAutoHide">
      <bool>true</bool>
@@ -437,8 +437,8 @@ background-color: #d0d0d0;
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>1056</width>
-        <height>646</height>
+        <width>1626</width>
+        <height>1006</height>
        </rect>
       </property>
       <property name="styleSheet">
