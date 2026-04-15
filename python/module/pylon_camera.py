@@ -3,6 +3,8 @@ Pylon Camera Module
 @author Byunghun Hwang<bh.hwang@iae.re.kr>
 """
 
+from util.logger.console import ConsoleLogger
+
 try:
     from PyQt6.QtCore import QThread, pyqtSignal
 except ImportError:
@@ -17,6 +19,7 @@ try:
     from pypylon import pylon
 except ImportError:
     print("pypylon is required to run this module. Please install it via 'pip install pypylon'")
+
     pylon = None
 
 import threading
@@ -28,7 +31,7 @@ try:
 except ImportError:
     np = None
     cv2 = None
-    print("Import Error, required opencv-python, numpy")
+    print("opencv-python is required to run this module. please install it via 'pip install opencv-python'")
 
 
 class component(QThread):
@@ -57,6 +60,8 @@ class component(QThread):
                  roi_resolution: list = None,
                  zoom_step: float = 0.1):
         super().__init__()
+
+        self.__console = ConsoleLogger.get_logger()
 
         if pylon is None:
             raise ImportError("pypylon library is not installed.")
@@ -114,9 +119,6 @@ class component(QThread):
                 self._zoom_level += 1
                 self._roi_w = self._hw_w - self._zoom_level * self._step_w
                 self._roi_h = self._hw_h - self._zoom_level * self._step_h
-                print(f"[Camera] Zoom IN  level={self._zoom_level}  ROI={self._roi_w}x{self._roi_h}")
-            else:
-                print(f"[Camera] Zoom IN  already at max level {self._max_zoom_level}")
 
     def zoom_out(self):
         """Expand ROI by one step (zoom out). Min is original hw resolution."""
@@ -125,9 +127,6 @@ class component(QThread):
                 self._zoom_level -= 1
                 self._roi_w = self._hw_w - self._zoom_level * self._step_w
                 self._roi_h = self._hw_h - self._zoom_level * self._step_h
-                print(f"[Camera] Zoom OUT level={self._zoom_level}  ROI={self._roi_w}x{self._roi_h}")
-            else:
-                print("[Camera] Zoom OUT already at minimum (full frame).")
 
     # ------------------------------------------------------------------
     # Thread main loop
@@ -135,7 +134,7 @@ class component(QThread):
     def run(self):
         self.running = True
         self._stop_requested = False
-        print(f"Connecting to Pylon camera [{self.device_index}] in '{self.mode}' mode ...")
+        self.__console.debug(f"Connecting to Pylon camera [{self.device_index}] in '{self.mode}' mode ...")
 
         try:
             tl_factory = pylon.TlFactory.GetInstance()
@@ -147,12 +146,12 @@ class component(QThread):
 
             self._camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[self.device_index]))
             self._camera.Open()
-            print(f"Connected: {self._camera.GetDeviceInfo().GetFriendlyName()}")
+            self.__console.debug(f"Connected: {self._camera.GetDeviceInfo().GetFriendlyName()}")
 
             # Apply hardware resolution
             self._camera.Width.SetValue(self._hw_w)
             self._camera.Height.SetValue(self._hw_h)
-            print(f"Camera hardware resolution set to {self._hw_w}x{self._hw_h}")
+            self.__console.debug(f"Camera hardware resolution set to {self._hw_w}x{self._hw_h}")
 
             # Acquisition mode
             if self.mode == "continuous":
@@ -180,35 +179,24 @@ class component(QThread):
                                 image = converted.GetArray().copy()
                             else:
                                 image = grab_result.Array.copy()
-                            # --- DEBUG: save raw frame (before any processing) ---
-                            if not self._debug_saved and cv2 is not None:
-                                try:
-                                    raw = image
-                                    if raw.dtype != np.uint8:
-                                        raw = (raw / max(raw.max(), 1) * 255).astype(np.uint8)
-                                    cv2.imwrite("./pylon_raw_frame.jpg", raw)
-                                    print(f"[DEBUG] Raw frame saved → ./pylon_raw_frame.jpg  shape={image.shape}  dtype={image.dtype}")
-                                except Exception as _e:
-                                    print(f"[DEBUG] raw save error: {_e}")
-                                self._debug_saved = True
-                            # -----------------------------------------------------
+
                             image = self._process_frame(image)
                             self.signal_updated.emit(image)
                         else:
-                            print(f"Grab error: {grab_result.GetErrorCode()} {grab_result.GetErrorDescription()}")
+                            self.__console.error(f"Grab error: {grab_result.GetErrorCode()} {grab_result.GetErrorDescription()}")
 
                 except pylon.GenericException as e:
                     if self._stop_requested:
                         break
                     if "Timeout" not in str(e):
-                        print(f"Grab exception: {e}")
+                        self.__console.error(f"Grab exception: {e}")
                         break
                 finally:
                     if grab_result is not None and grab_result.IsValid():
                         grab_result.Release()
 
         except Exception as e:
-            print(f"Camera error: {e}")
+            self.__console.error(f"Camera error: {e}")
         finally:
             self._safe_cleanup()
 
@@ -280,20 +268,20 @@ class component(QThread):
                 if self._camera.IsOpen():
                     self._camera.Close()
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            self.__console.error(f"Cleanup error: {e}")
         finally:
             self.running = False
             self._camera = None
-            print("Pylon camera stream stopped.")
+            self.__console.debug("Pylon camera stream stopped.")
 
     def stop(self):
-        print("Stopping Pylon camera ...")
+        self.__console.debug("Stopping Pylon camera ...")
         self._stop_requested = True
         self.running = False
         try:
             if self._camera is not None and self._camera.IsGrabbing():
                 self._camera.StopGrabbing()
         except Exception as e:
-            print(f"StopGrabbing error: {e}")
+            self.__console.error(f"StopGrabbing error: {e}")
         if not self.wait(3000):
-            print("Warning: camera thread did not terminate in time.")
+            self.__console.warning("camera thread did not terminate in time.")
