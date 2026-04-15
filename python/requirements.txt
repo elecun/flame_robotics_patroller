@@ -9,6 +9,6 @@ ouster-sdk
 pypylon
 scipy
 pyserial
-PyQtWebEnginewebsockets
+PyQtWebEngine
 websockets
 vedo
