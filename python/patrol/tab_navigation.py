@@ -3,7 +3,15 @@ import json
 import asyncio
 import websockets
 from PyQt6.QtCore import QObject, QUrl, QThread
+from PyQt6.QtWidgets import QVBoxLayout
 from util.logger.console import ConsoleLogger
+
+try:
+    import vedo
+    from vedo import Plotter, Grid
+    VEDO_AVAILABLE = True
+except ImportError:
+    VEDO_AVAILABLE = False
 
 class WSServerThread(QThread):
     def __init__(self, host="127.0.0.1", port=9090):
@@ -43,12 +51,29 @@ class TabNavigation(QObject):
         super().__init__()
         self.__console = ConsoleLogger.get_logger()
         self.main_ui = main_ui
+        self._plotter = None
         
         # Start WebSocket Server
         self.ws_server = WSServerThread(host="127.0.0.1", port=9090)
         self.ws_server.start()
         self.__console.info("Started local WebSocket server on 127.0.0.1:9090")
         
+        # 1. Load map HTML into widget_map
+        self._init_map()
+
+        # 2. Embed vedo Plotter into widget_navigation
+        if VEDO_AVAILABLE:
+            if hasattr(self.main_ui, "widget_navigation"):
+                self._init_3d_view()
+            else:
+                self.__console.warning("widget_navigation not found in UI — 3D navigation view disabled.")
+        else:
+            self.__console.error("vedo is not installed. 3D navigation view disabled.")
+
+        self.__console.debug("TabNavigation initialized")
+
+    def _init_map(self):
+        self.__console.debug("Initializing map view in widget_map...")
         # Load map HTML into widget_map by dynamically adding QWebEngineView
         # map.html is placed in resource/ alongside leaflet.js and leaflet.css
         resource_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "resource"))
@@ -56,7 +81,6 @@ class TabNavigation(QObject):
         if os.path.isfile(map_path) and hasattr(self.main_ui, "widget_map"):
             from PyQt6.QtWebEngineWidgets import QWebEngineView
             from PyQt6.QtWebEngineCore import QWebEngineSettings
-            from PyQt6.QtWidgets import QVBoxLayout
 
             # Instantiate web engine and place it inside the widget_map container
             self.web_view = QWebEngineView(self.main_ui.widget_map)
@@ -67,15 +91,76 @@ class TabNavigation(QObject):
             self.web_view.settings().setAttribute(
                 QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
             
-            layout = QVBoxLayout(self.main_ui.widget_map)
-            layout.setContentsMargins(0, 0, 0, 0)
+            if self.main_ui.widget_map.layout() is None:
+                layout = QVBoxLayout(self.main_ui.widget_map)
+                layout.setContentsMargins(0, 0, 0, 0)
+            else:
+                layout = self.main_ui.widget_map.layout()
+
             layout.addWidget(self.web_view)
 
             self.web_view.load(QUrl.fromLocalFile(map_path))
             self.__console.info(f"Loaded map.html from: {map_path}")
         else:
             self.__console.error(f"Cannot load map.html: map_path exists={os.path.isfile(map_path)}, widget_map exists={hasattr(self.main_ui, 'widget_map')}")
-        
+
+    def _init_3d_view(self):
+        self.__console.debug("Initializing vedo 3D plotter in widget_navigation...")
+        try:
+            widget = self.main_ui.widget_navigation
+            from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+
+            if widget.layout() is None:
+                layout = QVBoxLayout(widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+            else:
+                layout = widget.layout()
+
+            vtkWidget = QVTKRenderWindowInteractor(widget)
+            layout.addWidget(vtkWidget)
+
+            # Build vedo Plotter with white background
+            self._plotter = Plotter(
+                bg="white", 
+                qt_widget=vtkWidget,
+                axes=0,
+                interactive=True
+            )
+
+            # Create Grid (50cm interval) with black lines
+            grid = Grid(pos=(0, 0, 0), s=(20, 20), res=(40, 40), c="black", alpha=0.1)
+            self._plotter.add(grid)
+
+            # Set Camera viewpoint: 2m height, 45 degree looking down
+            self._plotter.show(
+                grid,
+                interactive=False,
+                camera={
+                    "pos": (0, -2, 2),
+                    "focalPoint": (0, 0, 0),
+                    "viewup": (0, 0, 1)
+                }
+            )
+
+        except Exception as e:
+            self.__console.error(f"Failed to initialize vedo plotter in widget_navigation: {e}")
+
+    def refresh_view(self):
+        self.__console.debug("Refreshing navigation tab views...")
+        """Force a refresh of both map and 3D view to fix rendering issues on startup."""
+        # 1. Refresh Map (WebEngine)
+        if hasattr(self, "web_view"):
+            self.web_view.update()
+            w, h = self.web_view.width(), self.web_view.height()
+            self.web_view.resize(w + 1, h)
+            self.web_view.resize(w, h)
+            
+        # 2. Refresh 3D Plotter (VTK)
+        if self._plotter:
+            self._plotter.render()
+            
+        self.__console.debug("Forced refresh on navigation tab views.")
+
     def update_gnss_rtk(self, data):
         # 1. Update Connection and Quality
         connected = data.get("connected", False)

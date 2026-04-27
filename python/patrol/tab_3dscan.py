@@ -72,7 +72,6 @@ class Tab3DScan(QObject):
                 interactive=False,
                 camera={"pos": (-5, -5, 5), "focalPoint": (0, 0, 0), "viewup": (0, 0, 1)}
             )
-            self.__console.info("vedo 3D plotter embedded in widget_3d.")
 
         except Exception as e:
             self.__console.error(f"Failed to initialize vedo plotter: {e}")
