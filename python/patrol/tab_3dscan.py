@@ -95,7 +95,7 @@ class Tab3DScan(QObject):
             return
 
         try:
-            self.__console.debug("Received LiDAR payload in 3D Scan tab.")
+            # self.__console.debug("Received LiDAR payload in 3D Scan tab.")
             xyz = payload.get("xyz")
             intensity = payload.get("intensity")
             
@@ -120,7 +120,7 @@ class Tab3DScan(QObject):
                 self.__console.warning("No valid xyz points in payload after mask.")
                 return
 
-            self.__console.debug(f"Rendering {len(xyz)} points in vedo plotter.")
+            # self.__console.debug(f"Rendering {len(xyz)} points in vedo plotter.")
 
             # Normalize intensity for colormap (0.0 – 1.0)
             if intensity is not None and len(intensity) == len(xyz):
