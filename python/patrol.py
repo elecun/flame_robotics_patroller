@@ -15,6 +15,11 @@ except ImportError:
 import sys, os
 import pathlib
 import json
+
+# Fix for QWebEngineView black screen on Ubuntu/Linux
+if sys.platform == "linux" or sys.platform == "linux2":
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
+    print("Set QTWEBENGINE_CHROMIUM_FLAGS for Linux to fix potential black screen issues with QWebEngineView.")
 from common.zpipe import zpipe_create_pipe, zpipe_destroy_pipe
 from common.zpipe import ZPipe
 
