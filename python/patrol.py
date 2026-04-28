@@ -3,6 +3,22 @@ DRT 3D Window Controller with Qt GUI
 @auhtor Byunghun Hwang<bh.hwnag@iae.re.kr>
 '''
 
+import sys, os
+
+# -----------------------------------------------------------------------
+# QtWebEngine 환경변수는 반드시 Qt/QApplication 초기화 전에 설정해야 함
+# Ubuntu 22.04에서 black screen 방지를 위한 필수 설정
+# -----------------------------------------------------------------------
+if sys.platform in ("linux", "linux2"):
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer")
+
+# VTK(vedo)와 QtWebEngine이 동시에 사용될 때 OpenGL 컨텍스트 충돌 방지
+# QApplication 생성 전에 반드시 설정해야 함
+from PyQt6.QtWidgets import QApplication as _QApp
+from PyQt6.QtCore import Qt as _Qt
+_QApp.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+
 try:
     from PyQt6.QtGui import QImage, QPixmap, QCloseEvent, QFontDatabase, QFont
     from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QMessageBox
@@ -12,13 +28,8 @@ try:
 except ImportError:
     print("PyQt6 and PyQt6-WebEngine are required to run this application.")
 
-import sys, os
 import pathlib
 import json
-
-# Minimal fix for QWebEngineView on Linux
-if sys.platform == "linux" or sys.platform == "linux2":
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox --disable-gpu"
 from common.zpipe import zpipe_create_pipe, zpipe_destroy_pipe
 from common.zpipe import ZPipe
 
@@ -66,7 +77,7 @@ if __name__ == "__main__":
             n_ctx_value = configure.get("n_io_context", 10)
             zpipe_instance = zpipe_create_pipe(io_threads=n_ctx_value)
 
-            app = QApplication(sys.argv)
+            app = QApplication(sys.argv)  # AA_ShareOpenGLContexts는 이미 상단에서 설정됨
             font_id = QFontDatabase.addApplicationFont((ROOT_PATH / configure['font_path']).as_posix())
             font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
             app.setFont(QFont(font_family, 12))

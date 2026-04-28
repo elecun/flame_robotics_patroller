@@ -9,7 +9,6 @@ ouster-sdk
 pypylon
 scipy
 pyserial
-PyQtWebEngine
 websockets
 vedo
 opencv-python
