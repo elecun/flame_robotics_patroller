@@ -8,11 +8,17 @@ from util.logger.console import ConsoleLogger
 
 try:
     import vedo
-    from vedo import Plotter, Grid
+    from vedo import Plotter, Grid, Box
     VEDO_AVAILABLE = True
 except ImportError:
     VEDO_AVAILABLE = False
 
+"""
+TabNavigation module handles the "Navigation" tab of the application, which includes:
+1. A map view (using Leaflet in a QWebEngineView) that displays the current location of the vessel based on GNSS data.
+2. A 3D navigation view (using vedo) that provides a 3D representation of the vessel's position and orientation.
+3. A local WebSocket server that broadcasts GNSS location updates to the map view for real-time marker updates.
+"""
 class WSServerThread(QThread):
     def __init__(self, host="127.0.0.1", port=9090):
         super().__init__()
@@ -131,9 +137,16 @@ class TabNavigation(QObject):
             grid = Grid(pos=(0, 0, 0), s=(20, 20), res=(40, 40), c="black", alpha=0.1)
             self._plotter.add(grid)
 
+            # Create a black box representing the robot
+            # Dimensions: Width(x)=1.0, Length(y)=2.055, Height(z)=0.64
+            # Position: Center of top-view at (0,0), bottom at z=0
+            # So the center of the box is at (0, 0, 0.32)
+            robot_box = Box(pos=(0, 0, 0.32), length=1.0, width=2.055, height=0.64, c="black")
+            self._plotter.add(robot_box)
+
             # Set Camera viewpoint: 2m height, 45 degree looking down
             self._plotter.show(
-                grid,
+                grid, robot_box,
                 interactive=False,
                 camera={
                     "pos": (0, -2, 2),
@@ -168,6 +181,7 @@ class TabNavigation(QObject):
         if not connected:
             self.main_ui.progress_gnss_quality.setFormat("No GNSS Connection")
             self.main_ui.progress_gnss_quality.setValue(0)
+            self.main_ui.label_latlon.setText("No GNSS Connection")
             
         else:
             if hasattr(self.main_ui, "progress_gnss_quality"):
@@ -219,6 +233,11 @@ class TabNavigation(QObject):
         lat = data.get("latitude")
         lon = data.get("longitude")
         if connected and lat is not None and lon is not None:
+            if hasattr(self.main_ui, "label_latlon"):
+                self.main_ui.label_latlon.setText(f"{lat:.6f}, {lon:.6f}")
+            else:
+                self.main_ui.label_latlon.setText("No GNSS Connection")
+
             # Broadcast location over WebSocket
             payload = json.dumps({"lat": lat, "lon": lon})
             if hasattr(self, 'ws_server'):
