@@ -1133,7 +1133,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>235</y>
+      <y>260</y>
       <width>166</width>
       <height>16</height>
      </rect>
@@ -1157,7 +1157,7 @@ background-color: #d0d0d0;
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>255</y>
+      <y>280</y>
       <width>170</width>
       <height>65</height>
      </rect>
@@ -1189,7 +1189,7 @@ background-color: #001853;</string>
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>350</y>
+      <y>375</y>
       <width>170</width>
       <height>65</height>
      </rect>
@@ -1221,7 +1221,7 @@ background-color: #001853;</string>
     <property name="geometry">
      <rect>
       <x>5</x>
-      <y>330</y>
+      <y>355</y>
       <width>166</width>
       <height>16</height>
      </rect>
@@ -1282,6 +1282,19 @@ color: rgb(255, 255, 255);</string>
     </property>
     <property name="text">
      <string>-</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_6">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>230</y>
+      <width>60</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>* Best : &lt;1</string>
     </property>
    </widget>
   </widget>
