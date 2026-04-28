@@ -2,8 +2,6 @@ import os
 import json
 import asyncio
 import websockets
-import platform
-import multiprocessing
 from PyQt6.QtCore import QObject, QUrl, QThread, QTimer
 from PyQt6.QtWidgets import QVBoxLayout
 from util.logger.console import ConsoleLogger
@@ -15,30 +13,10 @@ try:
 except ImportError:
     VEDO_AVAILABLE = False
 
-try:
-    import webview
-    PYWEBVIEW_AVAILABLE = True
-except ImportError:
-    PYWEBVIEW_AVAILABLE = False
-
 """
 TabNavigation module handles the "Navigation" tab of the application.
-On Ubuntu/Linux, it uses pywebview in a separate Process to avoid QWebEngine issues.
+It uses QWebEngineView to embed the map directly into the UI widget.
 """
-
-def run_map_process(map_url):
-    """
-    Function to be run in a separate multiprocessing.Process.
-    This provides its own main thread for pywebview.
-    """
-    try:
-        import webview
-        # Create a window for the map
-        window = webview.create_window('Navigation Map', map_url, width=1000, height=800)
-        # Start the event loop (blocking)
-        webview.start(gui='gtk')
-    except Exception as e:
-        print(f"Error in Map Process: {e}")
 
 class WSServerThread(QThread):
     def __init__(self, host="127.0.0.1", port=9090):
@@ -78,81 +56,59 @@ class TabNavigation(QObject):
         self.__console = ConsoleLogger.get_logger()
         self.main_ui = main_ui
         self._plotter = None
-        self.map_process = None
         
         # Start WebSocket Server
         self.ws_server = WSServerThread(host="127.0.0.1", port=9090)
         self.ws_server.start()
         self.__console.info("Started local WebSocket server on 127.0.0.1:9090")
         
-        # 1. Initialize Map
+        # 1. Initialize Map (QWebEngineView)
         self._init_map()
 
         # 2. Embed vedo Plotter into widget_navigation
         if VEDO_AVAILABLE:
             if hasattr(self.main_ui, "widget_navigation"):
                 self._init_3d_view()
-            else:
-                self.__console.warning("widget_navigation not found in UI — 3D navigation view disabled.")
         else:
             self.__console.error("vedo is not installed. 3D navigation view disabled.")
 
         QTimer.singleShot(500, self.refresh_view)
-
         self.__console.debug("TabNavigation initialized")
 
     def _init_map(self):
-        self.__console.debug("Initializing map view...")
+        self.__console.debug("Initializing map view in widget_map...")
         resource_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "resource"))
         map_path = os.path.join(resource_dir, "map.html")
         
-        if not os.path.isfile(map_path):
-            self.__console.error(f"Map file not found: {map_path}")
-            return
+        if os.path.isfile(map_path) and hasattr(self.main_ui, "widget_map"):
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+            from PyQt6.QtWebEngineCore import QWebEngineSettings
+            from PyQt6.QtGui import QColor
 
-        is_linux = platform.system().lower() == "linux"
-
-        # On Linux, use pywebview in a separate PROCESS
-        if is_linux and PYWEBVIEW_AVAILABLE:
-            self.__console.info("Ubuntu detected. Launching pywebview in a separate process.")
-            map_url = QUrl.fromLocalFile(map_path).toString()
-            self.map_process = multiprocessing.Process(target=run_map_process, args=(map_url,))
-            self.map_process.daemon = True # Ensure it closes when the main app exits
-            self.map_process.start()
+            self.web_view = QWebEngineView(self.main_ui.widget_map)
+            self.web_view.page().setBackgroundColor(QColor("white"))
             
-            from PyQt6.QtWidgets import QLabel
-            from PyQt6.QtCore import Qt
-            if hasattr(self.main_ui, "widget_map"):
-                layout = self.main_ui.widget_map.layout() or QVBoxLayout(self.main_ui.widget_map)
-                placeholder = QLabel("Map is running in a separate window (pywebview).")
-                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                layout.addWidget(placeholder)
+            # Diagnostic signals
+            self.web_view.loadFinished.connect(lambda ok: self.__console.debug(f"Map HTML load finished: {ok}"))
+            
+            settings = self.web_view.settings()
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+            
+            layout = self.main_ui.widget_map.layout() or QVBoxLayout(self.main_ui.widget_map)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(self.web_view)
+
+            try:
+                with open(map_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                base_url = QUrl.fromLocalFile(resource_dir + os.path.sep)
+                self.web_view.setHtml(html_content, base_url)
+                self.__console.info(f"Loaded map.html via setHtml from: {map_path}")
+            except Exception as e:
+                self.__console.error(f"Failed to read map.html: {e}")
         else:
-            # On macOS or other systems, use QWebEngineView
-            self.__console.info(f"Using standard QWebEngineView for map rendering on {platform.system()}.")
-            if hasattr(self.main_ui, "widget_map"):
-                try:
-                    from PyQt6.QtWebEngineWidgets import QWebEngineView
-                    from PyQt6.QtWebEngineCore import QWebEngineSettings
-                    from PyQt6.QtGui import QColor
-
-                    self.web_view = QWebEngineView(self.main_ui.widget_map)
-                    self.web_view.page().setBackgroundColor(QColor("white"))
-                    
-                    settings = self.web_view.settings()
-                    settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
-                    settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
-
-                    layout = self.main_ui.widget_map.layout() or QVBoxLayout(self.main_ui.widget_map)
-                    layout.setContentsMargins(0, 0, 0, 0)
-                    layout.addWidget(self.web_view)
-
-                    with open(map_path, 'r', encoding='utf-8') as f:
-                        html_content = f.read()
-                    base_url = QUrl.fromLocalFile(resource_dir + os.path.sep)
-                    self.web_view.setHtml(html_content, base_url)
-                except Exception as e:
-                    self.__console.error(f"Failed to initialize QWebEngineView: {e}")
+            self.__console.error(f"Cannot load map.html: exists={os.path.isfile(map_path)}")
 
     def _init_3d_view(self):
         try:
