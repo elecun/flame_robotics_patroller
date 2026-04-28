@@ -1244,7 +1244,7 @@ background-color: #001853;</string>
    <widget class="QLabel" name="label_5">
     <property name="geometry">
      <rect>
-      <x>1250</x>
+      <x>1170</x>
       <y>5</y>
       <width>101</width>
       <height>26</height>
@@ -1265,9 +1265,9 @@ background-color: #001853;</string>
    <widget class="QLabel" name="label_latlon">
     <property name="geometry">
      <rect>
-      <x>1361</x>
+      <x>1281</x>
       <y>5</y>
-      <width>191</width>
+      <width>271</width>
       <height>26</height>
      </rect>
     </property>
