@@ -126,34 +126,21 @@ class TabNavigation(QObject):
             layout.addWidget(vtkWidget)
 
             # Build vedo Plotter with white background
-            self._plotter = Plotter(
-                bg="white", 
-                qt_widget=vtkWidget,
-                axes=0,
-                interactive=True
-            )
+            self._plotter = Plotter(bg="white", qt_widget=vtkWidget, axes=0, interactive=True)
 
             # Create Grid (50cm interval) with black lines
-            grid = Grid(pos=(0, 0, 0), s=(20, 20), res=(40, 40), c="black", alpha=0.1)
+            grid = Grid(pos=(0, 0, 0), s=(20, 20), res=(40, 40), c="black", alpha=0.9)
             self._plotter.add(grid)
 
             # Create a black box representing the robot
             # Dimensions: Width(x)=1.0, Length(y)=2.055, Height(z)=0.64
             # Position: Center of top-view at (0,0), bottom at z=0
             # So the center of the box is at (0, 0, 0.32)
-            robot_box = Box(pos=(0, 0, 0.32), length=1.0, width=2.055, height=0.64, c="black")
+            robot_box = Box(pos=(0, 0, 0.32), length=1.0, width=2.055, height=0.64, c="gray", alpha=0.9)
             self._plotter.add(robot_box)
 
             # Set Camera viewpoint: 2m height, 45 degree looking down
-            self._plotter.show(
-                grid, robot_box,
-                interactive=False,
-                camera={
-                    "pos": (0, -2, 2),
-                    "focalPoint": (0, 0, 0),
-                    "viewup": (0, 0, 1)
-                }
-            )
+            self._plotter.show(grid, robot_box, interactive=False, camera={"pos": (0, -20, 10),"focalPoint": (0, 10, 0),"viewup": (0, 0, 1)})
 
         except Exception as e:
             self.__console.error(f"Failed to initialize vedo plotter in widget_navigation: {e}")
