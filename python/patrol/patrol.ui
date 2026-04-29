@@ -1244,9 +1244,9 @@ background-color: #001853;</string>
    <widget class="QLabel" name="label_5">
     <property name="geometry">
      <rect>
-      <x>1170</x>
+      <x>1110</x>
       <y>5</y>
-      <width>101</width>
+      <width>161</width>
       <height>26</height>
      </rect>
     </property>
@@ -1256,7 +1256,7 @@ background-color: #001853;</string>
      </font>
     </property>
     <property name="text">
-     <string>Lat./Lon. :</string>
+     <string>Lat/Lon :</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -1289,7 +1289,7 @@ color: rgb(255, 255, 255);</string>
      <rect>
       <x>10</x>
       <y>230</y>
-      <width>60</width>
+      <width>156</width>
       <height>16</height>
      </rect>
     </property>
