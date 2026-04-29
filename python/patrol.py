@@ -1,20 +1,17 @@
 '''
-DRT 3D Window Controller with Qt GUI
-@auhtor Byunghun Hwang<bh.hwnag@iae.re.kr>
+FLAME Robotics Patroller - Qt GUI
+@author Byunghun Hwang <bh.hwnag@iae.re.kr>
 '''
 
 import sys, os
 
-# -----------------------------------------------------------------------
-# QtWebEngine 환경변수는 반드시 Qt/QApplication 초기화 전에 설정해야 함
-# Ubuntu 22.04에서 black screen 방지를 위한 필수 설정
-# -----------------------------------------------------------------------
+# [!!!] It must be set before QApplication initialization because of black screen issue on ubuntu
 if sys.platform in ("linux", "linux2"):
     os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
-    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer")
+    #os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer")
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 
-# VTK(vedo)와 QtWebEngine이 동시에 사용될 때 OpenGL 컨텍스트 충돌 방지
-# QApplication 생성 전에 반드시 설정해야 함
+# [!!!] Share OpenGL Contexts for VTK and QtWebEngine
 from PyQt6.QtWidgets import QApplication as _QApp
 from PyQt6.QtCore import Qt as _Qt
 _QApp.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts)

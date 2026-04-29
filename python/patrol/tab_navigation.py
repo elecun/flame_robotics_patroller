@@ -68,20 +68,19 @@ class TabNavigation(QObject):
 
     def _deferred_init(self):
         # 1. Initialize Map (QWebEngineView) 먼저 실행
+        # 2. VTK(vedo)는 WebEngine의 loadFinished 시그널 이후에 초기화됨
+        #    → _on_map_load_finished 에서 _init_3d_view 호출
         self._init_map()
-
-        # 2. VTK(vedo) 초기화는 WebEngine loadFinished 이후로 지연
-        # WebEngine GPU 프로세스 초기화와 VTK OpenGL 컨텍스트가 동시에 실행되면
-        # OpenGL 컨텍스트 충돌로 segfault 발생 → 2초 후 별도 타이머로 실행
-        if VEDO_AVAILABLE and hasattr(self.main_ui, "widget_navigation"):
-            QTimer.singleShot(2000, self._init_3d_view)
 
         self.__console.debug("TabNavigation deferred initialization complete")
 
     def _on_map_load_finished(self, ok: bool):
         self.__console.debug(f"Map HTML load finished: ok={ok}")
-        # 로드 완료 후 500ms 뒤 뷰 갱신 (VTK가 이미 초기화된 경우만)
-        QTimer.singleShot(500, self.refresh_view)
+        # loadFinished 시점에 WebEngine GPU 프로세스가 이미 준비됨
+        # → 이 시점에 VTK를 초기화하는 것이 고정 타이머보다 안전
+        if VEDO_AVAILABLE and hasattr(self.main_ui, "widget_navigation") and self._plotter is None:
+            self._init_3d_view()
+        self.refresh_view()
 
     def __del__(self):
         """ Cleanup to prevent segmentation fault """
