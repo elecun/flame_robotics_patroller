@@ -15,7 +15,7 @@ flame::component::object* create(){ if(!_instance) _instance = new basler_gige_c
 void release(){ if(_instance){ delete _instance; _instance = nullptr; }}
 
 
-bool basler_gige_cam_grabber::on_init(){
+bool basler_gige_cam_grabber::onInit(){
 
     try{
 
@@ -61,12 +61,12 @@ bool basler_gige_cam_grabber::on_init(){
     return true;
 }
 
-void basler_gige_cam_grabber::on_loop(){
+void basler_gige_cam_grabber::onLoop(){
 
 }
 
 
-void basler_gige_cam_grabber::on_close(){
+void basler_gige_cam_grabber::onClose(){
 
     /* stop grabbing (must be first!!!) */
     for_each(_device_map.begin(), _device_map.end(), [](auto& camera){
@@ -99,7 +99,7 @@ void basler_gige_cam_grabber::on_close(){
     PylonTerminate();
 }
 
-void basler_gige_cam_grabber::on_message(){
+void basler_gige_cam_grabber::onData(flame::component::ZData& data){
     
 }
 

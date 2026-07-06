@@ -29,10 +29,10 @@ class synerex_rtk_receiver : public flame::component::object {
         virtual ~synerex_rtk_receiver() = default;
 
         /* default interface functions */
-        bool on_init() override;
-        void on_loop() override;
-        void on_close() override;
-        void on_message() override;
+        bool onInit() override;
+        void onLoop() override;
+        void onClose() override;
+        void onData(flame::component::ZData& data) override;
 
     private:
         /* serial */

@@ -24,10 +24,10 @@ class velodyne_vlp16_driver : public flame::component::object {
         virtual ~velodyne_vlp16_driver() = default;
 
         /* default interface functions */
-        bool on_init() override;
-        void on_loop() override;
-        void on_close() override;
-        void on_message() override;
+        bool onInit() override;
+        void onLoop() override;
+        void onClose() override;
+        void onData(flame::component::ZData& data) override;
 
     private:
         VLP16Reader* g_reader = nullptr;

@@ -112,10 +112,15 @@ $(BUILDDIR)synerex.rtk.receiver.o:	$(CURRENT_DIR)/components/synerex.rtk.receive
 $(BUILDDIR)serial.o:	$(CURRENT_DIR)/components/synerex.rtk.receiver/serial/serial.cc
 									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
 
+mobility_drive_control.comp:	$(BUILDDIR)mobility.drive.control.o
+							$(CC) $(LDFLAGS) $(LD_LIBRARY_PATH) -shared -o $(BUILDDIR)/patroller/$@ $^ $(LDFLAGS) $(LDLIBS) 
+$(BUILDDIR)mobility.drive.control.o:	$(CURRENT_DIR)/components/mobility.drive.control/mobility.drive.control.cc
+									$(CC) $(CXXFLAGS) $(INCLUDE_DIR) -c $^ -o $@
+
 
 all : flame
 
-patroller : flame basler_gige_cam_grabber.comp baumner_inclination_sensor.comp
+patroller : flame basler_gige_cam_grabber.comp baumner_inclination_sensor.comp mobility_drive_control.comp
 
 deploy : FORCE
 	cp $(BUILDDIR)/*.comp $(BUILDDIR)/flame $(BINDIR)

@@ -13,7 +13,7 @@ flame::component::object* create(){ if(!_instance) _instance = new baumer_inclin
 void release(){ if(_instance){ delete _instance; _instance = nullptr; }}
 
 
-bool baumer_inclination_sensor::on_init(){
+bool baumer_inclination_sensor::onInit(){
 
     try{
 
@@ -85,12 +85,12 @@ bool baumer_inclination_sensor::on_init(){
     return true;
 }
 
-void baumer_inclination_sensor::on_loop(){
+void baumer_inclination_sensor::onLoop(){
 
 }
 
 
-void baumer_inclination_sensor::on_close(){
+void baumer_inclination_sensor::onClose(){
 
     _worker_stop.store(true);
     if(_can_rcv_worker.joinable()){
@@ -108,7 +108,7 @@ void baumer_inclination_sensor::on_close(){
 
 }
 
-void baumer_inclination_sensor::on_message(){
+void baumer_inclination_sensor::onData(flame::component::ZData& data){
     
 }
 

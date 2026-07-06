@@ -1,0 +1,25 @@
+{
+    "rt_cycle_ns" : 1000000000,
+    "verbose" : 1,
+
+    "parameters": {
+        "can_channel": 0,
+        "can_bitrate": 500000,
+        "max_speed_limit_kmh": 5.0,
+        "width_mm": 1000,
+        "length_mm": 2055,
+        "height_mm": 640,
+        "wheelbase_mm": 1150,
+        "min_turning_radius_m": 2.5,
+        "max_steering_angle_deg": 24.7
+    },
+    "dataport":{
+        "status" : {
+            "transport" : "tcp",
+            "host" : "*",
+            "port" : 5101,
+            "socket_type" : "pub",
+            "queue_size" : 1000
+        }
+    }
+}

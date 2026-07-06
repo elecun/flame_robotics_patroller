@@ -13,7 +13,7 @@ flame::component::object* create(){ if(!_instance) _instance = new synerex_rtk_r
 void release(){ if(_instance){ delete _instance; _instance = nullptr; }}
 
 
-bool synerex_rtk_receiver::on_init(){
+bool synerex_rtk_receiver::onInit(){
 
     try{
 
@@ -37,18 +37,18 @@ bool synerex_rtk_receiver::on_init(){
     return true;
 }
 
-void synerex_rtk_receiver::on_loop(){
+void synerex_rtk_receiver::onLoop(){
 
 }
 
 
-void synerex_rtk_receiver::on_close(){
+void synerex_rtk_receiver::onClose(){
 
     _bus.close();
 
 }
 
-void synerex_rtk_receiver::on_message(){
+void synerex_rtk_receiver::onData(flame::component::ZData& data){
     
 }
 

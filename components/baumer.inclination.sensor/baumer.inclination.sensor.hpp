@@ -37,10 +37,10 @@ class baumer_inclination_sensor : public flame::component::object {
         virtual ~baumer_inclination_sensor() = default;
 
         /* default interface functions */
-        bool on_init() override;
-        void on_loop() override;
-        void on_close() override;
-        void on_message() override;
+        bool onInit() override;
+        void onLoop() override;
+        void onClose() override;
+        void onData(flame::component::ZData& data) override;
 
     private:
         /* CAN Receive Task function */

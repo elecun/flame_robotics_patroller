@@ -13,7 +13,7 @@ flame::component::object* create(){ if(!_instance) _instance = new ouster_os0_dr
 void release(){ if(_instance){ delete _instance; _instance = nullptr; }}
 
 
-bool ouster_os0_driver::on_init(){
+bool ouster_os0_driver::onInit(){
 
     try{
 
@@ -33,7 +33,7 @@ bool ouster_os0_driver::on_init(){
     return true;
 }
 
-void ouster_os0_driver::on_loop(){
+void ouster_os0_driver::onLoop(){
 
     // reader.set_cycle_callback([](const std::vector<VLP16Packet>& cycle){
     //     // 1사이클 수신 완료 시 처리(파싱/포인트 변환/저장 등)
@@ -43,13 +43,13 @@ void ouster_os0_driver::on_loop(){
 }
 
 
-void ouster_os0_driver::on_close(){
+void ouster_os0_driver::onClose(){
 
     _bus.close();
 
 }
 
-void ouster_os0_driver::on_message(){
+void ouster_os0_driver::onData(flame::component::ZData& data){
     
 }
 
