@@ -55,6 +55,25 @@ class PatrolWindow(QMainWindow):
                     if config.get("fullscreen", False):
                         self.showFullScreen()
 
+                    modern_qss = """
+                    QMainWindow { background-color: #1e1e2e; }
+                    QFrame { background-color: #1e1e2e; border: none; }
+                    QWidget { background-color: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', 'Inter', sans-serif; font-size: 13px; }
+                    QPushButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; padding: 8px 16px; font-weight: bold; }
+                    QPushButton:hover { background-color: #45475a; border: 1px solid #585b70; }
+                    QPushButton:pressed { background-color: #585b70; }
+                    QTabWidget::pane { border: 1px solid #313244; background: #1e1e2e; border-radius: 6px; }
+                    QTabBar::tab { background: #181825; color: #a6adc8; padding: 10px 20px; border: 1px solid #313244; border-bottom: none; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px; }
+                    QTabBar::tab:selected { background: #1e1e2e; color: #cdd6f4; border-bottom: 2px solid #89b4fa; }
+                    QTabBar::tab:hover:!selected { background: #313244; }
+                    QLabel { color: #cdd6f4; background: transparent; font-weight: 500; }
+                    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background-color: #11111b; border: 1px solid #313244; border-radius: 4px; padding: 6px; color: #cdd6f4; }
+                    QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #89b4fa; }
+                    QProgressBar { background-color: #11111b; border: 1px solid #313244; border-radius: 4px; text-align: center; }
+                    QProgressBar::chunk { background-color: #89b4fa; border-radius: 3px; }
+                    """
+                    self.setStyleSheet(modern_qss)
+
                     # Global shortcuts for Exit
                     QShortcut(QKeySequence("Esc"), self, self.close)
                     QShortcut(QKeySequence("Q"), self, self.close)
