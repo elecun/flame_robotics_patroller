@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
+"""
+APROS (Autonomous Patrol Robot Operating System) Entry Point.
+Launches the patrol robot control system and Viser 3D visualization dashboard.
+"""
 import argparse
 import configparser
 import os
 import sys
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -54,7 +59,35 @@ def main():
         for key, value in config.items(section):
             print(f"  {key} = {value}")
     print("==================================================")
-    print("[APROS] System initialized successfully and ready for control.")
+    
+    host = config.get("NETWORK", "host", fallback="0.0.0.0")
+    port = config.getint("NETWORK", "port", fallback=8080)
+    can_channel = config.get("CAN", "channel", fallback="can0")
+
+    # Initialize core MobileDriveS1 CAN controller & Viser server
+    from core.device.mobile_drive_s1 import MobileDriveS1
+    from core.viser_server import ViserServerManager
+
+    robot = MobileDriveS1(
+        name=config.get("ROBOT", "robot_id", fallback="patrol_robot_01"),
+        channel=can_channel
+    )
+    robot.connect()
+
+    viser_mgr = ViserServerManager(host=host, port=port, robot=robot)
+    viser_mgr.start()
+
+    print(f"[APROS] System initialized successfully. Web UI server listening on http://{host}:{port}")
+    print("[APROS] Press Ctrl+C to exit.")
+
+    try:
+        while True:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\n[APROS] Shutting down APROS system...")
+        viser_mgr.stop()
+        robot.disconnect()
+        print("[APROS] Terminated cleanly.")
 
 if __name__ == "__main__":
     main()

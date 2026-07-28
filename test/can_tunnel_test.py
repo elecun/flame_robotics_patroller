@@ -58,12 +58,12 @@ def transmit_thread_task(ch_tx):
             
     print("[*] Transmitter thread stopped.")
 
-def receive_thread_task(ch_rx):
+def receive_thread_task(ch_rx, ch_name="CH1"):
     """
     Asynchronous receiver task running on a separate thread.
-    Listens on CH1 and logs received CAN FD messages.
+    Listens on the specified channel and logs received CAN FD messages.
     """
-    print(f"[*] Receiver thread started on Kvaser Channel {CH1}...")
+    print(f"[*] Receiver thread started on Kvaser Channel ({ch_name})...")
     while not stop_event.is_set():
         try:
             # Read from bus (timeout in milliseconds)
@@ -72,18 +72,18 @@ def receive_thread_task(ch_rx):
             # Print the received message as a log
             data_hex = frame.data.hex().upper()
             spaced_data = " ".join(data_hex[i:i+2] for i in range(0, len(data_hex), 2))
-            print(f"[RX] Received -> ID: 0x{frame.id:03X} | DLC: {len(frame.data)} | Flags: {frame.flags} | Data: {spaced_data}")
+            print(f"[RX {ch_name}] Received -> ID: 0x{frame.id:03X} | DLC: {len(frame.data)} | Flags: {frame.flags} | Data: {spaced_data}")
             
         except canlib.CanNoMsg:
             # No message available in this cycle, continue polling
             continue
         except canlib.CanError as e:
-            print(f"[RX Error] CANlib Exception: {e}")
+            print(f"[RX {ch_name} Error] CANlib Exception: {e}")
             break
         except Exception as e:
-            print(f"[RX Error] Unexpected exception: {e}")
+            print(f"[RX {ch_name} Error] Unexpected exception: {e}")
             break
-    print("[*] Receiver thread stopped.")
+    print(f"[*] Receiver thread on {ch_name} stopped.")
 
 def main():
     print("==================================================")
@@ -124,14 +124,18 @@ def main():
         sys.exit(1)
         
     # Start transmitter and receiver threads
+    # CH1 for TX, CH0 for RX (or listening on CH0)
     tx_thread = threading.Thread(target=transmit_thread_task, args=(ch_tx,))
-    rx_thread = threading.Thread(target=receive_thread_task, args=(ch_rx,))
+    rx_thread_ch0 = threading.Thread(target=receive_thread_task, args=(ch_tx,), kwargs={"ch_name": "CH0"})
+    rx_thread_ch1 = threading.Thread(target=receive_thread_task, args=(ch_rx,), kwargs={"ch_name": "CH1"})
     tx_thread.daemon = True
-    rx_thread.daemon = True
+    rx_thread_ch0.daemon = True
+    rx_thread_ch1.daemon = True
     
     print("[*] Spawning TX and RX threads. Press Ctrl+C to stop.")
     tx_thread.start()
-    rx_thread.start()
+    rx_thread_ch0.start()
+    rx_thread_ch1.start()
     
     try:
         while True:
@@ -142,7 +146,8 @@ def main():
         # Signal threads to stop
         stop_event.set()
         tx_thread.join(timeout=1.0)
-        rx_thread.join(timeout=1.0)
+        rx_thread_ch0.join(timeout=1.0)
+        rx_thread_ch1.join(timeout=1.0)
         
         # Go Bus Off and close channels
         print("[*] Going Bus OFF & closing channels...")
