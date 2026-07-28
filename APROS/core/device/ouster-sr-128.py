@@ -9,6 +9,10 @@ import math
 import numpy as np
 from typing import Optional, Tuple, Dict, Any, List
 from core.device.base import BaseDevice
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
 
 class OusterSR128(BaseDevice):
     """
@@ -51,12 +55,12 @@ class OusterSR128(BaseDevice):
             self.sock.bind(("", self.port))
             self.sock.settimeout(1.0)
             self.is_connected = True
-            print(f"[{self.name}] Listening for Ouster 128-channel data on UDP port {self.port} (Default IP: {self.ip})")
+            logger.info(f"[{self.name}] Listening for Ouster 128-channel data on UDP port {self.port} (Default IP: {self.ip})")
             return True
         except Exception as e:
             self.is_connected = False
             self.sock = None
-            print(f"[{self.name}] Failed to open UDP socket: {e}")
+            logger.error(f"[{self.name}] Failed to open UDP socket: {e}")
             return False
 
     def disconnect(self) -> bool:
@@ -70,7 +74,7 @@ class OusterSR128(BaseDevice):
                 pass
             self.sock = None
         self.is_connected = False
-        print(f"[{self.name}] Disconnected.")
+        logger.info(f"[{self.name}] Disconnected.")
         return True
 
     def filter_points(self, points: np.ndarray) -> np.ndarray:
@@ -123,7 +127,7 @@ class OusterSR128(BaseDevice):
         except socket.timeout:
             return np.empty((0, 4), dtype=np.float32)
         except Exception as e:
-            print(f"[{self.name}] Error receiving packet: {e}")
+            logger.error(f"[{self.name}] Error receiving packet: {e}")
             return np.empty((0, 4), dtype=np.float32)
 
     def get_status(self) -> Dict[str, Any]:

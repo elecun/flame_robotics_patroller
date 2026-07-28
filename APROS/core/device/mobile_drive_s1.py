@@ -6,8 +6,21 @@ Protocol referenced from PatrolCar_SlideBar.py (CAN ID 0x502).
 import time
 import threading
 import numpy as np
-from canlib import canlib, Frame
 from core.device.base import BaseDevice
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
+try:
+    from canlib import canlib, Frame
+    CANLIB_AVAILABLE = True
+except (ImportError, Exception, BaseException) as e:
+    CANLIB_AVAILABLE = False
+    canlib = None
+    Frame = None
+    logger.error(f"[MobileDriveS1] CANlib (libcanlib.so/dll) is unavailable on this system ({e}). Disabling CAN hardware interface.")
+
+
 
 class CANParser:
     """
@@ -119,12 +132,18 @@ class MobileDriveS1(BaseDevice):
 
     def connect(self) -> bool:
         """Connect to Kvaser CANlib channel 0 in Standard CAN mode (500k) and start TX/RX threads."""
+        if not CANLIB_AVAILABLE or canlib is None:
+            self.is_connected = False
+            self.ch = None
+            logger.warning(f"[{self.name}] CANlib is not available on this system. Operating without physical CAN hardware.")
+            return False
         try:
+
             self.ch = canlib.openChannel(self.channel, flags=canlib.Open.ACCEPT_VIRTUAL)
             self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
             self.ch.busOn()
             self.is_connected = True
-            print(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (Standard CAN, 500k).")
+            logger.info(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (Standard CAN, 500k).")
             self._start_threads()
             return True
         except canlib.CanError as e:
@@ -133,18 +152,18 @@ class MobileDriveS1(BaseDevice):
                 self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
                 self.ch.busOn()
                 self.is_connected = True
-                print(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (Standard CAN, 500k).")
+                logger.info(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (Standard CAN, 500k).")
                 self._start_threads()
                 return True
             except Exception as ex:
                 self.is_connected = False
                 self.ch = None
-                print(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {ex}")
+                logger.error(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {ex}")
                 return False
         except Exception as e:
             self.is_connected = False
             self.ch = None
-            print(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {e}")
+            logger.error(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {e}")
             return False
 
     def disconnect(self) -> bool:
@@ -158,7 +177,7 @@ class MobileDriveS1(BaseDevice):
                 pass
             self.ch = None
         self.is_connected = False
-        print(f"[{self.name}] Disconnected from Kvaser CAN bus.")
+        logger.info(f"[{self.name}] Disconnected from Kvaser CAN bus.")
         return True
 
     def _start_threads(self):
@@ -185,7 +204,7 @@ class MobileDriveS1(BaseDevice):
 
     def _rx_loop(self):
         """Background thread loop to read and parse incoming CAN 0 messages."""
-        print(f"[{self.name}] RX Receiver thread started on CAN Channel {self.channel}...")
+        logger.info(f"[{self.name}] RX Receiver thread started on CAN Channel {self.channel}...")
         while self._rx_running:
             if not self.is_connected or self.ch is None:
                 time.sleep(0.1)
@@ -202,7 +221,7 @@ class MobileDriveS1(BaseDevice):
                 time.sleep(0.1)
             except Exception:
                 time.sleep(0.1)
-        print(f"[{self.name}] RX Receiver thread stopped.")
+        logger.info(f"[{self.name}] RX Receiver thread stopped.")
 
     def _periodic_tx_loop(self):
         """
@@ -258,9 +277,9 @@ class MobileDriveS1(BaseDevice):
             if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
                 pass
             else:
-                print(f"[{self.name}] CAN Error sending frames: {e}")
+                logger.error(f"[{self.name}] CAN Error sending frames: {e}")
         except Exception as e:
-            print(f"[{self.name}] Unexpected error sending CAN frames: {e}")
+            logger.error(f"[{self.name}] Unexpected error sending CAN frames: {e}")
 
     def degree_to_can_cmd(self, angle_deg: float) -> int:
         """

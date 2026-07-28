@@ -8,3 +8,5 @@ websockets>=13.0
 zstandard>=0.20.0
 python-can>=4.0.0
 zmp
+canlib
+colorlog

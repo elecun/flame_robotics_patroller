@@ -7,6 +7,10 @@ import importlib
 from typing import Dict, Any, Optional
 from core.device.base import BaseDevice
 from core.plugin.base import BasePlugin
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
 
 
 class IAEPatrolV1:
@@ -67,7 +71,7 @@ class IAEPatrolV1:
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""
         if dev_name not in self.DEVICE_MAP:
-            print(f"[IAEPatrolV1] Warning: Unknown device '{dev_name}' specified in config.")
+            logger.warning(f"[IAEPatrolV1] Unknown device '{dev_name}' specified in config.")
             return None
 
         file_name, class_name = self.DEVICE_MAP[dev_name]
@@ -77,7 +81,7 @@ class IAEPatrolV1:
             mod = importlib.import_module(module_path)
             cls = getattr(mod, class_name)
         except Exception as e:
-            print(f"[IAEPatrolV1] Error importing device module '{file_name}': {e}")
+            logger.error(f"[IAEPatrolV1] Error importing device module '{file_name}': {e}")
             return None
 
         # Read specific device section settings from config if available
@@ -101,10 +105,10 @@ class IAEPatrolV1:
 
         try:
             instance = cls(name=dev_name, **kwargs)
-            print(f"[IAEPatrolV1] Loaded device '{dev_name}' ({class_name}) with parameters: {kwargs}")
+            logger.info(f"[IAEPatrolV1] Loaded device '{dev_name}' ({class_name}) with parameters: {kwargs}")
             return instance
         except Exception as e:
-            print(f"[IAEPatrolV1] Error initializing device '{dev_name}': {e}")
+            logger.error(f"[IAEPatrolV1] Error initializing device '{dev_name}': {e}")
             return None
 
     def set_zpipe_context(self, zpipe_ctx: Any):
@@ -125,7 +129,7 @@ class IAEPatrolV1:
         tx = status.get('tilt_x', 0.0)
         tz = status.get('tilt_z', 0.0)
         temp = status.get('temperature', 0)
-        print(f"[IAEPatrolV1 Log] Received Baumer Inclination Sensor data: Tilt_X={tx:.2f}°, Tilt_Z={tz:.2f}°, Temp={temp}℃")
+        logger.info(f"[IAEPatrolV1 Log] Received Baumer Inclination Sensor data: Tilt_X={tx:.2f}°, Tilt_Z={tz:.2f}°, Temp={temp}℃")
         # Update drive base or platform telemetry status
         if self.drive_base and hasattr(self.drive_base, 'parsed_can_status'):
             self.drive_base.parsed_can_status["Baumer Incline Tilt X (deg)"] = f"{tx:.2f}"
@@ -135,10 +139,10 @@ class IAEPatrolV1:
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
         success = True
-        print("[IAEPatrolV1] Connecting platform devices...")
+        logger.info("[IAEPatrolV1] Connecting platform devices...")
         for name, device in self.devices.items():
             res = device.connect()
-            print(f"  - Device '{name}': {'Connected' if res else 'Connection failed / Standby'}")
+            logger.info(f"  - Device '{name}': {'Connected' if res else 'Connection failed / Standby'}")
             if not res and name == "mobile_drive_s1":
                 success = False
 
@@ -155,7 +159,7 @@ class IAEPatrolV1:
                 )
                 self.vlp16_connector.start()
             except Exception as e:
-                print(f"[IAEPatrolV1] Error initializing VLP16_Connector: {e}")
+                logger.error(f"[IAEPatrolV1] Error initializing VLP16_Connector: {e}")
 
         # Initialize BaumerIncline_Connector for IPC reception
         if "baumer_incline" in self.devices:
@@ -170,13 +174,13 @@ class IAEPatrolV1:
                 )
                 self.baumer_connector.start()
             except Exception as e:
-                print(f"[IAEPatrolV1] Error initializing BaumerIncline_Connector: {e}")
+                logger.error(f"[IAEPatrolV1] Error initializing BaumerIncline_Connector: {e}")
 
         return success
 
     def disconnect(self) -> bool:
         """Disconnect all platform devices and stop connectors."""
-        print("[IAEPatrolV1] Disconnecting platform devices...")
+        logger.info("[IAEPatrolV1] Disconnecting platform devices...")
         if self.vlp16_connector:
             try:
                 self.vlp16_connector.stop()

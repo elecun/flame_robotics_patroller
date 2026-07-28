@@ -8,6 +8,10 @@ import numpy as np
 import viser
 import viser.transforms as tf
 from core.device.mobile_drive_s1 import MobileDriveS1
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
 
 class ViserServerManager:
     def __init__(self, host: str = "0.0.0.0", port: int = 8080, robot: MobileDriveS1 = None):
@@ -22,10 +26,7 @@ class ViserServerManager:
 
         # Title configuration & Theme setup
         self.server.gui.configure_theme(
-            titlebar_content=viser.theme.TitlebarConfig(
-                buttons=(),
-                image=None
-            ),
+            titlebar_content=None,
             control_layout="floating",
             control_width="large",
             dark_mode=True,
@@ -33,6 +34,167 @@ class ViserServerManager:
             brand_color=(30, 144, 255)
         )
         self.server.gui.set_panel_label("APROS Control Center")
+
+        # Custom Top Titlebar Header (Left: APROS, Right: Action Button)
+        titlebar_html = """
+        <div id="apros-top-titlebar" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 48px;
+            z-index: 10000;
+            background: rgba(15, 20, 32, 0.95);
+            border-bottom: 1px solid rgba(30, 144, 255, 0.3);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        ">
+            <!-- Left: APROS Brand Title -->
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="
+                    color: #00E676;
+                    font-weight: 900;
+                    font-size: 20px;
+                    letter-spacing: 1.5px;
+                    text-shadow: 0 0 10px rgba(0,230,118,0.4);
+                ">APROS</span>
+                <span style="color: #78909C; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot OS</span>
+            </div>
+
+            <!-- Right: Open Window Button -->
+            <button id="apros-titlebar-btn" onclick="
+                var modal = document.getElementById('apros-custom-modal');
+                if(modal) modal.style.display = 'flex';
+            " style="
+                background: linear-gradient(135deg, #1E90FF, #00E676);
+                border: none;
+                color: #FFFFFF;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 7px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
+                transition: all 0.2s ease;
+            " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1.0'">
+                ⚙️ Open Window
+            </button>
+        </div>
+
+        <!-- Custom Floating Independent Window (Non-blocking overlay, bottom-left, draggable) -->
+        <div id="apros-custom-modal" style="
+            position: fixed;
+            bottom: 25px;
+            left: 25px;
+            width: 520px;
+            height: 340px;
+            z-index: 15000;
+            background: rgba(18, 24, 38, 0.94);
+            border: 1px solid rgba(30, 144, 255, 0.6);
+            border-radius: 12px;
+            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            resize: both;
+        ">
+
+            <!-- Window Header (Draggable Handle) -->
+            <div id="apros-modal-header" style="
+                padding: 12px 18px;
+                background: rgba(255, 255, 255, 0.04);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                cursor: move;
+                user-select: none;
+            ">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #00E676; font-weight: bold; font-size: 15px;">🖥️ APROS Floating Window</span>
+                    <span style="font-size: 11px; color: #78909C; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">Independent</span>
+                </div>
+                <button onclick="document.getElementById('apros-custom-modal').style.display='none'" style="
+                    background: transparent;
+                    border: none;
+                    color: #FF5252;
+                    font-weight: bold;
+                    font-size: 16px;
+                    cursor: pointer;
+                    padding: 0 4px;
+                ">✕</button>
+            </div>
+            <!-- Window Body (Container) -->
+            <div style="
+                flex: 1;
+                padding: 20px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                color: #78909C;
+                font-size: 14px;
+                text-align: center;
+                border: 1px dashed rgba(255, 255, 255, 0.12);
+                margin: 14px;
+                border-radius: 8px;
+                background: rgba(0, 0, 0, 0.15);
+            ">
+                (독립 플로팅 빈 창입니다 / Floating Blank Window Container)
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            var win = document.getElementById('apros-custom-modal');
+            var header = document.getElementById('apros-modal-header');
+            if (!win || !header || win.dataset.dragInit) return;
+            win.dataset.dragInit = "true";
+
+            var isDragging = false, startX, startY, initialLeft, initialTop;
+            header.addEventListener('mousedown', function(e) {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                var rect = win.getBoundingClientRect();
+                initialLeft = rect.left;
+                initialTop = rect.top;
+                win.style.right = 'auto';
+                win.style.bottom = 'auto';
+                win.style.left = initialLeft + 'px';
+                win.style.top = initialTop + 'px';
+            });
+            document.addEventListener('mousemove', function(e) {
+                if (!isDragging) return;
+                var dx = e.clientX - startX;
+                var dy = e.clientY - startY;
+                win.style.left = (initialLeft + dx) + 'px';
+                win.style.top = (initialTop + dy) + 'px';
+            });
+            document.addEventListener('mouseup', function() { isDragging = false; });
+        })();
+        </script>
+
+        <style>
+            /* Adjust body & root top padding for custom 48px TitleBar */
+            body, #root, main {
+                padding-top: 48px !important;
+            }
+            /* Hide default empty header if any */
+            header, [class*="mantine-Header-root"] {
+                display: none !important;
+            }
+        </style>
+        """
+        self.server.gui.add_html(titlebar_html)
+
+
+
         
         # Scale: Robot dimensions 1000mm W, 2055mm L, 640mm H => 1.0m W, 2.055m L, 0.64m H
         self.robot_width = 1.000   # meters (1000 mm)
@@ -176,6 +338,12 @@ class ViserServerManager:
 
         # Window 2: Mission Control Tab
         with tabs.add_tab("Mission Control", viser.Icon.MAP_PIN):
+            # 1. Top Panel Folder & Controls
+            panel_folder = client.gui.add_folder("⚙️ Panel", expand_by_default=True)
+            with panel_folder:
+                camera_btn = client.gui.add_button("📹 Camera Toggle")
+
+
             mission_status_md = client.gui.add_markdown(self._format_mission_center_text())
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
                 mission_select = client.gui.add_dropdown(
@@ -186,6 +354,109 @@ class ViserServerManager:
                 start_mission_btn = client.gui.add_button("▶️ Start Mission", color="green")
                 pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
                 abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
+
+            # 2. Floating/Dockable Camera View Panel (Bottom-Left, Width: 640px, Toggle via Camera button)
+            dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
+            # Add grid pattern graphics to dummy camera feed
+            dummy_cam_img[::30, :] = [40, 40, 50]
+            dummy_cam_img[:, ::30] = [40, 40, 50]
+
+            camera_html_content = """
+            <div id="camera-floating-panel" style="
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                width: 640px;
+                z-index: 9999;
+                background: rgba(18, 24, 38, 0.92);
+                border: 1px solid rgba(0, 230, 118, 0.4);
+                border-radius: 10px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+                backdrop-filter: blur(8px);
+                padding: 12px;
+                box-sizing: border-box;
+                font-family: sans-serif;
+                display: none;
+                resize: both;
+                overflow: hidden;
+            ">
+                <div style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                    padding-bottom: 6px;
+                    border-bottom: 1px solid rgba(255,255,255,0.1);
+                    cursor: move;
+                ">
+                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">📹 Live Front IP Camera Feed (640px)</span>
+                    <button onclick="document.getElementById('camera-floating-panel').style.display='none'" style="
+                        background: transparent;
+                        border: none;
+                        color: #FF5252;
+                        font-weight: bold;
+                        cursor: pointer;
+                        font-size: 16px;
+                    ">✕</button>
+                </div>
+                <div style="width: 100%; height: auto; text-align: center;">
+                    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='616' height='360' viewBox='0 0 616 360'><rect width='100%' height='100%' fill='%2310141f'/><grid/><text x='50%' y='45%' fill='%2300E676' font-family='sans-serif' font-size='18' text-anchor='middle'>📷 FRONT IP CAMERA LIVE STREAM (640px)</text><text x='50%' y='55%' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle'>Resolution: 1920x1080 @ 30fps | Stream: RTSP/H.264</text></svg>" style="width: 100%; border-radius: 6px;" />
+                </div>
+            </div>
+            <script>
+            (function() {
+                var el = document.getElementById('camera-floating-panel');
+                if (!el || el.dataset.dragInit) return;
+                el.dataset.dragInit = "true";
+                var header = el.firstElementChild;
+                var isDragging = false, startX, startY, initialLeft, initialTop;
+                header.addEventListener('mousedown', function(e) {
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    var rect = el.getBoundingClientRect();
+                    initialLeft = rect.left;
+                    initialTop = rect.top;
+                    el.style.bottom = 'auto';
+                    el.style.left = initialLeft + 'px';
+                    el.style.top = initialTop + 'px';
+                });
+                document.addEventListener('mousemove', function(e) {
+                    if (!isDragging) return;
+                    var dx = e.clientX - startX;
+                    var dy = e.clientY - startY;
+                    el.style.left = (initialLeft + dx) + 'px';
+                    el.style.top = (initialTop + dy) + 'px';
+                });
+                document.addEventListener('mouseup', function() { isDragging = false; });
+            })();
+            </script>
+            """
+            camera_panel_html = client.gui.add_html(camera_html_content)
+
+            camera_folder = client.gui.add_folder("📹 Camera View (Docked)", visible=False)
+            with camera_folder:
+                client.gui.add_markdown("<div style='text-align: center; color: #00E676;'><b>📷 Live Camera Stream (Width: 640px)</b></div>")
+                client.gui.add_image(dummy_cam_img, label="Front Camera Stream")
+
+        # Camera Toggle Button Callback
+        @camera_btn.on_click
+        def _(_):
+            camera_folder.visible = not camera_folder.visible
+            # Also toggle floating panel DOM display
+            toggle_js = """
+            <script>
+            (function() {
+                var el = document.getElementById('camera-floating-panel');
+                if (el) {
+                    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+                }
+            })();
+            </script>
+            """
+            client.gui.add_html(toggle_js)
+
+
 
         # Control Callbacks
         @speed_slider.on_update
@@ -341,7 +612,8 @@ class ViserServerManager:
         self._running = True
         self._thread = threading.Thread(target=self._simulation_loop, daemon=True)
         self._thread.start()
-        print(f"[APROS Viser UI] Server started on http://{self.host}:{self.port}")
+        logger.info(f"[APROS Viser UI] Server started on http://{self.host}:{self.port}")
+
 
     def stop(self):
         self._running = False

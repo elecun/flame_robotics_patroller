@@ -8,6 +8,10 @@ import heapq
 from typing import List, Tuple, Optional
 import numpy as np
 from core.plugin.global_path_planner import BaseGlobalPathPlanner
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
 
 
 class Node:
@@ -198,8 +202,9 @@ class AStarPlanner(BaseGlobalPathPlanner):
 
         # Reconstruct path from goal_node back to start_node
         if goal_node.parent_index == -1 and not (start_node.x == goal_node.x and start_node.y == goal_node.y):
-            print(f"[{self.name}] Path not found!")
+            logger.warning(f"[{self.name}] Path not found!")
             return None, None
+
 
         rx, ry = [self._calc_grid_position(goal_node.x, self.min_x)], [self._calc_grid_position(goal_node.y, self.min_y)]
         parent_id = goal_node.parent_index

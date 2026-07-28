@@ -15,6 +15,10 @@ import numpy as np
 from typing import Optional, Tuple, Dict, Any, List, Callable
 from core.device.base import BaseDevice
 from core.zpipe import AsyncZSocket, ZPipe
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
 
 
 class VLP16(BaseDevice):
@@ -128,9 +132,9 @@ class VLP16(BaseDevice):
                 if self.pub_socket.create(self.zpipe_context):
                     # Bind PUB socket to IPC address
                     if self.pub_socket.join(transport="ipc", address=self.ipc_address):
-                        print(f"[{self.name}] ZPipe IPC Publisher bound to ipc://{self.ipc_address}")
+                        logger.info(f"[{self.name}] ZPipe IPC Publisher bound to ipc://{self.ipc_address}")
             except Exception as e:
-                print(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
+                logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
 
     def set_angle_filter(self, min_angle: float, max_angle: float):
         """Set azimuth angle filtering range in degrees."""
@@ -147,7 +151,7 @@ class VLP16(BaseDevice):
             self.sock.bind(("", self.port))
             self.sock.settimeout(1.0)
             self.is_connected = True
-            print(f"[{self.name}] Listening for VLP-16 data on UDP port {self.port} (Expected IP: {self.ip})")
+            logger.info(f"[{self.name}] Listening for VLP-16 data on UDP port {self.port} (Expected IP: {self.ip})")
 
             # Start worker thread
             self._start_thread()
@@ -155,7 +159,7 @@ class VLP16(BaseDevice):
         except Exception as e:
             self.is_connected = False
             self.sock = None
-            print(f"[{self.name}] Failed to open UDP socket: {e}")
+            logger.error(f"[{self.name}] Failed to open UDP socket: {e}")
             return False
 
     def disconnect(self) -> bool:
@@ -174,7 +178,7 @@ class VLP16(BaseDevice):
                 pass
             self.pub_socket = None
         self.is_connected = False
-        print(f"[{self.name}] Disconnected.")
+        logger.info(f"[{self.name}] Disconnected.")
         return True
 
     def _start_thread(self):
@@ -182,7 +186,7 @@ class VLP16(BaseDevice):
             self._running = True
             self._thread = threading.Thread(target=self._worker_loop, daemon=True)
             self._thread.start()
-            print(f"[{self.name}] Background processing thread started.")
+            logger.info(f"[{self.name}] Background processing thread started.")
 
     def _stop_thread(self):
         self._running = False
@@ -196,7 +200,7 @@ class VLP16(BaseDevice):
         parses & filters point cloud, and publishes the full revolution scan via ZPipe IPC.
         If no hardware packets are received (timeout), generates a full 360-degree simulated revolution.
         """
-        print(f"[{self.name}] Worker loop active (Revolution cycle mode).")
+        logger.info(f"[{self.name}] Worker loop active (Revolution cycle mode).")
         last_azimuth = -1
         cycle_blocks = []
 
@@ -237,7 +241,7 @@ class VLP16(BaseDevice):
                 payload = pickle.dumps(points)
                 self.pub_socket.dispatch([b"vlp16_points", payload])
             except Exception as e:
-                print(f"[{self.name}] Publish error: {e}")
+                logger.error(f"[{self.name}] Publish error: {e}")
 
     def filter_points(self, points: np.ndarray) -> np.ndarray:
         """
@@ -414,11 +418,11 @@ class VLP16_Connector:
             self.sub_socket.set_message_callback(self._on_multipart_received)
             if self.sub_socket.join(transport="ipc", address=self.ipc_address):
                 self.sub_socket.subscribe(b"vlp16_points")
-                print(f"[VLP16_Connector] Subscribed to ZPipe IPC at ipc://{self.ipc_address}")
+                logger.info(f"[VLP16_Connector] Subscribed to ZPipe IPC at ipc://{self.ipc_address}")
                 return True
             return False
         except Exception as e:
-            print(f"[VLP16_Connector] Failed to connect SUB socket: {e}")
+            logger.error(f"[VLP16_Connector] Failed to connect SUB socket: {e}")
             return False
 
     def stop(self):
@@ -429,7 +433,7 @@ class VLP16_Connector:
             except Exception:
                 pass
             self.sub_socket = None
-        print("[VLP16_Connector] Stopped.")
+        logger.info("[VLP16_Connector] Stopped.")
 
     def _on_multipart_received(self, multipart_data: List[bytes]):
         """Callback invoked when ZPipe receives multipart data."""
@@ -442,4 +446,4 @@ class VLP16_Connector:
                     if self.on_data_received:
                         self.on_data_received(points)
                 except Exception as e:
-                    print(f"[VLP16_Connector] Error unpickling points: {e}")
+                    logger.error(f"[VLP16_Connector] Error unpickling points: {e}")

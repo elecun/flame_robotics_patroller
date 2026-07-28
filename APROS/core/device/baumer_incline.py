@@ -10,9 +10,22 @@ import threading
 import json
 import struct
 from typing import Optional, Dict, Any, List, Callable
-from canlib import canlib, Frame
 from core.device.base import BaseDevice
 from core.zpipe import AsyncZSocket, ZPipe
+from util.logger.console import ConsoleLogger
+
+logger = ConsoleLogger.get_logger()
+
+try:
+    from canlib import canlib, Frame
+    CANLIB_AVAILABLE = True
+except (ImportError, Exception, BaseException) as e:
+    CANLIB_AVAILABLE = False
+    canlib = None
+    Frame = None
+    logger.error(f"[BaumerIncline] CANlib (libcanlib.so/dll) is unavailable on this system ({e}). Disabling CAN hardware interface.")
+
+
 
 
 class BaumerIncline(BaseDevice):
@@ -58,31 +71,37 @@ class BaumerIncline(BaseDevice):
                 self.pub_socket = AsyncZSocket(socket_id=socket_id, pattern="publish")
                 if self.pub_socket.create(self.zpipe_context):
                     if self.pub_socket.join(transport="ipc", address=self.ipc_address):
-                        print(f"[{self.name}] ZPipe IPC Publisher bound to ipc://{self.ipc_address}")
+                        logger.info(f"[{self.name}] ZPipe IPC Publisher bound to ipc://{self.ipc_address}")
             except Exception as e:
-                print(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
+                logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
 
     def connect(self) -> bool:
         """
         Open Kvaser CANlib channel 1 (500k), send CANopen NMT start remote node, and start RX thread.
         """
+        if not CANLIB_AVAILABLE or canlib is None:
+            self.is_connected = False
+            self.ch = None
+            logger.warning(f"[{self.name}] CANlib is not available on this system. Operating without physical CAN hardware.")
+            return False
         try:
+
             self.ch = canlib.openChannel(self.channel, flags=canlib.Open.ACCEPT_VIRTUAL)
             self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
             self.ch.busOn()
             self.is_connected = True
-            print(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (500k).")
+            logger.info(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (500k).")
         except canlib.CanError:
             try:
                 self.ch = canlib.openChannel(self.channel)
                 self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
                 self.ch.busOn()
                 self.is_connected = True
-                print(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (500k).")
+                logger.info(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (500k).")
             except Exception as ex:
                 self.is_connected = False
                 self.ch = None
-                print(f"[{self.name}] Failed to connect to CAN Channel {self.channel}: {ex}")
+                logger.error(f"[{self.name}] Failed to connect to CAN Channel {self.channel}: {ex}")
 
         self._send_nmt_start_remote_node()
         self._start_thread()
@@ -105,7 +124,7 @@ class BaumerIncline(BaseDevice):
                 pass
             self.pub_socket = None
         self.is_connected = False
-        print(f"[{self.name}] Disconnected.")
+        logger.info(f"[{self.name}] Disconnected.")
         return True
 
     def _send_nmt_start_remote_node(self):
@@ -115,16 +134,16 @@ class BaumerIncline(BaseDevice):
                 payload = bytearray([0x01, self.node_id & 0xFF])
                 frame = Frame(id_=0x000, data=payload)
                 self.ch.write(frame)
-                print(f"[{self.name}] Sent CANopen NMT Start command to Node ID {self.node_id}.")
+                logger.info(f"[{self.name}] Sent CANopen NMT Start command to Node ID {self.node_id}.")
             except Exception as e:
-                print(f"[{self.name}] Failed to send NMT command: {e}")
+                logger.error(f"[{self.name}] Failed to send NMT command: {e}")
 
     def _start_thread(self):
         if not self._running:
             self._running = True
             self._thread = threading.Thread(target=self._worker_loop, daemon=True)
             self._thread.start()
-            print(f"[{self.name}] RX Background worker thread started.")
+            logger.info(f"[{self.name}] RX Background worker thread started.")
 
     def _stop_thread(self):
         self._running = False
@@ -178,7 +197,7 @@ class BaumerIncline(BaseDevice):
                 json_payload = json.dumps(status_data, ensure_ascii=False).encode('utf-8')
                 self.pub_socket.dispatch([b"baumer_incline_data", json_payload])
             except Exception as e:
-                print(f"[{self.name}] Publish JSON error: {e}")
+                logger.error(f"[{self.name}] Publish JSON error: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         """Return status dictionary with explicit degree (deg) and Celsius (°C) units."""
@@ -227,11 +246,11 @@ class BaumerIncline_Connector:
             self.sub_socket.set_message_callback(self._on_multipart_received)
             if self.sub_socket.join(transport="ipc", address=self.ipc_address):
                 self.sub_socket.subscribe(b"baumer_incline_data")
-                print(f"[BaumerIncline_Connector] Subscribed to ZPipe IPC at ipc://{self.ipc_address}")
+                logger.info(f"[BaumerIncline_Connector] Subscribed to ZPipe IPC at ipc://{self.ipc_address}")
                 return True
             return False
         except Exception as e:
-            print(f"[BaumerIncline_Connector] Failed to connect SUB socket: {e}")
+            logger.error(f"[BaumerIncline_Connector] Failed to connect SUB socket: {e}")
             return False
 
     def stop(self):
@@ -242,7 +261,7 @@ class BaumerIncline_Connector:
             except Exception:
                 pass
             self.sub_socket = None
-        print("[BaumerIncline_Connector] Stopped.")
+        logger.info("[BaumerIncline_Connector] Stopped.")
 
     def _on_multipart_received(self, multipart_data: List[bytes]):
         """Callback invoked when ZPipe receives JSON multipart data."""
@@ -256,4 +275,4 @@ class BaumerIncline_Connector:
                     if self.on_data_received:
                         self.on_data_received(status_dict)
                 except Exception as e:
-                    print(f"[BaumerIncline_Connector] Error parsing JSON inclination data: {e}")
+                    logger.error(f"[BaumerIncline_Connector] Error parsing JSON inclination data: {e}")
