@@ -21,6 +21,7 @@ class IAEPatrolV1:
         "mobile_drive_s1": ("mobile_drive_s1", "MobileDriveS1"),
         "vlp-16": ("vlp-16", "VLP16"),
         "ouster-sr-128": ("ouster-sr-128", "OusterSR128"),
+        "baumer_incline": ("baumer_incline", "BaumerIncline"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
 
@@ -31,6 +32,10 @@ class IAEPatrolV1:
         self.devices: Dict[str, BaseDevice] = {}
         self.plugins: Dict[str, BasePlugin] = {}
         self.drive_base: Optional[BaseDevice] = None
+        self.vlp16_connector: Optional[Any] = None
+        self.last_vlp16_points: Optional[Any] = None
+        self.baumer_connector: Optional[Any] = None
+        self.last_baumer_status: Optional[Dict[str, Any]] = None
 
         # Parse platform device list from config
         device_names = []
@@ -41,7 +46,7 @@ class IAEPatrolV1:
 
         # Fallback to default devices if config is empty
         if not device_names:
-            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128"]
+            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline"]
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
@@ -77,6 +82,11 @@ class IAEPatrolV1:
 
         # Read specific device section settings from config if available
         kwargs = {}
+        if dev_name in ["vlp-16", "ouster-sr-128", "baumer_incline"]:
+            if self.config and self.config.has_section("PLATFORM"):
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1")
+                kwargs["robot_model"] = robot_model
+
         if self.config and self.config.has_section(dev_name):
             section = self.config[dev_name]
             for key, val in section.items():
@@ -105,8 +115,25 @@ class IAEPatrolV1:
         for plug in self.plugins.values():
             plug.set_zpipe_context(self.zpipe_ctx)
 
+    def _on_vlp16_data_received(self, points: Any):
+        """Callback invoked when VLP16_Connector receives point cloud data over ZPipe IPC."""
+        self.last_vlp16_points = points
+
+    def _on_baumer_data_received(self, status: Dict[str, Any]):
+        """Callback invoked when BaumerIncline_Connector receives tilt data over ZPipe IPC."""
+        self.last_baumer_status = status
+        tx = status.get('tilt_x', 0.0)
+        tz = status.get('tilt_z', 0.0)
+        temp = status.get('temperature', 0)
+        print(f"[IAEPatrolV1 Log] Received Baumer Inclination Sensor data: Tilt_X={tx:.2f}°, Tilt_Z={tz:.2f}°, Temp={temp}℃")
+        # Update drive base or platform telemetry status
+        if self.drive_base and hasattr(self.drive_base, 'parsed_can_status'):
+            self.drive_base.parsed_can_status["Baumer Incline Tilt X (deg)"] = f"{tx:.2f}"
+            self.drive_base.parsed_can_status["Baumer Incline Tilt Z (deg)"] = f"{tz:.2f}"
+            self.drive_base.parsed_can_status["Baumer Incline Temp (℃)"] = f"{temp}"
+
     def connect(self) -> bool:
-        """Connect all configured hardware devices."""
+        """Connect all configured hardware devices and start IPC connectors."""
         success = True
         print("[IAEPatrolV1] Connecting platform devices...")
         for name, device in self.devices.items():
@@ -114,11 +141,54 @@ class IAEPatrolV1:
             print(f"  - Device '{name}': {'Connected' if res else 'Connection failed / Standby'}")
             if not res and name == "mobile_drive_s1":
                 success = False
+
+        # Initialize VLP16_Connector for IPC reception
+        if "vlp-16" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.vlp-16" if __name__.startswith("APROS") else "core.device.vlp-16")
+                VLP16_Connector = getattr(mod, "VLP16_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.vlp16_connector = VLP16_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_vlp16_data_received
+                )
+                self.vlp16_connector.start()
+            except Exception as e:
+                print(f"[IAEPatrolV1] Error initializing VLP16_Connector: {e}")
+
+        # Initialize BaumerIncline_Connector for IPC reception
+        if "baumer_incline" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.baumer_incline" if __name__.startswith("APROS") else "core.device.baumer_incline")
+                BaumerIncline_Connector = getattr(mod, "BaumerIncline_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.baumer_connector = BaumerIncline_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_baumer_data_received
+                )
+                self.baumer_connector.start()
+            except Exception as e:
+                print(f"[IAEPatrolV1] Error initializing BaumerIncline_Connector: {e}")
+
         return success
 
     def disconnect(self) -> bool:
-        """Disconnect all platform devices."""
+        """Disconnect all platform devices and stop connectors."""
         print("[IAEPatrolV1] Disconnecting platform devices...")
+        if self.vlp16_connector:
+            try:
+                self.vlp16_connector.stop()
+            except Exception:
+                pass
+            self.vlp16_connector = None
+        if self.baumer_connector:
+            try:
+                self.baumer_connector.stop()
+            except Exception:
+                pass
+            self.baumer_connector = None
         for name, device in self.devices.items():
             device.disconnect()
         return True

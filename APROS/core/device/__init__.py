@@ -10,8 +10,13 @@ import importlib
 vlp16_mod = importlib.import_module("APROS.core.device.vlp-16" if __name__.startswith("APROS") else "core.device.vlp-16")
 ouster_mod = importlib.import_module("APROS.core.device.ouster-sr-128" if __name__.startswith("APROS") else "core.device.ouster-sr-128")
 
+from core.device.baumer_incline import BaumerIncline, BaumerIncline_Connector
+
 VLP16 = vlp16_mod.VLP16
+VLP16_Connector = vlp16_mod.VLP16_Connector
 OusterSR128 = ouster_mod.OusterSR128
 
-__all__ = ["BaseDevice", "RobotController", "MobileDriveS1", "VLP16", "OusterSR128"]
+__all__ = ["BaseDevice", "RobotController", "MobileDriveS1", "VLP16", "VLP16_Connector", "OusterSR128", "BaumerIncline", "BaumerIncline_Connector"]
+
+
 

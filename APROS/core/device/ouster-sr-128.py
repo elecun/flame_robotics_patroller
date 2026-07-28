@@ -18,12 +18,14 @@ class OusterSR128(BaseDevice):
     def __init__(
         self,
         name: str = "Ouster-SR-128",
+        robot_model: str = "iae_patrol_v1",
         ip: str = "192.168.101.12",
         port: int = 7502,
         min_angle: float = -90.0,
         max_angle: float = 90.0
     ):
         super().__init__(name)
+        self.robot_model = robot_model
         self.ip = ip
         self.port = int(port)
         self.min_angle = float(min_angle)

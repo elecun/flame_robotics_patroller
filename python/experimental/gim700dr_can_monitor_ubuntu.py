@@ -1,147 +1,168 @@
+"""
+GIM700DR CAN Monitor using Kvaser CANlib (CLI/GUI dual support)
+Monitors Baumer GIM700DR CANopen inclination sensor using Kvaser CANlib Python library (canlib).
+Supports channel parameter (default: channel 1, 500k bitrate).
+"""
 
 import sys
 import time
-import can
 import json
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QLabel, QHBoxLayout, QPushButton, QMessageBox
-)
-from PyQt6.QtCore import QTimer
+import os
+
+# Kvaser CANlib driver
+try:
+    from canlib import canlib, Frame
+    HAS_CANLIB = True
+except ImportError:
+    HAS_CANLIB = False
+
+# Fallback python-can library (kvaser/socketcan)
+try:
+    import can
+    HAS_PYTHON_CAN = True
+except ImportError:
+    HAS_PYTHON_CAN = False
+
+if not HAS_CANLIB and not HAS_PYTHON_CAN:
+    print("❌ No CAN driver library available. Install via: pip install kvaser-canlib or pip install python-can")
+    sys.exit(1)
+
+# PyQt fallback / optional GUI detection
+HAS_PYQT = False
+try:
+    from PyQt6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
+        QLabel, QHBoxLayout, QPushButton, QMessageBox
+    )
+    from PyQt6.QtCore import QTimer
+    HAS_PYQT = True
+except ImportError:
+    HAS_PYQT = False
 
 CONFIG_FILE = "can_config.json"
 
-class GIM700DRParser:
-    def __init__(self):
-        self.node_id = 1
-        self.pdo1_id = 0x180 + self.node_id  # Default TPDO1 ID
-        
 
-    def parse(self, can_id, data):
+class GIM700DRParser:
+    def __init__(self, node_id=1):
+        self.node_id = node_id
+        self.pdo1_id = 0x180 + self.node_id  # TPDO1 ID (0x181 for Node 1)
+
+    def parse(self, can_id, data_bytes):
         parsed = {}
-        if can_id == self.pdo1_id:
-            if len(data) >= 6:
-                temp = int.from_bytes(data[0:2], byteorder='little', signed=True)
-                slope_z = int.from_bytes(data[2:4], byteorder='little', signed=True)
-                slope_y = int.from_bytes(data[4:6], byteorder='little', signed=True)
-                resolution = 0.1  # default from object 6000h = 0x64 = 0.1 deg/LSB
-                parsed['Temperature (°C)'] = f"{temp}"
-                parsed['Slope Z (°)'] = f"{slope_z * resolution:.2f}"
-                parsed['Slope Y (°)'] = f"{slope_y * resolution:.2f}"
+        if can_id == self.pdo1_id and len(data_bytes) >= 6:
+            temp = int.from_bytes(data_bytes[0:2], byteorder='little', signed=True)
+            slope_z = int.from_bytes(data_bytes[2:4], byteorder='little', signed=True)
+            slope_y = int.from_bytes(data_bytes[4:6], byteorder='little', signed=True)
+            resolution = 0.1  # 0.1 deg/LSB
+            parsed['Temperature (°C)'] = f"{temp}"
+            parsed['Slope Z (°)'] = f"{slope_z * resolution:.2f}"
+            parsed['Slope Y (°)'] = f"{slope_y * resolution:.2f}"
         return parsed
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("GIM700DR CAN Monitor (Ubuntu)")
-        self.resize(800, 600)
-        self.interface_name = self.load_config()
-        self.parser = GIM700DRParser()
 
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-
-        self.interface_label = QLabel(f"Interface: {self.interface_name}")
-        layout.addWidget(self.interface_label)
-
-        button_layout = QHBoxLayout()
-        self.btn_connect = QPushButton("Connect CAN")
-        self.btn_connect.clicked.connect(self.connect_can)
-        self.btn_disconnect = QPushButton("Disconnect CAN")
-        self.btn_disconnect.clicked.connect(self.disconnect_can)
-        button_layout.addWidget(self.btn_connect)
-        button_layout.addWidget(self.btn_disconnect)
-        layout.addLayout(button_layout)
-
-        self.raw_table = QTableWidget(0, 3)
-        self.raw_table.setHorizontalHeaderLabels(["CAN ID", "DLC", "Data"])
-        layout.addWidget(self.raw_table)
-
-        self.parsed_table = QTableWidget(0, 2)
-        self.parsed_table.setHorizontalHeaderLabels(["Field", "Value"])
-        layout.addWidget(self.parsed_table)
-
-        self.bus = None
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.read_can)
-
-    
-    def send_nmt_start_remote_node(self):
-        try:
-            nmt_msg = can.Message(
-                arbitration_id=0x000,          # NMT 명령은 ID 0x000
-                data=[0x01, self.parser.node_id],  # 0x01 = Start Remote Node
-                is_extended_id=False
-            )
-            self.bus.send(nmt_msg)
-            print(f"✅ Sent NMT Start Remote Node to node {self.parser.node_id}")
-        except Exception as e:
-            print(f"❌ Failed to send NMT Start command: {e}")
-    
-    def load_config(self):
+def load_config_channel():
+    if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f).get("interface", "can0")
-        except:
-            return "can0"
+                cfg = json.load(f)
+                return int(cfg.get("can_channel", cfg.get("channel", 1)))
+        except Exception:
+            pass
+    return 1  # Default to CAN Channel 1 for Baumer Incline Sensor
 
-    def connect_can(self):
-        if self.bus:
-            QMessageBox.warning(self, "Warning", "Already connected.")
+
+def run_canlib_cli_monitor():
+    channel_num = load_config_channel()
+    parser = GIM700DRParser(node_id=1)
+    print(f"🚀 Starting GIM700DR CAN Monitor (Kvaser CANlib Mode) on Channel {channel_num} (500k)...")
+
+    ch = None
+    if HAS_CANLIB:
+        try:
+            ch = canlib.openChannel(channel_num, flags=canlib.Open.ACCEPT_VIRTUAL)
+            ch.setBusParams(canlib.Bitrate.BITRATE_500K)
+            ch.busOn()
+            print(f"✅ Connected to Kvaser CANlib Channel {channel_num}")
+        except canlib.CanError:
+            try:
+                ch = canlib.openChannel(channel_num)
+                ch.setBusParams(canlib.Bitrate.BITRATE_500K)
+                ch.busOn()
+                print(f"✅ Connected to Kvaser CANlib Channel {channel_num}")
+            except Exception as e:
+                print(f"❌ Failed to connect to Kvaser CANlib Channel {channel_num}: {e}")
+                return
+    elif HAS_PYTHON_CAN:
+        try:
+            ch = can.Bus(interface='kvaser', channel=channel_num, bitrate=500000)
+            print(f"✅ Connected via python-can (Kvaser) Channel {channel_num}")
+        except Exception as e:
+            print(f"❌ Failed to connect via python-can (Kvaser): {e}")
             return
-        try:
-            self.bus = can.Bus(channel=self.interface_name, interface='socketcan')
-            time.sleep(0.1)  # 약간의 지연 후 NMT 전송
-            self.send_nmt_start_remote_node()  # <-- 추가된 부분
-            self.timer.start(50)
-            QMessageBox.information(self, "Connected", "CAN interface connected.")
-        except Exception as e:
-            QMessageBox.critical(self, "Connection Error", str(e))
 
-    def disconnect_can(self):
-        if self.bus:
-            self.timer.stop()
-            self.bus.shutdown()
-            self.bus = None
-            QMessageBox.information(self, "Disconnected", "CAN interface disconnected.")
+    # Send CANopen NMT Start Remote Node command
+    try:
+        if HAS_CANLIB and isinstance(ch, canlib.Channel):
+            nmt_frame = Frame(id_=0x000, data=bytearray([0x01, parser.node_id & 0xFF]))
+            ch.write(nmt_frame)
+        elif HAS_PYTHON_CAN:
+            nmt_msg = can.Message(arbitration_id=0x000, data=[0x01, parser.node_id], is_extended_id=False)
+            ch.send(nmt_msg)
+        print(f"✅ Sent NMT Start Remote Node command to Node ID {parser.node_id}")
+    except Exception as e:
+        print(f"⚠️ Failed to send NMT Start command: {e}")
 
-    def read_can(self):
-        try:
-            for _ in range(10):
-                msg = self.bus.recv(timeout=0.01)
+    print("-" * 60)
+    print(" Listening for incoming GIM700DR CAN messages (Press Ctrl+C to stop)...")
+    print("-" * 60)
+
+    try:
+        while True:
+            can_id = None
+            data_bytes = None
+            dlc = 0
+
+            if HAS_CANLIB and isinstance(ch, canlib.Channel):
+                try:
+                    frame = ch.read(timeout=500)
+                    can_id = frame.id
+                    data_bytes = bytes(frame.data)
+                    dlc = len(data_bytes)
+                except canlib.CanNoMsg:
+                    continue
+                except Exception:
+                    continue
+            elif HAS_PYTHON_CAN:
+                msg = ch.recv(timeout=0.5)
                 if msg is None:
-                    break
-                self.update_raw_table(msg)
-                self.update_parsed_table(msg)
-        except Exception as e:
-            print("CAN read error:", e)
+                    continue
+                can_id = msg.arbitration_id
+                data_bytes = bytes(msg.data)
+                dlc = msg.dlc
 
-    def update_raw_table(self, msg):
-        can_id = hex(msg.arbitration_id)
-        row = self.raw_table.rowCount()
-        self.raw_table.insertRow(row)
-        self.raw_table.setItem(row, 0, QTableWidgetItem(can_id))
-        self.raw_table.setItem(row, 1, QTableWidgetItem(str(msg.dlc)))
-        self.raw_table.setItem(row, 2, QTableWidgetItem(msg.data.hex()))
+            if can_id is not None and data_bytes is not None:
+                can_id_hex = hex(can_id)
+                data_hex = data_bytes.hex().upper()
+                parsed = parser.parse(can_id, data_bytes)
 
-    def update_parsed_table(self, msg):
-        parsed = self.parser.parse(msg.arbitration_id, msg.data)
-        for key, value in parsed.items():
-            found = False
-            for row in range(self.parsed_table.rowCount()):
-                if self.parsed_table.item(row, 0).text() == key:
-                    self.parsed_table.setItem(row, 1, QTableWidgetItem(value))
-                    found = True
-                    break
-            if not found:
-                row = self.parsed_table.rowCount()
-                self.parsed_table.insertRow(row)
-                self.parsed_table.setItem(row, 0, QTableWidgetItem(key))
-                self.parsed_table.setItem(row, 1, QTableWidgetItem(value))
+                if parsed:
+                    temp = parsed.get('Temperature (°C)', 'N/A')
+                    slope_z = parsed.get('Slope Z (°)', 'N/A')
+                    slope_y = parsed.get('Slope Y (°)', 'N/A')
+                    print(f"[CAN ID: {can_id_hex} | DLC: {dlc} | DATA: {data_hex}] --> Slope Z (X-tilt): {slope_z}°, Slope Y (Z-tilt): {slope_y}°, Temp: {temp}°C")
+                else:
+                    print(f"[CAN ID: {can_id_hex} | DLC: {dlc} | DATA: {data_hex}]")
+
+    except KeyboardInterrupt:
+        print("\nStopping GIM700DR CAN Monitor...")
+    finally:
+        if HAS_CANLIB and isinstance(ch, canlib.Channel):
+            ch.busOff()
+            ch.close()
+        elif HAS_PYTHON_CAN and ch is not None:
+            ch.shutdown()
+        print("Kvaser CAN channel closed.")
+
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    run_canlib_cli_monitor()

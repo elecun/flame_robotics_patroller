@@ -103,6 +103,15 @@ class ViserServerManager:
             position=(0.0, self.robot_height + 0.04, self.robot_length / 2.0 - 0.15)
         )
 
+        # 4. VLP-16 Point Cloud visualization attached to robot origin
+        self.vlp16_pc_handle = self.server.scene.add_point_cloud(
+            name="/robot/vlp16_points",
+            points=np.zeros((1, 3), dtype=np.float32),
+            colors=np.array([[255, 0, 0]], dtype=np.uint8),
+            point_size=0.015,
+            point_shape="circle"
+        )
+
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
         # Standard Y-Up Camera Orientation
@@ -110,55 +119,73 @@ class ViserServerManager:
         client.camera.position = (0.0, 3.5, -6.0)
         client.camera.look_at = (0.0, 0.0, 3.0)
 
-        # 1. Left Telemetry Dashboard
-        with client.gui.add_folder("📊 Telemetry Dashboard (APROS System)"):
-            dashboard_md = client.gui.add_markdown(self._format_dashboard_text())
+        # Create Tab Group for multiple GUI windows
+        tabs = client.gui.add_tab_group()
 
-        # 2. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
-        with client.gui.add_folder("🚘 Robot Drive Status"):
-            robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
+        # Window 1: APROS Control Tab
+        with tabs.add_tab("APROS Control", viser.Icon.SETTINGS):
+            # 1. Left Telemetry Dashboard
+            with client.gui.add_folder("📊 Telemetry Dashboard (APROS System)"):
+                dashboard_md = client.gui.add_markdown(self._format_dashboard_text())
 
-        # 3. Remote Control GUI Folder
-        with client.gui.add_folder("🎮 Robot Remote Control"):
-            # CAN Connection Status Display
-            can_status_md = client.gui.add_markdown(self._format_can_status_text())
+            # 2. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
+            with client.gui.add_folder("🚘 Robot Drive Status"):
+                robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
 
-            speed_slider = client.gui.add_slider(
-                label="Target Speed (km/h)",
-                min=0.0,
-                max=20.0,
-                step=0.5,
-                initial_value=self.robot.speed
+            # 3. Remote Control GUI Folder
+            with client.gui.add_folder("🎮 Robot Remote Control"):
+                # CAN Connection Status Display
+                can_status_md = client.gui.add_markdown(self._format_can_status_text())
+
+                speed_slider = client.gui.add_slider(
+                    label="Target Speed (km/h)",
+                    min=0.0,
+                    max=20.0,
+                    step=0.5,
+                    initial_value=self.robot.speed
+                )
+                
+                # Steering Angle Slider: -28 deg ~ +28 deg (Step 0.5 deg)
+                steer_slider = client.gui.add_slider(
+                    label="Steering Angle (deg)",
+                    min=-28.0,
+                    max=28.0,
+                    step=0.5,
+                    initial_value=self.robot.steer_angle
+                )
+
+                gear_dropdown = client.gui.add_dropdown(
+                    label="Gear",
+                    options=["P", "D", "N", "R"],
+                    initial_value=self.robot.gear
+                )
+                mode_dropdown = client.gui.add_dropdown(
+                    label="Control Mode",
+                    options=["Manual (Remote)", "Auto (Autonomous)", "Emergency Stop"],
+                    initial_value="Manual (Remote)" if self.robot.drive_mode.startswith("Manual") else self.robot.drive_mode
+                )
+                # Initial disabled state based on Control Mode (Manual enables, Auto/E-stop disables)
+                is_manual = mode_dropdown.value.startswith("Manual")
+                speed_slider.disabled = not is_manual
+                steer_slider.disabled = not is_manual
+
+            estop_button = client.gui.add_button(
+                label="🚨 EMERGENCY STOP (P Gear & STOP)",
+                color="red"
             )
-            
-            # Steering Angle Slider: -28 deg ~ +28 deg (Step 0.5 deg)
-            steer_slider = client.gui.add_slider(
-                label="Steering Angle (deg)",
-                min=-28.0,
-                max=28.0,
-                step=0.5,
-                initial_value=self.robot.steer_angle
-            )
 
-            gear_dropdown = client.gui.add_dropdown(
-                label="Gear",
-                options=["P", "D", "N", "R"],
-                initial_value=self.robot.gear
-            )
-            mode_dropdown = client.gui.add_dropdown(
-                label="Control Mode",
-                options=["Manual (Remote)", "Auto (Autonomous)", "Emergency Stop"],
-                initial_value="Manual (Remote)" if self.robot.drive_mode.startswith("Manual") else self.robot.drive_mode
-            )
-            # Initial disabled state based on Control Mode (Manual enables, Auto/E-stop disables)
-            is_manual = mode_dropdown.value.startswith("Manual")
-            speed_slider.disabled = not is_manual
-            steer_slider.disabled = not is_manual
-
-        estop_button = client.gui.add_button(
-            label="🚨 EMERGENCY STOP (P Gear & STOP)",
-            color="red"
-        )
+        # Window 2: Mission Control Tab
+        with tabs.add_tab("Mission Control", viser.Icon.MAP_PIN):
+            mission_status_md = client.gui.add_markdown(self._format_mission_center_text())
+            with client.gui.add_folder("📌 Patrol Route & Task Execution"):
+                mission_select = client.gui.add_dropdown(
+                    label="Mission Select",
+                    options=["Autonomous Patrol Path A", "Perimeter Security Loop", "Waypoint Inspection B", "Return to Home Base"],
+                    initial_value="Autonomous Patrol Path A"
+                )
+                start_mission_btn = client.gui.add_button("▶️ Start Mission", color="green")
+                pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
+                abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
 
         # Control Callbacks
         @speed_slider.on_update
@@ -226,6 +253,16 @@ class ViserServerManager:
 
         return "\n".join(lines)
 
+    def _format_mission_center_text(self) -> str:
+        return """
+<div style="background: rgba(0, 150, 255, 0.1); padding: 10px; border-radius: 6px; border-left: 4px solid #00B0FF; margin-bottom: 8px;">
+    <h3 style="margin: 0 0 6px 0; color: #00E5FF; font-size: 1.1em;">🎯 Autonomous Mission Planner</h3>
+    <p style="margin: 2px 0; font-size: 0.95em;"><b>Current Mission:</b> <span style="color: #00E676;">Patrol Route Alpha</span></p>
+    <p style="margin: 2px 0; font-size: 0.95em;"><b>Status:</b> <span style="color: #FFD700;">STANDBY / READY</span></p>
+    <p style="margin: 2px 0; font-size: 0.9em; color: #AAAAAA;">Waypoints Progress: <code>0 / 12</code> Completed</p>
+</div>
+        """
+
     def _format_can_status_text(self) -> str:
         status = self.robot.get_status()
         is_conn = status.get("connected", False)
@@ -252,7 +289,7 @@ class ViserServerManager:
         mode = status["drive_mode"]
 
         return f"""
-<div style="min-width: 420px; font-family: 'Inter', sans-serif; padding: 4px;">
+<div style="width: 100%; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 4px;">
     <h2 style="color: #00E676; margin-top: 0; margin-bottom: 8px; font-size: 1.4em;">🚀 APROS Patrol Robot Status</h2>
     <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border-left: 4px solid #308EFF;">
         <p style="margin: 4px 0; font-size: 1.1em;">⚡ <b>Speed (속도)</b>: <span style="color:#00E676; font-size: 1.4em; font-weight:bold;">{speed:.1f} km/h</span></p>
@@ -266,7 +303,7 @@ class ViserServerManager:
         """
 
     def _simulation_loop(self):
-        """Update robot kinematics for driving simulation."""
+        """Update robot kinematics for driving simulation and render real-time VLP-16 point cloud."""
         dt = 0.05
         t = 0.0
         while self._running:
@@ -275,6 +312,27 @@ class ViserServerManager:
 
             # Update simulated physics/kinematics in device controller
             self.robot.update_simulation_step(dt=dt)
+
+            # Real-time VLP-16 point cloud visualization centered at robot frame
+            if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
+                pts = self.robot.last_vlp16_points
+                if len(pts) > 0:
+                    xyz = pts[:, :3]
+                    # Calculate Euclidean distance from origin for each point
+                    dists = np.linalg.norm(xyz, axis=1)
+
+                    # Distance normalization range (e.g. 0.5m ~ 15.0m)
+                    min_d, max_d = 0.5, 15.0
+                    norm_d = np.clip((dists - min_d) / (max_d - min_d), 0.0, 1.0)
+
+                    # Color gradient: 0.0 (Near) -> Pure Red (255, 0, 0), 1.0 (Far) -> Pure Blue (0, 0, 255)
+                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
+                    colors[:, 0] = ((1.0 - norm_d) * 255).astype(np.uint8)  # Red channel
+                    colors[:, 1] = (np.sin(norm_d * np.pi) * 100).astype(np.uint8)  # Subtle Green accent
+                    colors[:, 2] = (norm_d * 255).astype(np.uint8)          # Blue channel
+
+                    self.vlp16_pc_handle.points = xyz
+                    self.vlp16_pc_handle.colors = colors
 
             elapsed = time.time() - start_time
             time.sleep(max(0.0, dt - elapsed))
