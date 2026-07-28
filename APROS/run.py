@@ -2,12 +2,18 @@
 """
 APROS (Autonomous Patrol Robot Operating System) Entry Point.
 Launches the patrol robot control system and Viser 3D visualization dashboard.
+Creates global ZPipe context and loads the main robot platform (IAEPatrolV1).
 """
 import argparse
 import configparser
 import os
 import sys
 import time
+
+from core.zpipe import zpipe_create_pipe, zpipe_destroy_pipe
+from iae_patrol_v1 import IAEPatrolV1
+from core.viser_server import ViserServerManager
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -20,6 +26,7 @@ def parse_args():
         help="Path to the configuration file (default: apros.cfg)"
     )
     return parser.parse_args()
+
 
 def load_config(config_path):
     if not os.path.exists(config_path):
@@ -35,6 +42,7 @@ def load_config(config_path):
         sys.exit(1)
         
     return config
+
 
 def main():
     args = parse_args()
@@ -62,18 +70,16 @@ def main():
     
     host = config.get("NETWORK", "host", fallback="0.0.0.0")
     port = config.getint("NETWORK", "port", fallback=8080)
-    can_channel = config.get("CAN", "channel", fallback="can0")
 
-    # Initialize core MobileDriveS1 CAN controller & Viser server
-    from core.device.mobile_drive_s1 import MobileDriveS1
-    from core.viser_server import ViserServerManager
+    # 1. Initialize ZPipe main pipe context
+    zpipe_ctx = zpipe_create_pipe(io_threads=1)
+    print("[APROS] Main ZPipe context initialized successfully.")
 
-    robot = MobileDriveS1(
-        name=config.get("ROBOT", "robot_id", fallback="patrol_robot_01"),
-        channel=can_channel
-    )
+    # 2. Instantiate and connect main robot platform (IAEPatrolV1)
+    robot = IAEPatrolV1(config=config, zpipe_ctx=zpipe_ctx)
     robot.connect()
 
+    # 3. Start Viser 3D visualization dashboard server
     viser_mgr = ViserServerManager(host=host, port=port, robot=robot)
     viser_mgr.start()
 
@@ -87,7 +93,9 @@ def main():
         print("\n[APROS] Shutting down APROS system...")
         viser_mgr.stop()
         robot.disconnect()
+        zpipe_destroy_pipe()
         print("[APROS] Terminated cleanly.")
+
 
 if __name__ == "__main__":
     main()

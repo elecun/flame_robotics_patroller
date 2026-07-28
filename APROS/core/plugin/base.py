@@ -1,13 +1,12 @@
 """
-Base interface for robot device components with ZPipe integration support.
+APROS Plugin Base class for modular algorithm components with ZPipe integration support.
 """
 from abc import ABC, abstractmethod
 from typing import Optional, Any
 
-class BaseDevice(ABC):
+class BasePlugin(ABC):
     def __init__(self, name: str):
         self.name = name
-        self.is_connected = False
         self.zpipe_context: Optional[Any] = None
 
     def set_zpipe_context(self, zpipe_ctx: Any):
@@ -15,13 +14,9 @@ class BaseDevice(ABC):
         self.zpipe_context = zpipe_ctx
 
     @abstractmethod
-    def connect(self) -> bool:
+    def initialize(self, config: dict) -> bool:
         pass
 
     @abstractmethod
-    def disconnect(self) -> bool:
-        pass
-
-    @abstractmethod
-    def get_status(self) -> dict:
+    def process(self, data: dict) -> dict:
         pass

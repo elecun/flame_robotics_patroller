@@ -108,13 +108,17 @@ class ViserServerManager:
         # Standard Y-Up Camera Orientation
         client.camera.up_direction = (0.0, 1.0, 0.0)
         client.camera.position = (0.0, 3.5, -6.0)
-        client.camera.look_at = (0.0, 0.5, 3.0)
+        client.camera.look_at = (0.0, 0.0, 3.0)
 
         # 1. Left Telemetry Dashboard
         with client.gui.add_folder("📊 Telemetry Dashboard (APROS System)"):
             dashboard_md = client.gui.add_markdown(self._format_dashboard_text())
 
-        # 2. Remote Control GUI Folder
+        # 2. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
+        with client.gui.add_folder("🚘 Robot Drive Status"):
+            robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
+
+        # 3. Remote Control GUI Folder
         with client.gui.add_folder("🎮 Robot Remote Control"):
             # CAN Connection Status Display
             can_status_md = client.gui.add_markdown(self._format_can_status_text())
@@ -201,12 +205,26 @@ class ViserServerManager:
             while self._running:
                 try:
                     dashboard_md.content = self._format_dashboard_text()
+                    robot_drive_status_md.content = self._format_robot_drive_status_text()
                     can_status_md.content = self._format_can_status_text()
                     time.sleep(0.1)
                 except Exception:
                     break
 
         threading.Thread(target=ui_update_loop, daemon=True).start()
+
+    def _format_robot_drive_status_text(self) -> str:
+        status = self.robot.get_status()
+        parsed_can = status.get("parsed_can_status", {})
+        
+        if not parsed_can:
+            return "**Status:** ⚠️ Waiting for CAN 0 Rx Data..."
+
+        lines = ["### 🚘 Live Status\n"]
+        for key, val in parsed_can.items():
+            lines.append(f"- **{key}**: `{val}`")
+
+        return "\n".join(lines)
 
     def _format_can_status_text(self) -> str:
         status = self.robot.get_status()

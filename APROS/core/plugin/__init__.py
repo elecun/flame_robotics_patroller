@@ -1,6 +1,6 @@
 """
 plugin package initialization.
 """
-from plugin.base import BasePlugin
+from core.plugin.base import BasePlugin
 
 __all__ = ["BasePlugin"]

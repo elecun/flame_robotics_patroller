@@ -18,6 +18,7 @@ class CANParser:
         try:
             if can_id == 0x303:
                 if len(data) >= 4:
+                    # show low data in hexa decimal
                     vehicle_gear = data[0] & 0x03
                     parsed['Vehicle Gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_gear]
                     drive_state_mode = data[1] & 0x03
@@ -36,7 +37,7 @@ class CANParser:
                 if len(data) >= 6:
                     speed = int.from_bytes(data[0:2], byteorder='little') * 0.1 - 80
                     parsed['Vehicle Speed (km/h)'] = f"{speed:.1f}"
-                    parsed['Vehicle Wheel End Angle (deg)'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f}"
+                    parsed['Vehicle Steer Angle (deg)'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f}"
                     parsed['Vehicle Break Pressure (Mps)'] = f"{int.from_bytes(data[2:4], 'little') * 0.01:.2f}"
 
             elif can_id == 0x301:
@@ -75,29 +76,40 @@ class CANParser:
         return parsed
 
 class MobileDriveS1(BaseDevice):
-    def __init__(self, name: str = "MobileDriveS1", channel: int = 0):
+    def __init__(
+        self,
+        name: str = "MobileDriveS1",
+        can_channel: int = 0,
+        min_steer_angle: float = -28.0,
+        max_steer_angle: float = 28.0,
+        max_velocity: float = 5.0
+    ):
         super().__init__(name)
-        self.channel = int(channel) if isinstance(channel, int) or (isinstance(channel, str) and channel.isdigit()) else 0
+        self.channel = int(can_channel) if isinstance(can_channel, int) or (isinstance(can_channel, str) and str(can_channel).isdigit()) else 0
         self.ch = None
         self.parser = CANParser()
 
         # Steering angle bounds (degrees)
-        self.MIN_ANGLE_DEG = -28.0
-        self.MAX_ANGLE_DEG = 28.0
+        self.MIN_ANGLE_DEG = float(min_steer_angle)
+        self.MAX_ANGLE_DEG = float(max_steer_angle)
+
+        # Maximum velocity (km/h)
+        self.MAX_VELOCITY_KMH = float(max_velocity)
 
         # Command mapping bounds (-2000 ~ +2000)
-        # Left: -2000 (at -28 deg), Right: +2000 (at +28 deg)
+        # Left: -2000 (at min deg), Right: +2000 (at max deg)
         self.MIN_CMD_VAL = -2000
         self.MAX_CMD_VAL = 2000
 
         # Current State
         self.speed = 0.0  # km/h
-        self.steer_angle = 0.0  # degrees (-28 to +28)
+        self.steer_angle = 0.0  # degrees
         self.lat = 37.5665
         self.lon = 126.9780
         self.gear = "P"
         self.drive_mode = "Manual (Remote)"
         self.simulated_heading = 0.0
+        self.parsed_can_status = {}
 
         # Periodic TX & RX Thread Control
         self._tx_running = False
@@ -181,19 +193,14 @@ class MobileDriveS1(BaseDevice):
             try:
                 frame = self.ch.read(timeout=100)
                 parsed = self.parser.parse(frame.id, frame.data)
-                data_hex = frame.data.hex().upper()
-                spaced_data = " ".join(data_hex[i:i+2] for i in range(0, len(data_hex), 2))
-                
                 if parsed:
-                    parsed_str = ", ".join(f"{k}: {v}" for k, v in parsed.items())
-                    print(f"[MobileDriveS1 RX CH0] ID: 0x{frame.id:03X} | Data: {spaced_data} => Parsed: {{{parsed_str}}}")
-                else:
-                    print(f"[MobileDriveS1 RX CH0] ID: 0x{frame.id:03X} | Data: {spaced_data}")
+                    # Update parsed CAN status storage quietly
+                    self.parsed_can_status.update(parsed)
             except canlib.CanNoMsg:
                 continue
-            except canlib.CanError as e:
+            except canlib.CanError:
                 time.sleep(0.1)
-            except Exception as e:
+            except Exception:
                 time.sleep(0.1)
         print(f"[{self.name}] RX Receiver thread stopped.")
 
@@ -246,7 +253,6 @@ class MobileDriveS1(BaseDevice):
 
             spaced_steer = " ".join(f"{b:02X}" for b in steer_payload)
             spaced_speed = " ".join(f"{b:02X}" for b in speed_payload)
-            print(f"[MobileDriveS1 Periodic TX 100ms] Steer: {clamped_angle:+.1f}° (0x502: {spaced_steer}) | Speed: {self.speed:.1f}km/h Gear:{self.gear} (0x504: {spaced_speed})")
 
         except canlib.CanError as e:
             if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
@@ -304,5 +310,6 @@ class MobileDriveS1(BaseDevice):
             "longitude": self.lon,
             "gear": self.gear,
             "drive_mode": self.drive_mode,
-            "heading": self.simulated_heading
+            "heading": self.simulated_heading,
+            "parsed_can_status": self.parsed_can_status
         }

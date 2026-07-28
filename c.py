@@ -21,8 +21,7 @@ class CANParser:
             vehicle_Gear = data[0] & 0x03
             parsed['Vehicle Gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_Gear]
             Drive_State_Mode = data[1] & 0x03
-            parsed['Drive_State_Mode'] = ["Remote Control Mode", "Represents the AD Mode",
-                                          "Indicates parallel Mode", "Indicates semi-autonomous"][Drive_State_Mode]
+            parsed['Drive_State_Mode'] = ["Remote Control Mode", "Represents the AD Mode","Indicates parallel Mode", "Indicates semi-autonomous"][Drive_State_Mode]
             VCU_Speed_Req = int.from_bytes(data[2:4], byteorder='little') * 0.1 - 80
             parsed['Vehicle Speed Request (km/h)'] = f"{VCU_Speed_Req:.1f}"
 
@@ -34,7 +33,7 @@ class CANParser:
         elif can_id == 0x304:
             speed = int.from_bytes(data[0:2], byteorder='little') * 0.1 - 80
             parsed['Vehicle Speed (km/h)'] = f"{speed:.1f}"
-            parsed['Vehicle Wheel End Angle (deg)'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f}"
+            parsed['Vehicle Steer Angle (deg)'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f}"
             parsed['Vehicle Break Pressure (Mps)'] = f"{int.from_bytes(data[2:4], 'little') * 0.01:.2f}"
 
         elif can_id == 0x301:
