@@ -40,8 +40,13 @@ class ViserServerManager:
         self.tile_server = TileServerManager(host=self.host, port=8082)
         self.tile_server.start()
 
+        # Read platform IP from apros.cfg [PLATFORM] section
+        self.platform_ip = "127.0.0.1"
+        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("PLATFORM"):
+            self.platform_ip = self.robot.config.get("PLATFORM", "ip", fallback="127.0.0.1")
+
         # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
-        titlebar_html = """
+        titlebar_html = f"""
         <div id="apros-top-titlebar" style="
             position: fixed;
             top: 0;
@@ -74,10 +79,10 @@ class ViserServerManager:
             <!-- Right: Map Window Button -->
             <button id="apros-titlebar-btn" onclick="
                 var modal = document.getElementById('apros-custom-modal');
-                if(modal) {
+                if(modal) {{
                     modal.style.display = (modal.style.display === 'none' || !modal.style.display) ? 'flex' : 'none';
-                    if (window.aprosMap) setTimeout(function(){ window.aprosMap.invalidateSize(); }, 200);
-                }
+                    if (window.aprosMap) setTimeout(function(){{ window.aprosMap.invalidateSize(); }}, 200);
+                }}
             " style="
                 background: linear-gradient(135deg, #1E90FF, #00E676);
                 border: none;
@@ -90,27 +95,41 @@ class ViserServerManager:
                 box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
                 transition: all 0.2s ease;
             " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1.0'">
-                🗺️ Map Window
+                🗺️ 2D Map
             </button>
         </div>
 
-        <!-- Leaflet CSS -->
-        <link rel="stylesheet" href="http://localhost:8082/resource/leaflet.css" />
-        <!-- Leaflet JS -->
-        <script src="http://localhost:8082/resource/leaflet.js"></script>
+        <!-- Leaflet CSS & JS injected into head -->
+        <script>
+        (function() {{
+            if (!document.getElementById('leaflet-css')) {{
+                var link = document.createElement('link');
+                link.id = 'leaflet-css';
+                link.rel = 'stylesheet';
+                link.href = 'http://localhost:8082/resource/leaflet.css';
+                document.head.appendChild(link);
+            }}
+            if (!document.getElementById('leaflet-js')) {{
+                var script = document.createElement('script');
+                script.id = 'leaflet-js';
+                script.src = 'http://localhost:8082/resource/leaflet.js';
+                document.head.appendChild(script);
+            }}
+        }})();
+        </script>
 
         <!-- Custom Floating Map Panel (Bottom-Left, Draggable, Leaflet Map Viewer) -->
         <div id="apros-custom-modal" style="
             position: fixed;
             bottom: 25px;
             left: 25px;
-            width: 540px;
-            height: 380px;
+            width: 560px;
+            height: 400px;
             z-index: 15000;
-            background: rgba(18, 24, 38, 0.94);
+            background: rgba(18, 24, 38, 0.96);
             border: 1px solid rgba(0, 230, 118, 0.6);
             border-radius: 12px;
-            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.75);
             backdrop-filter: blur(10px);
             display: none;
             flex-direction: column;
@@ -121,7 +140,7 @@ class ViserServerManager:
             <!-- Window Header (Draggable Handle) -->
             <div id="apros-modal-header" style="
                 padding: 10px 16px;
-                background: rgba(255, 255, 255, 0.04);
+                background: rgba(255, 255, 255, 0.05);
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 display: flex;
                 justify-content: space-between;
@@ -130,8 +149,8 @@ class ViserServerManager:
                 user-select: none;
             ">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ APROS GNSS Map Panel</span>
-                    <span id="rtk-status-badge" style="font-size: 11px; color: #00E676; background: rgba(0,230,118,0.15); padding: 2px 6px; border-radius: 4px;">Connecting RTK...</span>
+                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ Map Panel</span>
+                    <span id="rtk-status-badge" style="font-size: 11px; color: #FFD700; background: rgba(255,215,0,0.15); padding: 2px 8px; border-radius: 4px; font-weight: 600;">연결 중 (Connecting)...</span>
                 </div>
                 <button onclick="document.getElementById('apros-custom-modal').style.display='none'" style="
                     background: transparent;
@@ -144,12 +163,14 @@ class ViserServerManager:
                 ">✕</button>
             </div>
 
-            <!-- Leaflet Map Container -->
-            <div id="apros-leaflet-map" style="flex: 1; width: 100%; height: 100%; background: #10141f;"></div>
+            <!-- Leaflet Map Container (Embedded map.html using configured IP: {self.platform_ip}) -->
+            <div style="position: relative; flex: 1; width: 100%; height: 100%;">
+                <iframe id="apros-map-iframe" style="width: 100%; height: 100%; border: none; background: #10141f;" src="http://{self.platform_ip}:8082/resource/map.html"></iframe>
+            </div>
         </div>
 
         <script>
-        (function() {
+        (function() {{
             var win = document.getElementById('apros-custom-modal');
             var header = document.getElementById('apros-modal-header');
             if (!win || !header || win.dataset.dragInit) return;
@@ -157,7 +178,7 @@ class ViserServerManager:
 
             // Window Dragging logic
             var isDragging = false, startX, startY, initialLeft, initialTop;
-            header.addEventListener('mousedown', function(e) {
+            header.addEventListener('mousedown', function(e) {{
                 isDragging = true;
                 startX = e.clientX;
                 startY = e.clientY;
@@ -168,112 +189,31 @@ class ViserServerManager:
                 win.style.bottom = 'auto';
                 win.style.left = initialLeft + 'px';
                 win.style.top = initialTop + 'px';
-            });
-            document.addEventListener('mousemove', function(e) {
+            }});
+            document.addEventListener('mousemove', function(e) {{
                 if (!isDragging) return;
                 var dx = e.clientX - startX;
                 var dy = e.clientY - startY;
                 win.style.left = (initialLeft + dx) + 'px';
                 win.style.top = (initialTop + dy) + 'px';
-            });
-            document.addEventListener('mouseup', function() { isDragging = false; });
-
-            // Initialize Leaflet Map based on map.html reference
-            function initMap() {
-                if (typeof L === 'undefined') {
-                    setTimeout(initMap, 200);
-                    return;
-                }
-                var defaultLat = 34.824652;
-                var defaultLon = 127.660848;
-                var map = L.map('apros-leaflet-map', {
-                    center: [defaultLat, defaultLon],
-                    zoom: 16,
-                    minZoom: 15,
-                    maxZoom: 16,
-                    zoomControl: true
-                });
-                window.aprosMap = map;
-
-                // Add APROS Offline Map Tile Layer (matches map.html configuration)
-                L.tileLayer('http://localhost:8082/maptile/{z}/{x}/{y}.png', {
-                    minZoom: 15,
-                    maxZoom: 16,
-                    attribution: 'Local Patrol Map',
-                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-                }).addTo(map);
-
-                // Add Robot Marker
-                var robotIcon = L.divIcon({
-                    className: 'apros-robot-marker',
-                    html: '<div style="width:20px; height:20px; background:#00E676; border:3px solid #FFF; border-radius:50%; box-shadow:0 0 12px #00E676;"></div>',
-                    iconSize: [20, 20],
-                    iconAnchor: [10, 10]
-                });
-
-                var marker = L.marker([defaultLat, defaultLon], {icon: robotIcon}).addTo(map);
-                marker.bindPopup("<b>APROS Patrol Robot</b><br>RTK GNSS Fixed");
-
-                // Connect to SynerexRTK WebSocket Server (ws://localhost:8765)
-                function connectWS() {
-                    var ws = new WebSocket('ws://localhost:8765');
-                    var badge = document.getElementById('rtk-status-badge');
-
-                    ws.onopen = function() {
-                        if (badge) {
-                            badge.textContent = "RTK FIXED (ws://8765)";
-                            badge.style.color = "#00E676";
-                            badge.style.background = "rgba(0,230,118,0.15)";
-                        }
-                    };
-
-                    ws.onmessage = function(evt) {
-                        try {
-                            var data = JSON.parse(evt.data);
-                            var lat = data.latitude !== undefined ? data.latitude : data.lat;
-                            var lon = data.longitude !== undefined ? data.longitude : data.lon;
-                            if (lat !== undefined && lon !== undefined) {
-                                var newLatLng = [lat, lon];
-                                marker.setLatLng(newLatLng);
-                                map.panTo(newLatLng, {animate: true, duration: 0.5});
-                                marker.getPopup().setContent("<b>APROS Patrol Robot</b><br>Lat: " + lat.toFixed(6) + "<br>Lon: " + lon.toFixed(6) + "<br>Status: " + (data.status || 'RTK'));
-                            }
-                        } catch(e) {}
-                    };
-
-                    ws.onerror = ws.onclose = function() {
-                        if (badge) {
-                            badge.textContent = "RTK OFFLINE (Reconnecting)";
-                            badge.style.color = "#FF5252";
-                            badge.style.background = "rgba(255,82,82,0.15)";
-                        }
-                        setTimeout(connectWS, 3000);
-                    };
-                }
-
-                connectWS();
-            }
-
-            initMap();
-        })();
+            }});
+            document.addEventListener('mouseup', function() {{ isDragging = false; }});
+        }})();
         </script>
 
         <style>
             /* Adjust body & root top padding for custom 48px TitleBar */
-            body, #root, main {
+            body, #root, main {{
                 padding-top: 48px !important;
-            }
+            }}
             /* Hide default empty header if any */
-            header, [class*="mantine-Header-root"] {
+            header, [class*="mantine-Header-root"] {{
                 display: none !important;
-            }
+            }}
         </style>
         """
         self.server.gui.add_html(titlebar_html)
 
-
-
-        
         # Robot dimensions in meters (default fallback: 1.000m W, 2.055m L, 0.640m H)
         self.robot_width = 1.000
         self.robot_length = 2.055

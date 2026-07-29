@@ -39,8 +39,8 @@ class SynerexRTK(BaseDevice):
         robot_model: str = "iae_patrol_v1",
         ws_host: str = "0.0.0.0",
         ws_port: int = 8765,
-        default_lat: float = 34.824652,
-        default_lon: float = 127.660848,
+        default_lat: float = 34.7971754,
+        default_lon: float = 127.6607499,
         default_alt: float = 45.0,
         default_heading: float = 0.0
     ):

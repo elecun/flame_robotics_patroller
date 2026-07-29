@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>APROS Patrol Location Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #10141f;
+            overflow: hidden;
+            font-family: 'Inter', -apple-system, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #10141f;
+        }
+        #coordOverlay {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.75);
+            color: #00E676;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid rgba(0, 230, 118, 0.3);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="coordOverlay">Lat: 34.797175, Lon: 127.660750 (Zoom: 16)</div>
+
+    <script>
+        (function() {
+            var host = window.location.hostname || 'localhost';
+            var assetServer = 'http://' + host + ':8082';
+
+            // Dynamically inject CSS and JS relative to connecting Host IP
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = assetServer + '/resource/leaflet.css';
+            document.head.appendChild(css);
+
+            var js = document.createElement('script');
+            js.src = assetServer + '/resource/leaflet.js';
+            document.head.appendChild(js);
+
+            var defaultLat = 34.7971754;
+            var defaultLon = 127.6607499;
+            var map, marker;
+
+            function initMap() {
+                if (typeof L === 'undefined') {
+                    setTimeout(initMap, 100);
+                    return;
+                }
+
+                map = L.map('map').setView([defaultLat, defaultLon], 16);
+                window.map = map;
+
+                L.tileLayer(assetServer + '/maptile/{z}/{x}/{y}.png', {
+                    minZoom: 15,
+                    maxZoom: 16,
+                    attribution: 'Local Patrol Map',
+                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+                }).addTo(map);
+
+                var robotIcon = L.divIcon({
+                    className: 'apros-robot-marker',
+                    html: '<div style="width:18px; height:18px; background:#00E676; border:3px solid #FFF; border-radius:50%; box-shadow:0 0 14px #00E676;"></div>',
+                    iconSize: [18, 18],
+                    iconAnchor: [9, 9]
+                });
+
+                marker = L.marker([defaultLat, defaultLon], {icon: robotIcon}).addTo(map);
+                marker.bindPopup('<b>APROS Patrol Robot</b><br>Lat: ' + defaultLat.toFixed(6) + '<br>Lon: ' + defaultLon.toFixed(6));
+
+                var coordOverlay = document.getElementById('coordOverlay');
+                function updateCoordDisplay() {
+                    var center = map.getCenter();
+                    var zoom = map.getZoom();
+                    coordOverlay.innerHTML = 'Lat: ' + center.lat.toFixed(6) + ', Lon: ' + center.lng.toFixed(6) + ' (Zoom: ' + zoom + ')';
+                }
+                map.on('move', updateCoordDisplay);
+                map.on('zoomend', updateCoordDisplay);
+                updateCoordDisplay();
+
+                connectWS();
+            }
+
+            function connectWS() {
+                var wsUrl = 'ws://' + host + ':8765';
+                var ws = new WebSocket(wsUrl);
+
+                ws.onopen = function() {
+                    if (window.parent) {
+                        var badge = window.parent.document.getElementById('rtk-status-badge');
+                        if (badge) {
+                            badge.textContent = '🟢 RTK 연결됨 (' + wsUrl + ')';
+                            badge.style.color = '#00E676';
+                            badge.style.background = 'rgba(0,230,118,0.15)';
+                        }
+                    }
+                };
+
+                ws.onmessage = function(evt) {
+                    try {
+                        var data = JSON.parse(evt.data);
+                        var lat = data.latitude !== undefined ? data.latitude : data.lat;
+                        var lon = data.longitude !== undefined ? data.longitude : data.lon;
+                        if (lat !== undefined && lon !== undefined) {
+                            marker.setLatLng([lat, lon]);
+                            map.panTo([lat, lon], {animate: true, duration: 0.5});
+                            marker.getPopup().setContent('<b>APROS Patrol Robot</b><br>Lat: ' + lat.toFixed(6) + '<br>Lon: ' + lon.toFixed(6) + '<br>Status: ' + (data.status || 'FIX_RTK'));
+                        }
+                    } catch(e) {}
+                };
+
+                ws.onerror = ws.onclose = function() {
+                    if (window.parent) {
+                        var badge = window.parent.document.getElementById('rtk-status-badge');
+                        if (badge) {
+                            badge.textContent = '🔴 연결 실패 (임시 위치 표시 중)';
+                            badge.style.color = '#FF5252';
+                            badge.style.background = 'rgba(255,82,82,0.15)';
+                        }
+                    }
+                    if (marker && map) {
+                        marker.setLatLng([defaultLat, defaultLon]);
+                        map.panTo([defaultLat, defaultLon]);
+                    }
+                    setTimeout(connectWS, 3000);
+                };
+            }
+
+            initMap();
+        })();
+    </script>
+</body>
+</html>

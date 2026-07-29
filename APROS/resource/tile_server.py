@@ -30,6 +30,12 @@ class TileResourceHTTPRequestHandler(SimpleHTTPRequestHandler):
         else:
             return os.path.join(base_dir, clean_path.lstrip('/'))
 
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        super().end_headers()
+
     def log_message(self, format, *args):
         # Quiet down HTTP GET log spam for map tile requests
         pass
