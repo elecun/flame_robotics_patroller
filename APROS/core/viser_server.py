@@ -25,10 +25,10 @@ class ViserServerManager:
         # Viser server
         self.server = viser.ViserServer(host=self.host, port=self.port)
 
-        # Title configuration & Theme setup
+        # Title configuration & Theme setup (control_layout="fixed" docks panel to the right side)
         self.server.gui.configure_theme(
             titlebar_content=None,
-            control_layout="floating",
+            control_layout="fixed",
             control_width="large",
             dark_mode=True,
             show_logo=False,
@@ -81,7 +81,6 @@ class ViserServerManager:
                 var modal = document.getElementById('apros-custom-modal');
                 if(modal) {{
                     modal.style.display = (modal.style.display === 'none' || !modal.style.display) ? 'flex' : 'none';
-                    if (window.aprosMap) setTimeout(function(){{ window.aprosMap.invalidateSize(); }}, 200);
                 }}
             " style="
                 background: linear-gradient(135deg, #1E90FF, #00E676);
@@ -95,30 +94,11 @@ class ViserServerManager:
                 box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
                 transition: all 0.2s ease;
             " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1.0'">
-                🗺️ 2D Map
+                🗺️ Map Window
             </button>
         </div>
 
-        <!-- Leaflet CSS & JS injected into head -->
-        <script>
-        (function() {{
-            if (!document.getElementById('leaflet-css')) {{
-                var link = document.createElement('link');
-                link.id = 'leaflet-css';
-                link.rel = 'stylesheet';
-                link.href = 'http://localhost:8082/resource/leaflet.css';
-                document.head.appendChild(link);
-            }}
-            if (!document.getElementById('leaflet-js')) {{
-                var script = document.createElement('script');
-                script.id = 'leaflet-js';
-                script.src = 'http://localhost:8082/resource/leaflet.js';
-                document.head.appendChild(script);
-            }}
-        }})();
-        </script>
-
-        <!-- Custom Floating Map Panel (Bottom-Left, Draggable, Leaflet Map Viewer) -->
+        <!-- Custom Floating Map Panel (Embedded map.html via Configured Platform IP) -->
         <div id="apros-custom-modal" style="
             position: fixed;
             bottom: 25px;
@@ -171,33 +151,42 @@ class ViserServerManager:
 
         <script>
         (function() {{
-            var win = document.getElementById('apros-custom-modal');
-            var header = document.getElementById('apros-modal-header');
-            if (!win || !header || win.dataset.dragInit) return;
-            win.dataset.dragInit = "true";
+            function relocate() {{
+                var tb = document.getElementById('apros-top-titlebar');
+                var md = document.getElementById('apros-custom-modal');
+                if (tb && tb.parentElement !== document.body) document.body.appendChild(tb);
+                if (md && md.parentElement !== document.body) document.body.appendChild(md);
 
-            // Window Dragging logic
-            var isDragging = false, startX, startY, initialLeft, initialTop;
-            header.addEventListener('mousedown', function(e) {{
-                isDragging = true;
-                startX = e.clientX;
-                startY = e.clientY;
-                var rect = win.getBoundingClientRect();
-                initialLeft = rect.left;
-                initialTop = rect.top;
-                win.style.right = 'auto';
-                win.style.bottom = 'auto';
-                win.style.left = initialLeft + 'px';
-                win.style.top = initialTop + 'px';
-            }});
-            document.addEventListener('mousemove', function(e) {{
-                if (!isDragging) return;
-                var dx = e.clientX - startX;
-                var dy = e.clientY - startY;
-                win.style.left = (initialLeft + dx) + 'px';
-                win.style.top = (initialTop + dy) + 'px';
-            }});
-            document.addEventListener('mouseup', function() {{ isDragging = false; }});
+                if (md) {{
+                    var header = document.getElementById('apros-modal-header');
+                    if (header && !md.dataset.dragInit) {{
+                        md.dataset.dragInit = "true";
+                        var isDragging = false, startX, startY, initialLeft, initialTop;
+                        header.addEventListener('mousedown', function(e) {{
+                            isDragging = true;
+                            startX = e.clientX;
+                            startY = e.clientY;
+                            var rect = md.getBoundingClientRect();
+                            initialLeft = rect.left;
+                            initialTop = rect.top;
+                            md.style.right = 'auto';
+                            md.style.bottom = 'auto';
+                            md.style.left = initialLeft + 'px';
+                            md.style.top = initialTop + 'px';
+                        }});
+                        document.addEventListener('mousemove', function(e) {{
+                            if (!isDragging) return;
+                            md.style.left = (initialLeft + (e.clientX - startX)) + 'px';
+                            md.style.top = (initialTop + (e.clientY - startY)) + 'px';
+                        }});
+                        document.addEventListener('mouseup', function() {{ isDragging = false; }});
+                    }}
+                }}
+            }}
+
+            relocate();
+            setTimeout(relocate, 50);
+            setTimeout(relocate, 300);
         }})();
         </script>
 
@@ -633,13 +622,22 @@ class ViserServerManager:
     def _format_robot_drive_status_text(self) -> str:
         status = self.robot.get_status()
         parsed_can = status.get("parsed_can_status", {})
-        
-        if not parsed_can:
-            return "**Status:** ⚠️ Waiting for CAN 0 Rx Data..."
 
         lines = ["### 🚘 Live Status\n"]
-        for key, val in parsed_can.items():
-            lines.append(f"- **{key}**: `{val}`")
+
+        # Check if Telescopic Mast device is installed/configured
+        if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
+            mast_dev = self.robot.devices["telescopic_mast"]
+            lines.append(f"- **Mast Position (Extended)**: `{mast_dev.current_height_m:.2f} m`")
+        elif hasattr(self.robot, "last_mast_data") and self.robot.last_mast_data:
+            mast_m = self.robot.last_mast_data.get("current_height_m", 1.8)
+            lines.append(f"- **Mast Position (Extended)**: `{mast_m:.2f} m`")
+
+        if parsed_can:
+            for key, val in parsed_can.items():
+                lines.append(f"- **{key}**: `{val}`")
+        elif len(lines) == 1:
+            lines.append("⚠️ Waiting for CAN 0 Rx Data...")
 
         return "\n".join(lines)
 

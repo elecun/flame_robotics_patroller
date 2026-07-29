@@ -44,6 +44,8 @@ class IAEPatrolV1:
         self.last_baumer_status: Optional[Dict[str, Any]] = None
         self.synerex_rtk_connector: Optional[Any] = None
         self.last_rtk_data: Optional[Dict[str, Any]] = None
+        self.telescopic_mast_connector: Optional[Any] = None
+        self.last_mast_data: Optional[Dict[str, Any]] = None
 
         # Parse platform device list from config
         device_names = []
@@ -143,6 +145,10 @@ class IAEPatrolV1:
         """Callback invoked when SynerexRTK_Connector receives GNSS position data over ZPipe IPC."""
         self.last_rtk_data = data
 
+    def _on_mast_data_received(self, data: Dict[str, Any]):
+        """Callback invoked when TelescopicMast_Connector receives mast extension telemetry over ZPipe IPC."""
+        self.last_mast_data = data
+
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
         success = True
@@ -198,6 +204,21 @@ class IAEPatrolV1:
             except Exception as e:
                 logger.error(f"[IAEPatrolV1] Error initializing SynerexRTK_Connector: {e}")
 
+        # Initialize TelescopicMast_Connector for IPC reception
+        if "telescopic_mast" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.telescopic_mast" if __name__.startswith("APROS") else "core.device.telescopic_mast")
+                TelescopicMast_Connector = getattr(mod, "TelescopicMast_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.telescopic_mast_connector = TelescopicMast_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_mast_data_received
+                )
+                self.telescopic_mast_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV1] Error initializing TelescopicMast_Connector: {e}")
+
         return success
 
     def disconnect(self) -> bool:
@@ -221,6 +242,12 @@ class IAEPatrolV1:
             except Exception:
                 pass
             self.synerex_rtk_connector = None
+        if self.telescopic_mast_connector:
+            try:
+                self.telescopic_mast_connector.stop()
+            except Exception:
+                pass
+            self.telescopic_mast_connector = None
         for name, device in self.devices.items():
             device.disconnect()
         return True

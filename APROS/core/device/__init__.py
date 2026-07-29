@@ -11,14 +11,14 @@ vlp16_mod = importlib.import_module("APROS.core.device.vlp-16" if __name__.start
 ouster_mod = importlib.import_module("APROS.core.device.ouster-sr-128" if __name__.startswith("APROS") else "core.device.ouster-sr-128")
 
 from core.device.baumer_incline import BaumerIncline, BaumerIncline_Connector
-from core.device.telescopic_mast import TelescopicMast
+from core.device.telescopic_mast import TelescopicMast, TelescopicMast_Connector
 from core.device.synerex_rtk import SynerexRTK, SynerexRTK_Connector
 
 VLP16 = vlp16_mod.VLP16
 VLP16_Connector = vlp16_mod.VLP16_Connector
 OusterSR128 = ouster_mod.OusterSR128
 
-__all__ = ["BaseDevice", "RobotController", "MobileDriveS1", "VLP16", "VLP16_Connector", "OusterSR128", "BaumerIncline", "BaumerIncline_Connector", "TelescopicMast", "SynerexRTK", "SynerexRTK_Connector"]
+__all__ = ["BaseDevice", "RobotController", "MobileDriveS1", "VLP16", "VLP16_Connector", "OusterSR128", "BaumerIncline", "BaumerIncline_Connector", "TelescopicMast", "TelescopicMast_Connector", "SynerexRTK", "SynerexRTK_Connector"]
 
 
 
