@@ -42,9 +42,9 @@ class VLP16(BaseDevice):
         port: int = 2368,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
-        offset_x: float = 0.0,
-        offset_y: float = 0.64,
-        offset_z: float = 0.8,
+        offset_x: float = 0.64,
+        offset_y: float = 0.0,
+        offset_z: float = 1.027,
         roll_deg: float = 0.0,
         pitch_deg: float = 0.0,
         yaw_deg: float = 0.0
@@ -111,16 +111,8 @@ class VLP16(BaseDevice):
         if points is None or len(points) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        xyz = points[:, :3]
-        intensity = points[:, 3:]
-
-        # Rotate points by installation Roll/Pitch/Yaw
-        xyz_rotated = xyz @ self.R.T
-
-        # Translate points by installation Offset (x, y, z)
-        xyz_transformed = xyz_rotated + np.array([self.offset_x, self.offset_y, self.offset_z], dtype=np.float32)
-
-        return np.hstack([xyz_transformed, intensity]).astype(np.float32)
+        # Return raw sensor-relative points without adding offset or rotation
+        return points
 
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish socket."""
@@ -315,13 +307,15 @@ class VLP16(BaseDevice):
                     y_sensor = xy * math.cos(azimuth_rad)
                     z_sensor = distance_m * math.sin(omega)
 
-                    # Viser 3D Scene mapping (Forward-Z, Up-Y, Right-X):
-                    # Invert X axis sign to fix left/right mirror inversion
-                    viser_x = -x_sensor
-                    viser_y = z_sensor
-                    viser_z = y_sensor
+                    # ROS Standard Robot Frame mapping (Forward-X, Left-Y, Up-Z):
+                    # y_sensor -> X (Forward)
+                    # -x_sensor -> Y (Left)
+                    # z_sensor -> Z (Up)
+                    robot_x = y_sensor
+                    robot_y = -x_sensor
+                    robot_z = z_sensor
 
-                    points.append([viser_x, viser_y, viser_z, float(intensity)])
+                    points.append([robot_x, robot_y, robot_z, float(intensity)])
 
         if not points:
             return np.empty((0, 4), dtype=np.float32)
@@ -365,12 +359,12 @@ class VLP16(BaseDevice):
             y_sensor = xy * math.cos(angle)
             z_sensor = dist * math.sin(omega)
 
-            viser_x = -x_sensor
-            viser_y = z_sensor
-            viser_z = y_sensor
+            robot_x = y_sensor
+            robot_y = -x_sensor
+            robot_z = z_sensor
             intensity = float(100 + (i % 155))
 
-            points.append([viser_x, viser_y, viser_z, intensity])
+            points.append([robot_x, robot_y, robot_z, intensity])
 
         return np.array(points, dtype=np.float32)
 

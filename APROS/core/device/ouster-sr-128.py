@@ -23,17 +23,29 @@ class OusterSR128(BaseDevice):
         self,
         name: str = "Ouster-SR-128",
         robot_model: str = "iae_patrol_v1",
+        model: str = "OS0",
         ip: str = "192.168.101.12",
         port: int = 7502,
         min_angle: float = -90.0,
-        max_angle: float = 90.0
+        max_angle: float = 90.0,
+        vertical_fov: Optional[float] = None
     ):
         super().__init__(name)
         self.robot_model = robot_model
+        self.model = model.upper() if isinstance(model, str) else "OS0"
         self.ip = ip
         self.port = int(port)
         self.min_angle = float(min_angle)
         self.max_angle = float(max_angle)
+
+        if vertical_fov is not None:
+            self.vertical_fov = float(vertical_fov)
+        else:
+            # OS0 model has 90 degrees vertical FoV; OS1 has 45 degrees vertical FoV
+            if self.model == "OS1":
+                self.vertical_fov = 45.0
+            else:
+                self.vertical_fov = 90.0
 
         self.sock: Optional[socket.socket] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
@@ -133,6 +145,8 @@ class OusterSR128(BaseDevice):
     def get_status(self) -> Dict[str, Any]:
         return {
             "name": self.name,
+            "model": self.model,
+            "vertical_fov": self.vertical_fov,
             "ip": self.ip,
             "port": self.port,
             "connected": self.is_connected,

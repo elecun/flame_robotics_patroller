@@ -26,6 +26,8 @@ class IAEPatrolV1:
         "vlp-16": ("vlp-16", "VLP16"),
         "ouster-sr-128": ("ouster-sr-128", "OusterSR128"),
         "baumer_incline": ("baumer_incline", "BaumerIncline"),
+        "telescopic_mast": ("telescopic_mast", "TelescopicMast"),
+        "synerex_rtk": ("synerex_rtk", "SynerexRTK"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
 
@@ -40,6 +42,8 @@ class IAEPatrolV1:
         self.last_vlp16_points: Optional[Any] = None
         self.baumer_connector: Optional[Any] = None
         self.last_baumer_status: Optional[Dict[str, Any]] = None
+        self.synerex_rtk_connector: Optional[Any] = None
+        self.last_rtk_data: Optional[Dict[str, Any]] = None
 
         # Parse platform device list from config
         device_names = []
@@ -50,7 +54,7 @@ class IAEPatrolV1:
 
         # Fallback to default devices if config is empty
         if not device_names:
-            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline"]
+            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline", "telescopic_mast", "synerex_rtk"]
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
@@ -129,12 +133,15 @@ class IAEPatrolV1:
         tx = status.get('tilt_x', 0.0)
         tz = status.get('tilt_z', 0.0)
         temp = status.get('temperature', 0)
-        logger.info(f"[IAEPatrolV1 Log] Received Baumer Inclination Sensor data: Tilt_X={tx:.2f}°, Tilt_Z={tz:.2f}°, Temp={temp}℃")
         # Update drive base or platform telemetry status
         if self.drive_base and hasattr(self.drive_base, 'parsed_can_status'):
             self.drive_base.parsed_can_status["Baumer Incline Tilt X (deg)"] = f"{tx:.2f}"
             self.drive_base.parsed_can_status["Baumer Incline Tilt Z (deg)"] = f"{tz:.2f}"
             self.drive_base.parsed_can_status["Baumer Incline Temp (℃)"] = f"{temp}"
+
+    def _on_rtk_data_received(self, data: Dict[str, Any]):
+        """Callback invoked when SynerexRTK_Connector receives GNSS position data over ZPipe IPC."""
+        self.last_rtk_data = data
 
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
@@ -176,6 +183,21 @@ class IAEPatrolV1:
             except Exception as e:
                 logger.error(f"[IAEPatrolV1] Error initializing BaumerIncline_Connector: {e}")
 
+        # Initialize SynerexRTK_Connector for IPC reception
+        if "synerex_rtk" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.synerex_rtk" if __name__.startswith("APROS") else "core.device.synerex_rtk")
+                SynerexRTK_Connector = getattr(mod, "SynerexRTK_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.synerex_rtk_connector = SynerexRTK_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_rtk_data_received
+                )
+                self.synerex_rtk_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV1] Error initializing SynerexRTK_Connector: {e}")
+
         return success
 
     def disconnect(self) -> bool:
@@ -193,6 +215,12 @@ class IAEPatrolV1:
             except Exception:
                 pass
             self.baumer_connector = None
+        if self.synerex_rtk_connector:
+            try:
+                self.synerex_rtk_connector.stop()
+            except Exception:
+                pass
+            self.synerex_rtk_connector = None
         for name, device in self.devices.items():
             device.disconnect()
         return True

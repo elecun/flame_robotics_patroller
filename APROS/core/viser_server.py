@@ -8,6 +8,7 @@ import numpy as np
 import viser
 import viser.transforms as tf
 from core.device.mobile_drive_s1 import MobileDriveS1
+from resource.tile_server import TileServerManager
 from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
@@ -35,7 +36,11 @@ class ViserServerManager:
         )
         self.server.gui.set_panel_label("APROS Control Center")
 
-        # Custom Top Titlebar Header (Left: APROS, Right: Action Button)
+        # Tile Server for Leaflet JS/CSS and maptiles
+        self.tile_server = TileServerManager(host=self.host, port=8082)
+        self.tile_server.start()
+
+        # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
         titlebar_html = """
         <div id="apros-top-titlebar" style="
             position: fixed;
@@ -63,13 +68,16 @@ class ViserServerManager:
                     letter-spacing: 1.5px;
                     text-shadow: 0 0 10px rgba(0,230,118,0.4);
                 ">APROS</span>
-                <span style="color: #78909C; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot OS</span>
+                <span style="color: #78909C; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot Operating System</span>
             </div>
 
-            <!-- Right: Open Window Button -->
+            <!-- Right: Map Window Button -->
             <button id="apros-titlebar-btn" onclick="
                 var modal = document.getElementById('apros-custom-modal');
-                if(modal) modal.style.display = 'flex';
+                if(modal) {
+                    modal.style.display = (modal.style.display === 'none' || !modal.style.display) ? 'flex' : 'none';
+                    if (window.aprosMap) setTimeout(function(){ window.aprosMap.invalidateSize(); }, 200);
+                }
             " style="
                 background: linear-gradient(135deg, #1E90FF, #00E676);
                 border: none;
@@ -82,20 +90,25 @@ class ViserServerManager:
                 box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
                 transition: all 0.2s ease;
             " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1.0'">
-                ⚙️ Open Window
+                🗺️ Map Window
             </button>
         </div>
 
-        <!-- Custom Floating Independent Window (Non-blocking overlay, bottom-left, draggable) -->
+        <!-- Leaflet CSS -->
+        <link rel="stylesheet" href="http://localhost:8082/resource/leaflet.css" />
+        <!-- Leaflet JS -->
+        <script src="http://localhost:8082/resource/leaflet.js"></script>
+
+        <!-- Custom Floating Map Panel (Bottom-Left, Draggable, Leaflet Map Viewer) -->
         <div id="apros-custom-modal" style="
             position: fixed;
             bottom: 25px;
             left: 25px;
-            width: 520px;
-            height: 340px;
+            width: 540px;
+            height: 380px;
             z-index: 15000;
             background: rgba(18, 24, 38, 0.94);
-            border: 1px solid rgba(30, 144, 255, 0.6);
+            border: 1px solid rgba(0, 230, 118, 0.6);
             border-radius: 12px;
             box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(10px);
@@ -107,7 +120,7 @@ class ViserServerManager:
 
             <!-- Window Header (Draggable Handle) -->
             <div id="apros-modal-header" style="
-                padding: 12px 18px;
+                padding: 10px 16px;
                 background: rgba(255, 255, 255, 0.04);
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 display: flex;
@@ -117,8 +130,8 @@ class ViserServerManager:
                 user-select: none;
             ">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #00E676; font-weight: bold; font-size: 15px;">🖥️ APROS Floating Window</span>
-                    <span style="font-size: 11px; color: #78909C; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">Independent</span>
+                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ APROS GNSS Map Panel</span>
+                    <span id="rtk-status-badge" style="font-size: 11px; color: #00E676; background: rgba(0,230,118,0.15); padding: 2px 6px; border-radius: 4px;">Connecting RTK...</span>
                 </div>
                 <button onclick="document.getElementById('apros-custom-modal').style.display='none'" style="
                     background: transparent;
@@ -130,23 +143,9 @@ class ViserServerManager:
                     padding: 0 4px;
                 ">✕</button>
             </div>
-            <!-- Window Body (Container) -->
-            <div style="
-                flex: 1;
-                padding: 20px;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                color: #78909C;
-                font-size: 14px;
-                text-align: center;
-                border: 1px dashed rgba(255, 255, 255, 0.12);
-                margin: 14px;
-                border-radius: 8px;
-                background: rgba(0, 0, 0, 0.15);
-            ">
-                (독립 플로팅 빈 창입니다 / Floating Blank Window Container)
-            </div>
+
+            <!-- Leaflet Map Container -->
+            <div id="apros-leaflet-map" style="flex: 1; width: 100%; height: 100%; background: #10141f;"></div>
         </div>
 
         <script>
@@ -156,6 +155,7 @@ class ViserServerManager:
             if (!win || !header || win.dataset.dragInit) return;
             win.dataset.dragInit = "true";
 
+            // Window Dragging logic
             var isDragging = false, startX, startY, initialLeft, initialTop;
             header.addEventListener('mousedown', function(e) {
                 isDragging = true;
@@ -177,6 +177,84 @@ class ViserServerManager:
                 win.style.top = (initialTop + dy) + 'px';
             });
             document.addEventListener('mouseup', function() { isDragging = false; });
+
+            // Initialize Leaflet Map based on map.html reference
+            function initMap() {
+                if (typeof L === 'undefined') {
+                    setTimeout(initMap, 200);
+                    return;
+                }
+                var defaultLat = 34.824652;
+                var defaultLon = 127.660848;
+                var map = L.map('apros-leaflet-map', {
+                    center: [defaultLat, defaultLon],
+                    zoom: 16,
+                    minZoom: 15,
+                    maxZoom: 16,
+                    zoomControl: true
+                });
+                window.aprosMap = map;
+
+                // Add APROS Offline Map Tile Layer (matches map.html configuration)
+                L.tileLayer('http://localhost:8082/maptile/{z}/{x}/{y}.png', {
+                    minZoom: 15,
+                    maxZoom: 16,
+                    attribution: 'Local Patrol Map',
+                    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+                }).addTo(map);
+
+                // Add Robot Marker
+                var robotIcon = L.divIcon({
+                    className: 'apros-robot-marker',
+                    html: '<div style="width:20px; height:20px; background:#00E676; border:3px solid #FFF; border-radius:50%; box-shadow:0 0 12px #00E676;"></div>',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+
+                var marker = L.marker([defaultLat, defaultLon], {icon: robotIcon}).addTo(map);
+                marker.bindPopup("<b>APROS Patrol Robot</b><br>RTK GNSS Fixed");
+
+                // Connect to SynerexRTK WebSocket Server (ws://localhost:8765)
+                function connectWS() {
+                    var ws = new WebSocket('ws://localhost:8765');
+                    var badge = document.getElementById('rtk-status-badge');
+
+                    ws.onopen = function() {
+                        if (badge) {
+                            badge.textContent = "RTK FIXED (ws://8765)";
+                            badge.style.color = "#00E676";
+                            badge.style.background = "rgba(0,230,118,0.15)";
+                        }
+                    };
+
+                    ws.onmessage = function(evt) {
+                        try {
+                            var data = JSON.parse(evt.data);
+                            var lat = data.latitude !== undefined ? data.latitude : data.lat;
+                            var lon = data.longitude !== undefined ? data.longitude : data.lon;
+                            if (lat !== undefined && lon !== undefined) {
+                                var newLatLng = [lat, lon];
+                                marker.setLatLng(newLatLng);
+                                map.panTo(newLatLng, {animate: true, duration: 0.5});
+                                marker.getPopup().setContent("<b>APROS Patrol Robot</b><br>Lat: " + lat.toFixed(6) + "<br>Lon: " + lon.toFixed(6) + "<br>Status: " + (data.status || 'RTK'));
+                            }
+                        } catch(e) {}
+                    };
+
+                    ws.onerror = ws.onclose = function() {
+                        if (badge) {
+                            badge.textContent = "RTK OFFLINE (Reconnecting)";
+                            badge.style.color = "#FF5252";
+                            badge.style.background = "rgba(255,82,82,0.15)";
+                        }
+                        setTimeout(connectWS, 3000);
+                    };
+                }
+
+                connectWS();
+            }
+
+            initMap();
         })();
         </script>
 
@@ -196,10 +274,18 @@ class ViserServerManager:
 
 
         
-        # Scale: Robot dimensions 1000mm W, 2055mm L, 640mm H => 1.0m W, 2.055m L, 0.64m H
-        self.robot_width = 1.000   # meters (1000 mm)
-        self.robot_length = 2.055  # meters (2055 mm)
-        self.robot_height = 0.640  # meters (640 mm)
+        # Robot dimensions in meters (default fallback: 1.000m W, 2.055m L, 0.640m H)
+        self.robot_width = 1.000
+        self.robot_length = 2.055
+        self.robot_height = 0.640
+        self.lookahead_distance = 3.0  # meters (default 3.0m)
+
+        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("PLATFORM"):
+            platform_cfg = self.robot.config["PLATFORM"]
+            self.robot_width = float(platform_cfg.get("robot_width", self.robot_width))
+            self.robot_length = float(platform_cfg.get("robot_length", self.robot_length))
+            self.robot_height = float(platform_cfg.get("robot_height", self.robot_height))
+            self.lookahead_distance = float(platform_cfg.get("lookahead_distance", self.lookahead_distance))
 
         self._running = False
         self._thread = None
@@ -214,17 +300,18 @@ class ViserServerManager:
 
     def _setup_scene(self):
         """Build environment scene with single grid, pure robot box model, and controllable frame axes."""
-        # 1. Single Ground Grid
+        # 1. Single Ground Grid (XY Plane in ROS frame: plane='xy')
         self.server.scene.add_grid(
             name="/ground_grid",
             width=50.0,
             height=50.0,
-            plane="xz",
+            plane="xy",
             cell_color=(80, 90, 100),
             section_color=(140, 150, 160)
         )
 
         # 2. World Axes Frame with X, Y, Z labels (Scene Tree show/hide support)
+        # ROS Standard Frame: X=Forward (Red), Y=Left (Green), Z=Up (Blue)
         self.server.scene.add_frame(
             name="/world_axes",
             show_axes=True,
@@ -235,39 +322,113 @@ class ViserServerManager:
         
         self.server.scene.add_label(
             name="/world_axes/label_x",
-            text="X",
+            text="X (Forward)",
             position=(1.7, 0.0, 0.0)
         )
         self.server.scene.add_label(
             name="/world_axes/label_y",
-            text="Y",
+            text="Y (Left)",
             position=(0.0, 1.7, 0.0)
         )
         self.server.scene.add_label(
             name="/world_axes/label_z",
-            text="Z",
+            text="Z (Up)",
             position=(0.0, 0.0, 1.7)
         )
 
-        # 3. Main Patrol Robot Model (pure box shape: 1000 x 2055 x 640 mm)
+        # 3. Main Patrol Robot Model in ROS Frame (X: Length 2.055m, Y: Width 1.0m, Z: Height 0.64m)
         self.server.scene.add_box(
             name="/robot/chassis",
-            dimensions=(self.robot_width, self.robot_height, self.robot_length),
+            dimensions=(self.robot_length, self.robot_width, self.robot_height),
             color=(30, 144, 255),  # Sleek Blue
-            position=(0.0, self.robot_height / 2.0, 0.0)
+            position=(0.0, 0.0, self.robot_height / 2.0)
         )
 
-        # Front Heading Bumper Indicator
+        # Front Heading Bumper Indicator (Located along +X Front axis)
         self.server.scene.add_box(
             name="/robot/heading_indicator",
-            dimensions=(self.robot_width * 0.8, 0.08, 0.2),
+            dimensions=(0.2, self.robot_width * 0.8, 0.08),
             color=(255, 69, 0),
-            position=(0.0, self.robot_height + 0.04, self.robot_length / 2.0 - 0.15)
+            position=(self.robot_length / 2.0 - 0.15, 0.0, self.robot_height + 0.04)
         )
 
-        # 4. VLP-16 Point Cloud visualization attached to robot origin
+        # VLP-16 Cylinder Model in ROS Frame (X: Forward, Y: Left, Z: Up):
+        # Dynamically load installation offset and orientation from config if available
+        vlp16_radius = 0.1033 / 2.0  # 0.05165 m
+        vlp16_height = 0.0717        # 0.0717 m
+
+        vlp16_offset_x = 0.64   # ROS X (Forward)
+        vlp16_offset_y = 0.0    # ROS Y (Left)
+        vlp16_offset_z = 1.027  # ROS Z (Up)
+        vlp16_pitch_deg = 15.0  # Pitch angle around Y axis
+
+        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("vlp-16"):
+            cfg = self.robot.config["vlp-16"]
+            vlp16_offset_x = float(cfg.get("offset_x", vlp16_offset_x))
+            vlp16_offset_y = float(cfg.get("offset_y", vlp16_offset_y))
+            vlp16_offset_z = float(cfg.get("offset_z", vlp16_offset_z))
+            vlp16_pitch_deg = float(cfg.get("pitch_deg", vlp16_pitch_deg))
+
+        # Cylinder rotation: Viser cylinder axis defaults to +Z (matches ROS Z-Up axis directly!)
+        # Pitch angle tilt around ROS Y axis
+        R_vlp16 = tf.SO3.from_y_radians(np.radians(vlp16_pitch_deg)).wxyz
+
+        self.server.scene.add_cylinder(
+            name="/robot/vlp16_sensor",
+            radius=vlp16_radius,
+            height=vlp16_height,
+            color=(50, 50, 50),  # Dark Grey Housing
+            position=(vlp16_offset_x, vlp16_offset_y, vlp16_offset_z),
+            wxyz=R_vlp16
+        )
+
+        # 4. Telescopic Mast 3D Model (Fixed Diameter 100mm = 0.1m)
+        # Position: Positioned based on offset_x, offset_y, offset_z from robot origin frame
+        self.mast_radius = 0.100 / 2.0  # 100mm diameter (0.05m radius)
+        mast_offset_x = 0.0
+        mast_offset_y = 0.0
+        mast_offset_z = self.robot_height  # 0.64m
+
+        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("telescopic_mast"):
+            cfg = self.robot.config["telescopic_mast"]
+            mast_offset_x = float(cfg.get("offset_x", mast_offset_x))
+            mast_offset_y = float(cfg.get("offset_y", mast_offset_y))
+            mast_offset_z = float(cfg.get("offset_z", mast_offset_z))
+
+        self.mast_offset_x = mast_offset_x
+        self.mast_offset_y = mast_offset_y
+        self.mast_offset_z = mast_offset_z
+
+        self.mast_handle = self.server.scene.add_cylinder(
+            name="/robot/telescopic_mast",
+            radius=self.mast_radius,
+            height=1.8,  # Default 1800mm (1.8m)
+            color=(20, 120, 50),  # Dark Green
+            position=(self.mast_offset_x, self.mast_offset_y, self.mast_offset_z + 1.8 / 2.0)
+        )
+
+        # 5. Lookahead Distance Green Circle Outline on Ground (Center of Robot)
+        # Generate 64-segment circle outline points on ground (Z=0.005m)
+        num_segments = 64
+        angles = np.linspace(0, 2 * np.pi, num_segments)
+        circle_points = np.stack([
+            self.lookahead_distance * np.cos(angles),
+            self.lookahead_distance * np.sin(angles),
+            np.full(num_segments, 0.005)
+        ], axis=-1)
+
+        self.server.scene.add_spline_catmull_rom(
+            name="/robot/lookahead_circle",
+            positions=circle_points,
+            color=(0, 255, 0),  # Pure Green
+            line_width=1.0,
+            closed=True
+        )
+
+        # 6. VLP-16 Point Cloud visualization attached to /robot/vlp16_sensor frame
+        # Viser will automatically position and orient points relative to the sensor origin & pitch angle.
         self.vlp16_pc_handle = self.server.scene.add_point_cloud(
-            name="/robot/vlp16_points",
+            name="/robot/vlp16_sensor/points",
             points=np.zeros((1, 3), dtype=np.float32),
             colors=np.array([[255, 0, 0]], dtype=np.uint8),
             point_size=0.015,
@@ -276,10 +437,10 @@ class ViserServerManager:
 
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
-        # Standard Y-Up Camera Orientation
-        client.camera.up_direction = (0.0, 1.0, 0.0)
-        client.camera.position = (0.0, 3.5, -6.0)
-        client.camera.look_at = (0.0, 0.0, 3.0)
+        # ROS Z-Up Camera Orientation
+        client.camera.up_direction = (0.0, 0.0, 1.0)
+        client.camera.position = (-6.0, -3.5, 3.5)
+        client.camera.look_at = (3.0, 0.0, 0.0)
 
         # Create Tab Group for multiple GUI windows
         tabs = client.gui.add_tab_group()
@@ -326,6 +487,24 @@ class ViserServerManager:
                     options=["Manual (Remote)", "Auto (Autonomous)", "Emergency Stop"],
                     initial_value="Manual (Remote)" if self.robot.drive_mode.startswith("Manual") else self.robot.drive_mode
                 )
+
+            # 4. Telescopic Mast Control Folder (1800mm ~ 8000mm)
+            with client.gui.add_folder("🏗️ Telescopic Mast Control"):
+                mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") else None
+                init_mast_height = mast_dev.current_height_mm if mast_dev else 1800.0
+
+                mast_slider = client.gui.add_slider(
+                    label="Mast Height (mm)",
+                    min=1800.0,
+                    max=8000.0,
+                    step=50.0,
+                    initial_value=init_mast_height
+                )
+
+                @mast_slider.on_update
+                def _(_):
+                    if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
+                        self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
                 # Initial disabled state based on Control Mode (Manual enables, Auto/E-stop disables)
                 is_manual = mode_dropdown.value.startswith("Manual")
                 speed_slider.disabled = not is_manual
@@ -559,6 +738,10 @@ class ViserServerManager:
         gear = status["gear"]
         mode = status["drive_mode"]
 
+        w_mm = int(self.robot_width * 1000)
+        l_mm = int(self.robot_length * 1000)
+        h_mm = int(self.robot_height * 1000)
+
         return f"""
 <div style="width: 100%; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 4px;">
     <h2 style="color: #00E676; margin-top: 0; margin-bottom: 8px; font-size: 1.4em;">🚀 APROS Patrol Robot Status</h2>
@@ -568,7 +751,7 @@ class ViserServerManager:
         <p style="margin: 4px 0; font-size: 1.05em;">📍 <b>Latitude (위도)</b>: <code style="font-size: 1.1em; color: #E0E0E0;">N {lat:.6f}°</code></p>
         <p style="margin: 4px 0; font-size: 1.05em;">📍 <b>Longitude (경도)</b>: <code style="font-size: 1.1em; color: #E0E0E0;">E {lon:.6f}°</code></p>
         <p style="margin: 4px 0; font-size: 1.05em;">⚙️ <b>Gear</b>: <b style="color: #FFD700;">{gear}</b> | <b>Mode</b>: <b style="color: #00E676;">{mode}</b></p>
-        <p style="margin: 4px 0; font-size: 0.95em; color: #AAAAAA;">📐 <b>Dimensions</b>: 1000 × 2055 × 640 mm</p>
+        <p style="margin: 4px 0; font-size: 0.95em; color: #AAAAAA;">📐 <b>Dimensions</b>: {w_mm} × {l_mm} × {h_mm} mm</p>
     </div>
 </div>
         """
@@ -584,23 +767,25 @@ class ViserServerManager:
             # Update simulated physics/kinematics in device controller
             self.robot.update_simulation_step(dt=dt)
 
+            # Update Telescopic Mast 3D Model Height dynamically
+            if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
+                mast = self.robot.devices["telescopic_mast"]
+                mast_height_m = mast.current_height_m
+                self.mast_handle.height = mast_height_m
+                self.mast_handle.position = (
+                    getattr(self, 'mast_offset_x', 0.0),
+                    getattr(self, 'mast_offset_y', 0.0),
+                    getattr(self, 'mast_offset_z', self.robot_height) + mast_height_m / 2.0
+                )
+
             # Real-time VLP-16 point cloud visualization centered at robot frame
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
                 pts = self.robot.last_vlp16_points
                 if len(pts) > 0:
                     xyz = pts[:, :3]
-                    # Calculate Euclidean distance from origin for each point
-                    dists = np.linalg.norm(xyz, axis=1)
-
-                    # Distance normalization range (e.g. 0.5m ~ 15.0m)
-                    min_d, max_d = 0.5, 15.0
-                    norm_d = np.clip((dists - min_d) / (max_d - min_d), 0.0, 1.0)
-
-                    # Color gradient: 0.0 (Near) -> Pure Red (255, 0, 0), 1.0 (Far) -> Pure Blue (0, 0, 255)
+                    # Solid Red color for all points (255, 0, 0)
                     colors = np.zeros((len(pts), 3), dtype=np.uint8)
-                    colors[:, 0] = ((1.0 - norm_d) * 255).astype(np.uint8)  # Red channel
-                    colors[:, 1] = (np.sin(norm_d * np.pi) * 100).astype(np.uint8)  # Subtle Green accent
-                    colors[:, 2] = (norm_d * 255).astype(np.uint8)          # Blue channel
+                    colors[:, 0] = 255  # Red channel
 
                     self.vlp16_pc_handle.points = xyz
                     self.vlp16_pc_handle.colors = colors
@@ -617,5 +802,7 @@ class ViserServerManager:
 
     def stop(self):
         self._running = False
+        if hasattr(self, 'tile_server') and self.tile_server:
+            self.tile_server.stop()
         if self._thread:
             self._thread.join(timeout=1.0)
