@@ -41,9 +41,10 @@ class BaumerIncline(BaseDevice):
         robot_model: str = "iae_patrol_v1",
         can_channel: int = 1,
         can_bitrate: int = 500000,
-        node_id: int = 1
+        node_id: int = 1,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.channel = int(can_channel)
         self.bitrate = int(can_bitrate)
@@ -79,6 +80,11 @@ class BaumerIncline(BaseDevice):
         """
         Open Kvaser CANlib channel 1 (500k), send CANopen NMT start remote node, and start RX thread.
         """
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+
         if not CANLIB_AVAILABLE or canlib is None:
             self.is_connected = False
             self.ch = None

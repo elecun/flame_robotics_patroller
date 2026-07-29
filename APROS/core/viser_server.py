@@ -620,24 +620,53 @@ class ViserServerManager:
         threading.Thread(target=ui_update_loop, daemon=True).start()
 
     def _format_robot_drive_status_text(self) -> str:
+        lines = []
+
+        if hasattr(self.robot, "devices") and self.robot.devices:
+            for dev_name, dev_obj in self.robot.devices.items():
+                is_connected = getattr(dev_obj, "is_connected", False)
+                enable = getattr(dev_obj, "enable", True)
+
+                if not enable:
+                    status_str = "⚪ `DISABLED`"
+                elif is_connected:
+                    status_str = "🟢 `ONLINE`"
+                else:
+                    status_str = "🔴 `OFFLINE (UNAVAILABLE)`"
+
+                lines.append(f"- **{dev_name}**: {status_str}")
+
+                # Display detailed data if device is connected & enabled
+                if enable and is_connected and hasattr(dev_obj, "get_status"):
+                    try:
+                        dev_status = dev_obj.get_status()
+                        if dev_name == "baumer_incline":
+                            tx = dev_status.get("tilt_x", 0.0)
+                            tz = dev_status.get("tilt_z", 0.0)
+                            lines.append(f"  └ Tilt X: `{tx:.1f}°`, Tilt Z: `{tz:.1f}°`")
+                        elif dev_name == "telescopic_mast":
+                            h_m = dev_status.get("current_height_m", 1.8)
+                            lines.append(f"  └ Mast Height: `{h_m:.2f} m`")
+                        elif dev_name == "basler_gige_camera":
+                            fps = dev_status.get("fps", 15)
+                            cnt = dev_status.get("frame_count", 0)
+                            lines.append(f"  └ Target FPS: `{fps}`, Frames: `{cnt}`")
+                        elif dev_name == "synerex_rtk":
+                            lat = dev_status.get("latitude", 0.0)
+                            lon = dev_status.get("longitude", 0.0)
+                            lines.append(f"  └ GNSS: `{lat:.6f}, {lon:.6f}`")
+                    except Exception:
+                        pass
+        else:
+            lines.append("⚠️ No configured devices found.")
+
+        # Real-time CAN 0 parsed status
         status = self.robot.get_status()
         parsed_can = status.get("parsed_can_status", {})
-
-        lines = ["### 🚘 Live Status\n"]
-
-        # Check if Telescopic Mast device is installed/configured
-        if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
-            mast_dev = self.robot.devices["telescopic_mast"]
-            lines.append(f"- **Mast Position (Extended)**: `{mast_dev.current_height_m:.2f} m`")
-        elif hasattr(self.robot, "last_mast_data") and self.robot.last_mast_data:
-            mast_m = self.robot.last_mast_data.get("current_height_m", 1.8)
-            lines.append(f"- **Mast Position (Extended)**: `{mast_m:.2f} m`")
-
         if parsed_can:
+            lines.append("\n**🚘 CAN Drive Telemetry**")
             for key, val in parsed_can.items():
                 lines.append(f"- **{key}**: `{val}`")
-        elif len(lines) == 1:
-            lines.append("⚠️ Waiting for CAN 0 Rx Data...")
 
         return "\n".join(lines)
 

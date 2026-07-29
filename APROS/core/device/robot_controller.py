@@ -7,8 +7,8 @@ import numpy as np
 from core.device.base import BaseDevice
 
 class RobotController(BaseDevice):
-    def __init__(self, name: str = "RobotController"):
-        super().__init__(name)
+    def __init__(self, name: str = "RobotController", enable: bool = True):
+        super().__init__(name, enable=enable)
         self.speed = 0.0  # km/h
         self.steer_angle = 0.0  # degrees
         self.lat = 37.5665  # Default latitude (Seoul)
@@ -18,6 +18,9 @@ class RobotController(BaseDevice):
         self.simulated_heading = 0.0  # in radians
 
     def connect(self) -> bool:
+        if not self.enable:
+            self.is_connected = False
+            return False
         self.is_connected = True
         return True
 

@@ -38,13 +38,14 @@ class SynerexRTK(BaseDevice):
         name: str = "synerex_rtk",
         robot_model: str = "iae_patrol_v1",
         ws_host: str = "0.0.0.0",
-        ws_port: int = 8765,
+        ws_port: int = 18765,
         default_lat: float = 34.7971754,
         default_lon: float = 127.6607499,
         default_alt: float = 45.0,
-        default_heading: float = 0.0
+        default_heading: float = 0.0,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.ws_host = ws_host
         self.ws_port = int(ws_port)
@@ -91,7 +92,12 @@ class SynerexRTK(BaseDevice):
         self.heading = float(heading)
 
     def connect(self) -> bool:
-        """Start hardware simulation worker loop and WebSocket server."""
+        """Start hardware simulation worker loop and WebSocket server if enabled."""
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+
         self.is_connected = True
         self._running = True
 
@@ -113,6 +119,16 @@ class SynerexRTK(BaseDevice):
         if self._thread:
             self._thread.join(timeout=1.0)
             self._thread = None
+
+        if self._loop and self._loop.is_running():
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except Exception:
+                pass
+
+        if self._ws_thread:
+            self._ws_thread.join(timeout=1.0)
+            self._ws_thread = None
 
         if self.pub_socket:
             try:
@@ -143,10 +159,10 @@ class SynerexRTK(BaseDevice):
 
             data = self.get_status()
 
-            # 1. Publish over ZPipe IPC (pickle format)
+            # 1. Publish over ZPipe IPC (JSON format)
             if self.pub_socket and self.pub_socket.is_joined:
                 try:
-                    payload = pickle.dumps(data)
+                    payload = json.dumps(data, ensure_ascii=False).encode('utf-8')
                     self.pub_socket.dispatch([b"rtk_data", payload])
                 except Exception as e:
                     logger.error(f"[{self.name}] ZPipe Publish error: {e}")
@@ -179,15 +195,26 @@ class SynerexRTK(BaseDevice):
                 logger.info(f"[{self.name}] WebSocket client disconnected.")
 
         async def main_ws():
-            async with websockets.serve(handler, self.ws_host, self.ws_port):
+            async with websockets.serve(handler, self.ws_host, self.ws_port) as server:
                 logger.info(f"[{self.name}] WebSocket Server listening on ws://{self.ws_host}:{self.ws_port}")
                 while self._running:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.2)
+                server.close()
+                await server.wait_closed()
 
         try:
             self._loop.run_until_complete(main_ws())
-        except Exception as e:
-            logger.error(f"[{self.name}] WebSocket server error: {e}")
+        except (asyncio.CancelledError, OSError, Exception) as e:
+            pass
+        finally:
+            try:
+                tasks = asyncio.all_tasks(self._loop)
+                for task in tasks:
+                    task.cancel()
+                self._loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                self._loop.close()
+            except Exception:
+                pass
 
     async def _broadcast_ws(self, message: str):
         if self._ws_clients:
@@ -266,10 +293,14 @@ class SynerexRTK_Connector:
         if len(multipart_data) >= 2:
             topic = multipart_data[0]
             if topic == b"rtk_data":
+                payload_bytes = multipart_data[1]
+                if not payload_bytes:
+                    return
                 try:
-                    data = pickle.loads(multipart_data[1])
+                    json_str = payload_bytes.decode('utf-8')
+                    data = json.loads(json_str)
                     self.last_rtk_data = data
                     if self.on_data_received:
                         self.on_data_received(data)
                 except Exception as e:
-                    logger.error(f"[SynerexRTK_Connector] Error unpickling rtk data: {e}")
+                    logger.error(f"[SynerexRTK_Connector] Error decoding RTK JSON data: {e}")

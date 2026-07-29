@@ -5,9 +5,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any
 
 class BaseDevice(ABC):
-    def __init__(self, name: str):
+    def __init__(self, name: str, enable: bool = True):
         self.name = name
         self.is_connected = False
+        self.enable = enable
         self.zpipe_context: Optional[Any] = None
 
     def set_zpipe_context(self, zpipe_ctx: Any):

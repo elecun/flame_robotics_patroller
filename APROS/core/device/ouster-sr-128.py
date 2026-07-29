@@ -28,9 +28,10 @@ class OusterSR128(BaseDevice):
         port: int = 7502,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
-        vertical_fov: Optional[float] = None
+        vertical_fov: Optional[float] = None,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.model = model.upper() if isinstance(model, str) else "OS0"
         self.ip = ip
@@ -59,7 +60,15 @@ class OusterSR128(BaseDevice):
 
     def connect(self) -> bool:
         """
-        Open UDP socket bound to specified host/port to listen for Ouster packets.
+        Open UDP socket on specified port if enabled.
+        """
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+            
+        """
+        Listen for Ouster packets.
         """
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

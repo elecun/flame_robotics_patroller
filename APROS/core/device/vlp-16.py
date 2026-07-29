@@ -47,9 +47,10 @@ class VLP16(BaseDevice):
         offset_z: float = 1.027,
         roll_deg: float = 0.0,
         pitch_deg: float = 0.0,
-        yaw_deg: float = 0.0
+        yaw_deg: float = 0.0,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.ip = ip
         self.port = int(port)
@@ -135,8 +136,13 @@ class VLP16(BaseDevice):
 
     def connect(self) -> bool:
         """
-        Open UDP socket and start processing background thread.
+        Open UDP socket on specified port and start worker loop thread if enabled.
         """
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

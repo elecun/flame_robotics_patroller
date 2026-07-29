@@ -6,6 +6,7 @@ ZMQ Pipeline Module (named ZPipe)
 import zmq
 import threading
 import time
+import os
 from typing import Callable, Optional, List, Union, Dict
 from util.logger.console import ConsoleLogger
 
@@ -21,6 +22,7 @@ class AsyncZSocket:
         self.address = None
         self.port = None
         self.is_server = False
+        self.ipc_file_path: Optional[str] = None
         self.collect_callback = None
         self.stop_event = None
         self.worker_thread = None
@@ -127,6 +129,15 @@ class AsyncZSocket:
             # Build connection string
             if transport in ['inproc', 'ipc']:
                 conn_str = f"{transport}://{address}"
+                if transport == 'ipc':
+                    self.ipc_file_path = address
+                    if self.is_server and os.path.exists(address):
+                        # Clean up stale socket file before binding if it exists
+                        try:
+                            os.remove(address)
+                            self.console.debug(f"Cleaned up stale IPC socket file prior to bind: {address}")
+                        except Exception as ex:
+                            self.console.warning(f"Could not remove stale IPC socket file {address}: {ex}")
             else:  # tcp, pgm, epgm
                 # For binding, address='*' is valid relative to transport (tcp://*:port)
                 # For connecting, address='*' is invalid.
@@ -156,7 +167,7 @@ class AsyncZSocket:
             return False
     
     def destroy_socket(self):
-        """Destroy ZMQ socket and cleanup resources"""
+        """Destroy ZMQ socket and cleanup resources including IPC socket file"""
         # Stop receiver thread
         if self.stop_event:
             self.stop_event.set()
@@ -169,9 +180,22 @@ class AsyncZSocket:
         
         # Close socket
         if self.socket:
-            self.socket.close()
+            try:
+                self.socket.setsockopt(zmq.LINGER, 0)
+                self.socket.close(linger=0)
+            except Exception:
+                pass
             self.socket = None
-        
+
+        # Unlink IPC file on server side socket destruction
+        if self.ipc_file_path and os.path.exists(self.ipc_file_path):
+            try:
+                os.remove(self.ipc_file_path)
+                self.console.debug(f"Removed IPC socket file: {self.ipc_file_path}")
+            except Exception as e:
+                self.console.warning(f"Failed to remove IPC socket file {self.ipc_file_path}: {e}")
+            self.ipc_file_path = None
+
         self.is_created = False
         self.is_joined = False
         self.console.debug(f"Destroyed socket {self.socket_id}")
@@ -269,38 +293,54 @@ class AsyncZSocket:
     def _receiver_worker(self, stop_event: threading.Event):
         """Worker thread for receiving messages"""
         poller = zmq.Poller()
-        poller.register(self.socket, zmq.POLLIN)
-        
+        if not self.socket or self.socket.closed:
+            return
+
+        try:
+            poller.register(self.socket, zmq.POLLIN)
+        except Exception as e:
+            self.console.error(f"Failed to register socket with poller: {e}")
+            return
+
         while not stop_event.is_set():
+            if not self.socket or self.socket.closed:
+                break
             try:
-                events = dict(poller.poll(1000))  # Poll with 1 second timeout
-                
+                events = dict(poller.poll(500))  # Poll with 500ms timeout
+
                 if self.socket in events and events[self.socket] == zmq.POLLIN:
-                    # Receive multipart message
+                    # Receive multipart message safely
+                    if self.socket.closed:
+                        break
                     multipart_data = self.socket.recv_multipart(zmq.NOBLOCK)
-                    
-                    # Call the callback with received data
-                    if self.collect_callback:
-                        try:
-                            self.collect_callback(multipart_data)
-                        except Exception as e:
-                            self.console.error(f"Error in collect callback: {e}")
-                            
+
+                    # Validate received multipart data before invoking callback
+                    if multipart_data and len(multipart_data) >= 2:
+                        topic = multipart_data[0]
+                        payload = multipart_data[1]
+                        if topic and payload and len(payload) > 0:
+                            if self.collect_callback:
+                                try:
+                                    self.collect_callback(multipart_data)
+                                except Exception as e:
+                                    self.console.error(f"Error in collect callback: {e}")
+
             except zmq.Again:
                 continue  # Timeout, continue polling
-            except zmq.ContextTerminated:
-                # Context was terminated, exit gracefully
-                self.console.debug(f"Context terminated, stopping receiver thread for {self.socket_id}")
+            except (zmq.ContextTerminated, zmq.ZMQError) as e:
+                # Socket or Context was closed/terminated, exit gracefully
+                self.console.debug(f"ZMQ socket or context closed ({e}), stopping receiver thread for {self.socket_id}")
                 break
             except Exception as e:
                 self.console.error(f"Error in receiver worker: {e}")
                 break
-        
+
         # Cleanup
         try:
-            poller.unregister(self.socket)
-        except (zmq.ContextTerminated, AttributeError):
-            pass  # Context already terminated or socket is None
+            if self.socket and not self.socket.closed:
+                poller.unregister(self.socket)
+        except Exception:
+            pass
         self.console.debug(f"Receiver thread stopped for socket {self.socket_id}")
     
     def close(self):

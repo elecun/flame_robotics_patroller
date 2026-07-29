@@ -95,9 +95,10 @@ class MobileDriveS1(BaseDevice):
         can_channel: int = 0,
         min_steer_angle: float = -28.0,
         max_steer_angle: float = 28.0,
-        max_velocity: float = 5.0
+        max_velocity: float = 5.0,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.channel = int(can_channel) if isinstance(can_channel, int) or (isinstance(can_channel, str) and str(can_channel).isdigit()) else 0
         self.ch = None
         self.parser = CANParser()
@@ -131,7 +132,12 @@ class MobileDriveS1(BaseDevice):
         self._rx_thread = None
 
     def connect(self) -> bool:
-        """Connect to Kvaser CANlib channel 0 in Standard CAN mode (500k) and start TX/RX threads."""
+        """Connect to Kvaser CANlib channel 0 in Standard CAN mode (500k) and start TX/RX threads if enabled."""
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+
         if not CANLIB_AVAILABLE or canlib is None:
             self.is_connected = False
             self.ch = None

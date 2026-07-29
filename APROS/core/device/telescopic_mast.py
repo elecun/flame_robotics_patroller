@@ -8,6 +8,7 @@ Includes TelescopicMast_connector for platform subscription.
 
 import time
 import threading
+import json
 import pickle
 import struct
 from typing import Dict, Any, Optional, Callable, List
@@ -67,9 +68,10 @@ class TelescopicMast(BaseDevice):
         initial_height: float = 1800.0,
         offset_x: float = 0.0,
         offset_y: float = 0.0,
-        offset_z: float = 0.64
+        offset_z: float = 0.64,
+        enable: bool = True
     ):
-        super().__init__(name)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.port_name = port
         self.baudrate = int(baudrate)
@@ -148,7 +150,12 @@ class TelescopicMast(BaseDevice):
         self.set_height(self.min_height)
 
     def connect(self) -> bool:
-        """Connect RS485 serial port and start 500ms telemetry/control thread."""
+        """Connect RS485 serial port and start 500ms telemetry/control thread if enabled."""
+        if not self.enable:
+            self.is_connected = False
+            logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
+            return False
+
         self.is_connected = False
         if SERIAL_AVAILABLE:
             try:
@@ -170,11 +177,9 @@ class TelescopicMast(BaseDevice):
                 self.is_connected = True
                 logger.info(f"[{self.name}] RS485 Serial connected on {self.port_name} ({self.baudrate}bps, N, {self.stopbits})")
             except Exception as e:
-                logger.warning(f"[{self.name}] Could not open serial port '{self.port_name}': {e}. Operating in simulation fallback mode.")
+                logger.warning(f"[{self.name}] Could not open serial port '{self.port_name}': {e}.")
 
-        if not self.is_connected:
-            self.is_connected = True
-
+        # Always start worker loop for simulation/telemetry if enable=True
         self._running = True
         self._thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._thread.start()
@@ -259,11 +264,11 @@ class TelescopicMast(BaseDevice):
 
                 current_mm = self._current_height_mm
 
-            # 4. Publish telemetry data over ZPipe IPC
+            # 4. Publish telemetry data over ZPipe IPC (JSON format)
             data = self.get_status()
             if self.pub_socket and self.pub_socket.is_joined:
                 try:
-                    payload = pickle.dumps(data)
+                    payload = json.dumps(data, ensure_ascii=False).encode('utf-8')
                     self.pub_socket.dispatch([b"mast_data", payload])
                 except Exception as e:
                     logger.error(f"[{self.name}] ZPipe Publish error: {e}")
@@ -340,10 +345,14 @@ class TelescopicMast_Connector:
         if len(multipart_data) >= 2:
             topic = multipart_data[0]
             if topic == b"mast_data":
+                payload_bytes = multipart_data[1]
+                if not payload_bytes:
+                    return
                 try:
-                    data = pickle.loads(multipart_data[1])
+                    json_str = payload_bytes.decode('utf-8')
+                    data = json.loads(json_str)
                     self.last_mast_data = data
                     if self.on_data_received:
                         self.on_data_received(data)
                 except Exception as e:
-                    logger.error(f"[TelescopicMast_Connector] Error unpickling mast data: {e}")
+                    logger.error(f"[TelescopicMast_Connector] Error decoding mast JSON data: {e}")

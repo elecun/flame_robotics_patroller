@@ -28,6 +28,7 @@ class IAEPatrolV1:
         "baumer_incline": ("baumer_incline", "BaumerIncline"),
         "telescopic_mast": ("telescopic_mast", "TelescopicMast"),
         "synerex_rtk": ("synerex_rtk", "SynerexRTK"),
+        "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
 
@@ -46,6 +47,9 @@ class IAEPatrolV1:
         self.last_rtk_data: Optional[Dict[str, Any]] = None
         self.telescopic_mast_connector: Optional[Any] = None
         self.last_mast_data: Optional[Dict[str, Any]] = None
+        self.basler_camera_connector: Optional[Any] = None
+        self.last_camera_header: Optional[Dict[str, Any]] = None
+        self.last_camera_frame: Optional[bytes] = None
 
         # Parse platform device list from config
         device_names = []
@@ -56,7 +60,7 @@ class IAEPatrolV1:
 
         # Fallback to default devices if config is empty
         if not device_names:
-            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline", "telescopic_mast", "synerex_rtk"]
+            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline", "telescopic_mast", "synerex_rtk", "basler_gige_camera"]
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
@@ -100,14 +104,19 @@ class IAEPatrolV1:
         if self.config and self.config.has_section(dev_name):
             section = self.config[dev_name]
             for key, val in section.items():
-                # Cast numeric strings to int/float appropriately
-                try:
-                    if "." in val:
-                        kwargs[key] = float(val)
-                    else:
-                        kwargs[key] = int(val)
-                except ValueError:
-                    kwargs[key] = val
+                if val.lower() in ("true", "yes", "1"):
+                    kwargs[key] = True
+                elif val.lower() in ("false", "no", "0"):
+                    kwargs[key] = False
+                else:
+                    # Cast numeric strings to int/float appropriately
+                    try:
+                        if "." in val:
+                            kwargs[key] = float(val)
+                        else:
+                            kwargs[key] = int(val)
+                    except ValueError:
+                        kwargs[key] = val
 
         try:
             instance = cls(name=dev_name, **kwargs)
@@ -148,6 +157,11 @@ class IAEPatrolV1:
     def _on_mast_data_received(self, data: Dict[str, Any]):
         """Callback invoked when TelescopicMast_Connector receives mast extension telemetry over ZPipe IPC."""
         self.last_mast_data = data
+
+    def _on_basler_camera_received(self, header: Dict[str, Any], jpeg_data: bytes):
+        """Callback invoked when BaslerGigECamera_Connector receives frame over ZPipe IPC."""
+        self.last_camera_header = header
+        self.last_camera_frame = jpeg_data
 
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
@@ -219,6 +233,21 @@ class IAEPatrolV1:
             except Exception as e:
                 logger.error(f"[IAEPatrolV1] Error initializing TelescopicMast_Connector: {e}")
 
+        # Initialize BaslerGigECamera_Connector for IPC reception
+        if "basler_gige_camera" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.basler_gige_camera" if __name__.startswith("APROS") else "core.device.basler_gige_camera")
+                BaslerGigECamera_Connector = getattr(mod, "BaslerGigECamera_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.basler_camera_connector = BaslerGigECamera_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_frame_received=self._on_basler_camera_received
+                )
+                self.basler_camera_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV1] Error initializing BaslerGigECamera_Connector: {e}")
+
         return success
 
     def disconnect(self) -> bool:
@@ -248,6 +277,12 @@ class IAEPatrolV1:
             except Exception:
                 pass
             self.telescopic_mast_connector = None
+        if self.basler_camera_connector:
+            try:
+                self.basler_camera_connector.stop()
+            except Exception:
+                pass
+            self.basler_camera_connector = None
         for name, device in self.devices.items():
             device.disconnect()
         return True
