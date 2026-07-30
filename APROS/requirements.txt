@@ -10,3 +10,6 @@ python-can>=4.0.0
 zmp
 canlib
 colorlog
+opencv-python
+pypylon
+pyserial

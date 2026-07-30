@@ -36,7 +36,10 @@ def load_config(config_path):
         logger.error(f"Configuration file not found: {config_path}")
         sys.exit(1)
         
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(
+        comment_prefixes=('#', ';'),
+        inline_comment_prefixes=('#', ';')
+    )
     try:
         config.read(config_path, encoding='utf-8')
         logger.info(f"Loaded configuration file: {config_path}")
@@ -62,13 +65,6 @@ def main():
 
     logger.info("==================================================")
     logger.info("  APROS - Autonomous Patrol Robot Operating System")
-    logger.info("==================================================")
-    
-    # Print configuration overview
-    for section in config.sections():
-        logger.info(f"[{section}]")
-        for key, value in config.items(section):
-            logger.info(f"  {key} = {value}")
     logger.info("==================================================")
     
     host = config.get("NETWORK", "host", fallback="0.0.0.0")

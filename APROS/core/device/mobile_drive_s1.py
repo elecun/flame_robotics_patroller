@@ -306,6 +306,14 @@ class MobileDriveS1(BaseDevice):
         clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(angle_deg)))
         self.steer_angle = clamped_angle
 
+    def set_mode_manual(self):
+        """Switch control mode to Manual."""
+        logger.info(f"[{self.name}] set_mode_manual() called.")
+
+    def set_mode_auto(self):
+        """Switch control mode to Auto."""
+        logger.info(f"[{self.name}] set_mode_auto() called.")
+
     def update_simulation_step(self, dt: float = 0.05):
         """Kinematics update step for 3D visualization positioning."""
         speed_m_s = (self.speed * 1000.0) / 3600.0

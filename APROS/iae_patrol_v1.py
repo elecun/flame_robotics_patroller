@@ -58,9 +58,8 @@ class IAEPatrolV1:
             if dev_str:
                 device_names = [d.strip() for d in dev_str.split(",") if d.strip()]
 
-        # Fallback to default devices if config is empty
         if not device_names:
-            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "baumer_incline", "telescopic_mast", "synerex_rtk", "basler_gige_camera"]
+            logger.info("[IAEPatrolV1] No devices specified in config [PLATFORM] devices setting or setting is commented out. No device modules will be loaded.")
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
@@ -69,10 +68,8 @@ class IAEPatrolV1:
                 self.devices[dev_name] = device_obj
                 if dev_name == "mobile_drive_s1":
                     self.drive_base = device_obj
-
-        # If drive_base is not set among loaded devices, fall back to first device or MobileDriveS1
-        if self.drive_base is None and "mobile_drive_s1" in self.devices:
-            self.drive_base = self.devices["mobile_drive_s1"]
+            else:
+                logger.error(f"[IAEPatrolV1] Failed to dynamically load device module '{dev_name}'.")
 
         # Inject ZPipe context if provided
         if self.zpipe_ctx:

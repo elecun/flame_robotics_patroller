@@ -2,12 +2,13 @@
 APROS Viser Visualization Server & UI Module.
 Handles 3D visualization, robot box model (W:1000, L:2055, H:640 mm), CAN connection status display, and MobileDriveS1 control integration.
 """
+import os
 import time
 import threading
 import numpy as np
 import viser
 import viser.transforms as tf
-from core.device.mobile_drive_s1 import MobileDriveS1
+from typing import Any, Optional
 from resource.tile_server import TileServerManager
 from util.logger.console import ConsoleLogger
 
@@ -15,11 +16,11 @@ logger = ConsoleLogger.get_logger()
 
 
 class ViserServerManager:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080, robot: MobileDriveS1 = None):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080, robot: Any = None):
         self.host = host
         self.port = port
-        self.robot = robot if robot is not None else MobileDriveS1()
-        if not self.robot.is_connected:
+        self.robot = robot
+        if self.robot is not None and not getattr(self.robot, "is_connected", True):
             self.robot.connect()
 
         # Viser server
@@ -117,7 +118,7 @@ class ViserServerManager:
             resize: both;
         ">
 
-            <!-- Window Header (Draggable Handle) -->
+            <!-- Window Header (Draggable Handle & Controls) -->
             <div id="apros-modal-header" style="
                 padding: 10px 16px;
                 background: rgba(255, 255, 255, 0.05);
@@ -132,7 +133,8 @@ class ViserServerManager:
                     <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ Map Panel</span>
                     <span id="rtk-status-badge" style="font-size: 11px; color: #FFD700; background: rgba(255,215,0,0.15); padding: 2px 8px; border-radius: 4px; font-weight: 600;">연결 중 (Connecting)...</span>
                 </div>
-                <button onclick="document.getElementById('apros-custom-modal').style.display='none'" style="
+                <!-- Close Button -->
+                <button onclick="document.getElementById('apros-custom-modal').style.display='none'" title="닫기" style="
                     background: transparent;
                     border: none;
                     color: #FF5252;
@@ -140,7 +142,9 @@ class ViserServerManager:
                     font-size: 16px;
                     cursor: pointer;
                     padding: 0 4px;
-                ">✕</button>
+                    border-radius: 4px;
+                    transition: background 0.2s;
+                " onmouseover="this.style.background='rgba(255,82,82,0.2)'" onmouseout="this.style.background='transparent'">✕</button>
             </div>
 
             <!-- Leaflet Map Container (Embedded map.html using configured IP: {self.platform_ip}) -->
@@ -163,6 +167,9 @@ class ViserServerManager:
                         md.dataset.dragInit = "true";
                         var isDragging = false, startX, startY, initialLeft, initialTop;
                         header.addEventListener('mousedown', function(e) {{
+                            // Disable drag when clicked on header buttons
+                            if (e.target.tagName === 'BUTTON') return;
+
                             isDragging = true;
                             startX = e.clientX;
                             startY = e.clientY;
@@ -265,79 +272,32 @@ class ViserServerManager:
             position=(0.0, 0.0, 1.7)
         )
 
-        # 3. Main Patrol Robot Model in ROS Frame (X: Length 2.055m, Y: Width 1.0m, Z: Height 0.64m)
-        self.server.scene.add_box(
-            name="/robot/chassis",
-            dimensions=(self.robot_length, self.robot_width, self.robot_height),
-            color=(30, 144, 255),  # Sleek Blue
-            position=(0.0, 0.0, self.robot_height / 2.0)
-        )
+        # 3. Load URDF Robot Model into Viser Scene
+        urdf_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "urdf", "iae_patrol_v1.urdf")
+        self.urdf_model = None
+        if os.path.exists(urdf_file_path):
+            try:
+                import pathlib
+                from viser.extras import ViserUrdf
+                self.urdf_model = ViserUrdf(
+                    target=self.server,
+                    urdf_or_path=pathlib.Path(urdf_file_path),
+                    root_node_name="/robot"
+                )
+                logger.info(f"[ViserServerManager] Loaded URDF model from: {urdf_file_path}")
+            except Exception as e:
+                logger.error(f"[ViserServerManager] Failed to load URDF model: {e}")
 
-        # Front Heading Bumper Indicator (Located along +X Front axis)
-        self.server.scene.add_box(
-            name="/robot/heading_indicator",
-            dimensions=(0.2, self.robot_width * 0.8, 0.08),
-            color=(255, 69, 0),
-            position=(self.robot_length / 2.0 - 0.15, 0.0, self.robot_height + 0.04)
-        )
+        # Fallback Box Model if URDF is unavailable
+        if self.urdf_model is None:
+            self.server.scene.add_box(
+                name="/robot/chassis",
+                dimensions=(self.robot_length, self.robot_width, self.robot_height),
+                color=(30, 144, 255),
+                position=(0.0, 0.0, self.robot_height / 2.0)
+            )
 
-        # VLP-16 Cylinder Model in ROS Frame (X: Forward, Y: Left, Z: Up):
-        # Dynamically load installation offset and orientation from config if available
-        vlp16_radius = 0.1033 / 2.0  # 0.05165 m
-        vlp16_height = 0.0717        # 0.0717 m
-
-        vlp16_offset_x = 0.64   # ROS X (Forward)
-        vlp16_offset_y = 0.0    # ROS Y (Left)
-        vlp16_offset_z = 1.027  # ROS Z (Up)
-        vlp16_pitch_deg = 15.0  # Pitch angle around Y axis
-
-        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("vlp-16"):
-            cfg = self.robot.config["vlp-16"]
-            vlp16_offset_x = float(cfg.get("offset_x", vlp16_offset_x))
-            vlp16_offset_y = float(cfg.get("offset_y", vlp16_offset_y))
-            vlp16_offset_z = float(cfg.get("offset_z", vlp16_offset_z))
-            vlp16_pitch_deg = float(cfg.get("pitch_deg", vlp16_pitch_deg))
-
-        # Cylinder rotation: Viser cylinder axis defaults to +Z (matches ROS Z-Up axis directly!)
-        # Pitch angle tilt around ROS Y axis
-        R_vlp16 = tf.SO3.from_y_radians(np.radians(vlp16_pitch_deg)).wxyz
-
-        self.server.scene.add_cylinder(
-            name="/robot/vlp16_sensor",
-            radius=vlp16_radius,
-            height=vlp16_height,
-            color=(50, 50, 50),  # Dark Grey Housing
-            position=(vlp16_offset_x, vlp16_offset_y, vlp16_offset_z),
-            wxyz=R_vlp16
-        )
-
-        # 4. Telescopic Mast 3D Model (Fixed Diameter 100mm = 0.1m)
-        # Position: Positioned based on offset_x, offset_y, offset_z from robot origin frame
-        self.mast_radius = 0.100 / 2.0  # 100mm diameter (0.05m radius)
-        mast_offset_x = 0.0
-        mast_offset_y = 0.0
-        mast_offset_z = self.robot_height  # 0.64m
-
-        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("telescopic_mast"):
-            cfg = self.robot.config["telescopic_mast"]
-            mast_offset_x = float(cfg.get("offset_x", mast_offset_x))
-            mast_offset_y = float(cfg.get("offset_y", mast_offset_y))
-            mast_offset_z = float(cfg.get("offset_z", mast_offset_z))
-
-        self.mast_offset_x = mast_offset_x
-        self.mast_offset_y = mast_offset_y
-        self.mast_offset_z = mast_offset_z
-
-        self.mast_handle = self.server.scene.add_cylinder(
-            name="/robot/telescopic_mast",
-            radius=self.mast_radius,
-            height=1.8,  # Default 1800mm (1.8m)
-            color=(20, 120, 50),  # Dark Green
-            position=(self.mast_offset_x, self.mast_offset_y, self.mast_offset_z + 1.8 / 2.0)
-        )
-
-        # 5. Lookahead Distance Green Circle Outline on Ground (Center of Robot)
-        # Generate 64-segment circle outline points on ground (Z=0.005m)
+        # 4. Lookahead Distance Green Circle Outline on Ground (Center of Robot)
         num_segments = 64
         angles = np.linspace(0, 2 * np.pi, num_segments)
         circle_points = np.stack([
@@ -349,15 +309,14 @@ class ViserServerManager:
         self.server.scene.add_spline_catmull_rom(
             name="/robot/lookahead_circle",
             positions=circle_points,
-            color=(0, 255, 0),  # Pure Green
+            color=(0, 255, 0),
             line_width=1.0,
             closed=True
         )
 
-        # 6. VLP-16 Point Cloud visualization attached to /robot/vlp16_sensor frame
-        # Viser will automatically position and orient points relative to the sensor origin & pitch angle.
+        # 5. VLP-16 Point Cloud visualization attached to /robot/vlp16_link frame
         self.vlp16_pc_handle = self.server.scene.add_point_cloud(
-            name="/robot/vlp16_sensor/points",
+            name="/robot/vlp16_link/points",
             points=np.zeros((1, 3), dtype=np.float32),
             colors=np.array([[255, 0, 0]], dtype=np.uint8),
             point_size=0.015,
@@ -411,11 +370,11 @@ class ViserServerManager:
                     options=["P", "D", "N", "R"],
                     initial_value=self.robot.gear
                 )
-                mode_dropdown = client.gui.add_dropdown(
-                    label="Control Mode",
-                    options=["Manual (Remote)", "Auto (Autonomous)", "Emergency Stop"],
-                    initial_value="Manual (Remote)" if self.robot.drive_mode.startswith("Manual") else self.robot.drive_mode
-                )
+
+                # Control Mode buttons: Manual and Auto
+                client.gui.add_markdown("<span style='font-size: 13px; font-weight: 600; color: #E0E0E0;'>Control Mode:</span>")
+                manual_btn = client.gui.add_button("🕹️ Manual")
+                auto_btn = client.gui.add_button("🤖 Auto")
 
             # 4. Telescopic Mast Control Folder (1800mm ~ 8000mm)
             with client.gui.add_folder("🏗️ Telescopic Mast Control"):
@@ -434,25 +393,40 @@ class ViserServerManager:
                 def _(_):
                     if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                         self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
-                # Initial disabled state based on Control Mode (Manual enables, Auto/E-stop disables)
-                is_manual = mode_dropdown.value.startswith("Manual")
-                speed_slider.disabled = not is_manual
-                steer_slider.disabled = not is_manual
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP (P Gear & STOP)",
                 color="red"
             )
 
-        # Window 2: Mission Control Tab
-        with tabs.add_tab("Mission Control", viser.Icon.MAP_PIN):
-            # 1. Top Panel Folder & Controls
-            panel_folder = client.gui.add_folder("⚙️ Panel", expand_by_default=True)
-            with panel_folder:
+        # Tab 2: Mission Monitor Tab (Native Viser GUI Window)
+        with tabs.add_tab("Mission Monitor", viser.Icon.TARGET):
+            with client.gui.add_folder("📌 Active Mission Overview", expand_by_default=True):
+                mission_overview_md = client.gui.add_markdown("""
+<div style="background: rgba(0, 176, 255, 0.08); padding: 10px; border-radius: 8px; border-left: 4px solid #00B0FF;">
+    <div style="font-size: 11px; text-transform: uppercase; color: #88C0D0; letter-spacing: 0.5px; margin-bottom: 4px;">Active Mission</div>
+    <div style="font-size: 14px; font-weight: 700; color: #FFFFFF;">Autonomous Patrol Path A</div>
+    <div style="font-size: 12px; color: #FFD700; margin-top: 4px; font-weight: 600;">STATUS: RUNNING</div>
+</div>
+                """)
+
+            with client.gui.add_folder("📊 Patrol Progress"):
+                mission_progress_md = client.gui.add_markdown("""
+<div style="background: rgba(255, 255, 255, 0.03); padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
+    <div style="font-size: 12px; font-weight: 600; color: #E0E0E0; margin-bottom: 6px;">Patrol Progress</div>
+    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 6px;">
+        <div style="width: 35%; height: 100%; background: #00E676; border-radius: 4px;"></div>
+    </div>
+    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #AAA;">
+        <span>Waypoints: 4 / 12</span>
+        <span>35% Completed</span>
+    </div>
+</div>
+                """)
+
+            with client.gui.add_folder("⚙️ Controls & Camera", expand_by_default=True):
                 camera_btn = client.gui.add_button("📹 Camera Toggle")
 
-
-            mission_status_md = client.gui.add_markdown(self._format_mission_center_text())
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
                 mission_select = client.gui.add_dropdown(
                     label="Mission Select",
@@ -463,56 +437,69 @@ class ViserServerManager:
                 pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
                 abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
 
-            # 2. Floating/Dockable Camera View Panel (Bottom-Left, Width: 640px, Toggle via Camera button)
-            dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
-            # Add grid pattern graphics to dummy camera feed
-            dummy_cam_img[::30, :] = [40, 40, 50]
-            dummy_cam_img[:, ::30] = [40, 40, 50]
+            with client.gui.add_folder("📜 Real-time Mission Log", expand_by_default=True):
+                mission_log_md = client.gui.add_markdown("""
+<div style="font-size: 11px; font-family: monospace; color: #B0BEC5; line-height: 1.6; max-height: 180px; overflow-y: auto;">
+    <div><span style="color: #666;">[09:00:12]</span> <span style="color: #00E676;">[INFO]</span> Mission 'Path A' started</div>
+    <div><span style="color: #666;">[09:01:05]</span> <span style="color: #00B0FF;">[NAV]</span> Reached Waypoint #1</div>
+    <div><span style="color: #666;">[09:01:42]</span> <span style="color: #00B0FF;">[NAV]</span> Reached Waypoint #2</div>
+    <div><span style="color: #666;">[09:02:15]</span> <span style="color: #FFD700;">[WARN]</span> Minor obstacle detected; rerouting</div>
+</div>
+                """)
 
-            camera_html_content = """
+        # 2. Floating/Dockable Camera View Panel
+        dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
+        dummy_cam_img[::30, :] = [40, 40, 50]
+        dummy_cam_img[:, ::30] = [40, 40, 50]
+
+        camera_html_content = """
             <div id="camera-floating-panel" style="
                 position: fixed;
-                bottom: 20px;
-                left: 20px;
+                bottom: 25px;
+                left: 25px;
                 width: 640px;
-                z-index: 9999;
-                background: rgba(18, 24, 38, 0.92);
-                border: 1px solid rgba(0, 230, 118, 0.4);
-                border-radius: 10px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-                backdrop-filter: blur(8px);
-                padding: 12px;
-                box-sizing: border-box;
-                font-family: sans-serif;
+                height: 480px;
+                z-index: 15000;
+                background: rgba(18, 24, 38, 0.96);
+                border: 1px solid rgba(0, 230, 118, 0.6);
+                border-radius: 12px;
+                box-shadow: 0 10px 32px rgba(0, 0, 0, 0.75);
+                backdrop-filter: blur(10px);
                 display: none;
-                resize: both;
+                flex-direction: column;
                 overflow: hidden;
             ">
-                <div style="
+                <div id="camera-floating-header" style="
+                    padding: 8px 14px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    margin-bottom: 8px;
-                    padding-bottom: 6px;
-                    border-bottom: 1px solid rgba(255,255,255,0.1);
                     cursor: move;
+                    user-select: none;
                 ">
-                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">📹 Live Front IP Camera Feed (640px)</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: #00E676; font-weight: bold; font-size: 14px;">📹 Basler Camera Live Stream</span>
+                        <span id="camera-status-badge" style="font-size: 11px; color: #00E676; background: rgba(0,230,118,0.15); padding: 2px 8px; border-radius: 4px; font-weight: 600;">LIVE</span>
+                    </div>
                     <button onclick="document.getElementById('camera-floating-panel').style.display='none'" style="
                         background: transparent;
                         border: none;
                         color: #FF5252;
                         font-weight: bold;
-                        cursor: pointer;
                         font-size: 16px;
+                        cursor: pointer;
+                        padding: 0 4px;
                     ">✕</button>
                 </div>
-                <div style="width: 100%; height: auto; text-align: center;">
-                    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='616' height='360' viewBox='0 0 616 360'><rect width='100%' height='100%' fill='%2310141f'/><grid/><text x='50%' y='45%' fill='%2300E676' font-family='sans-serif' font-size='18' text-anchor='middle'>📷 FRONT IP CAMERA LIVE STREAM (640px)</text><text x='50%' y='55%' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle'>Resolution: 1920x1080 @ 30fps | Stream: RTSP/H.264</text></svg>" style="width: 100%; border-radius: 6px;" />
+                <div style="position: relative; flex: 1; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: #080b12;">
+                    <img id="camera-stream-image" src="" alt="Camera Stream" style="max-width: 100%; max-height: 100%; object-fit: contain; display: none;">
+                    <div id="camera-placeholder" style="color: #888; font-size: 14px; text-align: center;">
+                        📹 Waiting for Basler GigE Camera Stream...
+                    </div>
                 </div>
             </div>
-            <script>
-            (function() {
                 var el = document.getElementById('camera-floating-panel');
                 if (!el || el.dataset.dragInit) return;
                 el.dataset.dragInit = "true";
@@ -539,13 +526,13 @@ class ViserServerManager:
                 document.addEventListener('mouseup', function() { isDragging = false; });
             })();
             </script>
-            """
-            camera_panel_html = client.gui.add_html(camera_html_content)
+        """
+        camera_panel_html = client.gui.add_html(camera_html_content)
 
-            camera_folder = client.gui.add_folder("📹 Camera View (Docked)", visible=False)
-            with camera_folder:
-                client.gui.add_markdown("<div style='text-align: center; color: #00E676;'><b>📷 Live Camera Stream (Width: 640px)</b></div>")
-                client.gui.add_image(dummy_cam_img, label="Front Camera Stream")
+        camera_folder = client.gui.add_folder("📹 Camera View (Docked)", visible=False)
+        with camera_folder:
+            client.gui.add_markdown("<div style='text-align: center; color: #00E676;'><b>📷 Live Camera Stream (Width: 640px)</b></div>")
+            client.gui.add_image(dummy_cam_img, label="Front Camera Stream")
 
         # Camera Toggle Button Callback
         @camera_btn.on_click
@@ -582,13 +569,39 @@ class ViserServerManager:
         def _(_):
             self.robot.gear = gear_dropdown.value
 
-        @mode_dropdown.on_update
+        # Mode switching cooldown and button state management
+        pending_mode_transition: Optional[str] = None  # "Manual" or "Auto"
+        transition_start_time: float = 0.0
+
+        @manual_btn.on_click
         def _(_):
-            mode_val = mode_dropdown.value
-            self.robot.drive_mode = mode_val
-            is_manual = mode_val.startswith("Manual")
-            speed_slider.disabled = not is_manual
-            steer_slider.disabled = not is_manual
+            nonlocal pending_mode_transition, transition_start_time
+            if hasattr(self.robot, "set_mode_manual"):
+                self.robot.set_mode_manual()
+            self.robot.drive_mode = "Manual (Remote)"
+            speed_slider.disabled = False
+            steer_slider.disabled = False
+
+            # Lock buttons for 10-second transition period
+            manual_btn.disabled = True
+            auto_btn.disabled = True
+            pending_mode_transition = "Manual"
+            transition_start_time = time.time()
+
+        @auto_btn.on_click
+        def _(_):
+            nonlocal pending_mode_transition, transition_start_time
+            if hasattr(self.robot, "set_mode_auto"):
+                self.robot.set_mode_auto()
+            self.robot.drive_mode = "Auto (Autonomous)"
+            speed_slider.disabled = True
+            steer_slider.disabled = True
+
+            # Lock buttons for 10-second transition period
+            manual_btn.disabled = True
+            auto_btn.disabled = True
+            pending_mode_transition = "Auto"
+            transition_start_time = time.time()
 
         def execute_emergency_stop():
             self.robot.speed = 0.0
@@ -598,7 +611,6 @@ class ViserServerManager:
             self.robot.gear = "P"
             gear_dropdown.value = "P"
             self.robot.drive_mode = "Emergency Stop"
-            mode_dropdown.value = "Emergency Stop"
             speed_slider.disabled = True
             steer_slider.disabled = True
 
@@ -606,13 +618,49 @@ class ViserServerManager:
         def _(_):
             execute_emergency_stop()
 
-        # Background update loop for UI Markdown refresh
+        # Background update loop for UI Markdown refresh and Mode Button states
         def ui_update_loop():
+            nonlocal pending_mode_transition, transition_start_time
             while self._running:
                 try:
                     dashboard_md.content = self._format_dashboard_text()
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
                     can_status_md.content = self._format_can_status_text()
+
+                    # Check CAN Drive_State_Mode
+                    status = self.robot.get_status()
+                    parsed_can = status.get("parsed_can_status", {})
+                    current_drive_state = parsed_can.get("Drive_State_Mode", "")
+
+                    now = time.time()
+                    # Check if transition target was achieved early
+                    if pending_mode_transition == "Manual" and (current_drive_state == "Remote Control Mode" or "Remote" in current_drive_state):
+                        pending_mode_transition = None
+                    elif pending_mode_transition == "Auto" and (current_drive_state == "Represents the AD Mode" or "AD" in current_drive_state):
+                        pending_mode_transition = None
+                    elif pending_mode_transition is not None and (now - transition_start_time >= 10.0):
+                        # Timeout 10s elapsed
+                        pending_mode_transition = None
+
+                    # If not in transition, set button enabled/disabled states based on Drive_State_Mode
+                    if pending_mode_transition is None:
+                        if current_drive_state == "Remote Control Mode" or "Remote" in current_drive_state:
+                            # In Remote Control Mode -> Auto button is ENABLED, Manual button is DISABLED
+                            auto_btn.disabled = False
+                            manual_btn.disabled = True
+                        elif current_drive_state == "Represents the AD Mode" or "AD" in current_drive_state:
+                            # In AD Mode -> Manual button is ENABLED, Auto button is DISABLED
+                            manual_btn.disabled = False
+                            auto_btn.disabled = True
+                        else:
+                            # Default fallback if CAN telemetry is absent
+                            if self.robot.drive_mode.startswith("Manual"):
+                                auto_btn.disabled = False
+                                manual_btn.disabled = True
+                            else:
+                                manual_btn.disabled = False
+                                auto_btn.disabled = True
+
                     time.sleep(0.1)
                 except Exception:
                     break
@@ -628,11 +676,11 @@ class ViserServerManager:
                 enable = getattr(dev_obj, "enable", True)
 
                 if not enable:
-                    status_str = "⚪ `DISABLED`"
+                    status_str = "`DISABLED`"
                 elif is_connected:
-                    status_str = "🟢 `ONLINE`"
+                    status_str = "`ONLINE`"
                 else:
-                    status_str = "🔴 `OFFLINE (UNAVAILABLE)`"
+                    status_str = "`OFFLINE (UNAVAILABLE)`"
 
                 lines.append(f"- **{dev_name}**: {status_str}")
 
@@ -658,27 +706,25 @@ class ViserServerManager:
                     except Exception:
                         pass
         else:
-            lines.append("⚠️ No configured devices found.")
+            lines.append("No configured devices found.")
 
         # Real-time CAN 0 parsed status
         status = self.robot.get_status()
         parsed_can = status.get("parsed_can_status", {})
         if parsed_can:
-            lines.append("\n**🚘 CAN Drive Telemetry**")
+            lines.append("\n**CAN Drive Telemetry**")
             for key, val in parsed_can.items():
                 lines.append(f"- **{key}**: `{val}`")
 
         return "\n".join(lines)
 
     def _format_mission_center_text(self) -> str:
-        return """
-<div style="background: rgba(0, 150, 255, 0.1); padding: 10px; border-radius: 6px; border-left: 4px solid #00B0FF; margin-bottom: 8px;">
-    <h3 style="margin: 0 0 6px 0; color: #00E5FF; font-size: 1.1em;">🎯 Autonomous Mission Planner</h3>
-    <p style="margin: 2px 0; font-size: 0.95em;"><b>Current Mission:</b> <span style="color: #00E676;">Patrol Route Alpha</span></p>
-    <p style="margin: 2px 0; font-size: 0.95em;"><b>Status:</b> <span style="color: #FFD700;">STANDBY / READY</span></p>
-    <p style="margin: 2px 0; font-size: 0.9em; color: #AAAAAA;">Waypoints Progress: <code>0 / 12</code> Completed</p>
-</div>
-        """
+        return (
+            "### Autonomous Mission Planner\n"
+            "- **Current Mission**: `Patrol Route Alpha`\n"
+            "- **Status**: `STANDBY / READY`\n"
+            "- **Waypoints Progress**: `0 / 12 Completed`"
+        )
 
     def _format_can_status_text(self) -> str:
         status = self.robot.get_status()
@@ -686,42 +732,30 @@ class ViserServerManager:
         channel = status.get("channel", "can0")
         cmd_val = status.get("can_cmd_val", 0)
         
-        status_color = "#00E676" if is_conn else "#FF5252"
-        status_str = f"ONLINE ({channel})" if is_conn else f"OFFLINE ({channel})"
-
-        return f"""
-<div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin-bottom: 8px;">
-    <b>CAN Bus Status:</b> <span style="color: {status_color}; font-weight: bold;">{status_str}</span><br>
-    <small style="color: #BBBBBB;">Current Steering Cmd: <code>{cmd_val}</code> (-2000: L / +2000: R)</small>
-</div>
-        """
+        status_str = f"**ONLINE** (`{channel}`)" if is_conn else f"**OFFLINE** (`{channel}`)"
+        return f"- **CAN Bus Status**: {status_str}\n- **Current Steering Cmd**: `{cmd_val}` (-2000: L / +2000: R)"
 
     def _format_dashboard_text(self) -> str:
-        status = self.robot.get_status()
-        speed = status["speed"]
-        steer = status["steer_angle"]
-        lat = status["latitude"]
-        lon = status["longitude"]
-        gear = status["gear"]
-        mode = status["drive_mode"]
+        status = self.robot.get_status() if hasattr(self.robot, "get_status") else {}
+        speed = status.get("speed", getattr(self.robot, "speed", 0.0))
+        steer = status.get("steer_angle", getattr(self.robot, "steer_angle", 0.0))
+        lat = status.get("latitude", getattr(self.robot, "latitude", 37.5665))
+        lon = status.get("longitude", getattr(self.robot, "longitude", 126.9780))
+        gear = status.get("gear", getattr(self.robot, "gear", "P"))
+        mode = status.get("drive_mode", getattr(self.robot, "drive_mode", "Manual"))
 
         w_mm = int(self.robot_width * 1000)
         l_mm = int(self.robot_length * 1000)
         h_mm = int(self.robot_height * 1000)
 
-        return f"""
-<div style="width: 100%; font-family: 'Inter', sans-serif; box-sizing: border-box; padding: 4px;">
-    <h2 style="color: #00E676; margin-top: 0; margin-bottom: 8px; font-size: 1.4em;">🚀 APROS Patrol Robot Status</h2>
-    <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border-left: 4px solid #308EFF;">
-        <p style="margin: 4px 0; font-size: 1.1em;">⚡ <b>Speed (속도)</b>: <span style="color:#00E676; font-size: 1.4em; font-weight:bold;">{speed:.1f} km/h</span></p>
-        <p style="margin: 4px 0; font-size: 1.05em;">🧭 <b>Steer Angle (조향각)</b>: <span style="color:#FFD700; font-size: 1.2em; font-weight:bold;">{steer:.1f}°</span></p>
-        <p style="margin: 4px 0; font-size: 1.05em;">📍 <b>Latitude (위도)</b>: <code style="font-size: 1.1em; color: #E0E0E0;">N {lat:.6f}°</code></p>
-        <p style="margin: 4px 0; font-size: 1.05em;">📍 <b>Longitude (경도)</b>: <code style="font-size: 1.1em; color: #E0E0E0;">E {lon:.6f}°</code></p>
-        <p style="margin: 4px 0; font-size: 1.05em;">⚙️ <b>Gear</b>: <b style="color: #FFD700;">{gear}</b> | <b>Mode</b>: <b style="color: #00E676;">{mode}</b></p>
-        <p style="margin: 4px 0; font-size: 0.95em; color: #AAAAAA;">📐 <b>Dimensions</b>: {w_mm} × {l_mm} × {h_mm} mm</p>
-    </div>
-</div>
-        """
+        return (
+            f"### APROS Patrol Robot Status\n"
+            f"- **Speed**: `{speed:.1f} km/h`\n"
+            f"- **Steer Angle**: `{steer:.1f}°`\n"
+            f"- **Position**: `N {lat:.6f}°, E {lon:.6f}°`\n"
+            f"- **Gear**: `{gear}` | **Mode**: `{mode}`\n"
+            f"- **Dimensions**: `{w_mm} × {l_mm} × {h_mm} mm`"
+        )
 
     def _simulation_loop(self):
         """Update robot kinematics for driving simulation and render real-time VLP-16 point cloud."""
@@ -734,16 +768,21 @@ class ViserServerManager:
             # Update simulated physics/kinematics in device controller
             self.robot.update_simulation_step(dt=dt)
 
-            # Update Telescopic Mast 3D Model Height dynamically
+            # Update URDF Joint States (Mast height & Steering angle)
+            mast_height_m = 1.8
             if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                 mast = self.robot.devices["telescopic_mast"]
                 mast_height_m = mast.current_height_m
-                self.mast_handle.height = mast_height_m
-                self.mast_handle.position = (
-                    getattr(self, 'mast_offset_x', 0.0),
-                    getattr(self, 'mast_offset_y', 0.0),
-                    getattr(self, 'mast_offset_z', self.robot_height) + mast_height_m / 2.0
-                )
+
+            steer_angle_rad = np.radians(getattr(self.robot, "steer_angle", 0.0))
+
+            if self.urdf_model is not None:
+                # Master mast_joint (0.0m ~ 6.2m) & master front_steer_joint update
+                mast_extension = max(0.0, mast_height_m - 1.8)
+                self.urdf_model.update_cfg({
+                    "mast_joint": mast_extension,
+                    "front_steer_joint": steer_angle_rad,
+                })
 
             # Real-time VLP-16 point cloud visualization centered at robot frame
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
