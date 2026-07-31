@@ -215,6 +215,64 @@
     </visual>
   </link>
 
+  <!-- ================= MISSION MODULE (PAN/TILT STRUCTURE & OUSTER SR-128) ================= -->
+  <!-- 1. Mission Module Pan Joint (Z-axis rotation, attached to top of mast stage 6: Z = +1.80m) -->
+  <joint name="mission_pan_joint" type="revolute">
+    <parent link="mast_stage6_link"/>
+    <child link="mission_pan_link"/>
+    <origin xyz="0.0 0.0 1.80" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="500.0" velocity="1.0"/>
+  </joint>
+  <link name="mission_pan_link"/>
+
+  <!-- 2. Mission Module Tilt Joint (Y-axis rotation) -->
+  <joint name="mission_tilt_joint" type="revolute">
+    <parent link="mission_pan_link"/>
+    <child link="mission_module_link"/>
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="500.0" velocity="1.0"/>
+  </joint>
+
+  <!-- 3. Mission Module Box Payload Structure (X: 2.000m / 2000mm, Y: 0.300m / 300mm, Z: 0.240m / 240mm) -->
+  <link name="mission_module_link">
+    <visual>
+      <origin xyz="0 0 0.120" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.200 0.300 0.240"/>
+      </geometry>
+      <material name="mission_module_mat">
+        <color rgba="0.15 0.25 0.35 0.5"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.120" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.000 0.300 0.240"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 4. Ouster SR-128 LiDAR Sensor (Mounted on top center of Mission Module structure: Z = +0.240m, Roll 90 deg around X axis) -->
+  <joint name="ouster_joint" type="fixed">
+    <parent link="mission_module_link"/>
+    <child link="ouster_link"/>
+    <origin xyz="0.0 0.0355 0.240" rpy="1.5708 0 0"/>
+  </joint>
+
+  <link name="ouster_link">
+    <visual>
+      <origin xyz="0.0 0.05 0.0365" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.0425" length="0.073"/>
+      </geometry>
+      <material name="ouster_mat">
+        <color rgba="0.27 0.51 0.71 1.0"/>
+      </material>
+    </visual>
+  </link>
+
   <!-- ================= WHEELS & ACKERMANN STEERING LINKAGE ================= -->
   <!-- Wheel Inset: Track Width Y = +-0.38m (Tires positioned inside chassis bounds for clear steering visibility) -->
 

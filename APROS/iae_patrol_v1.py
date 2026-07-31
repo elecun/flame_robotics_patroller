@@ -50,6 +50,8 @@ class IAEPatrolV1:
         self.basler_camera_connector: Optional[Any] = None
         self.last_camera_header: Optional[Dict[str, Any]] = None
         self.last_camera_frame: Optional[bytes] = None
+        self.ouster_connector: Optional[Any] = None
+        self.last_ouster_points: Optional[Any] = None
 
         # Parse platform device list from config
         device_names = []
@@ -160,6 +162,10 @@ class IAEPatrolV1:
         self.last_camera_header = header
         self.last_camera_frame = jpeg_data
 
+    def _on_ouster_data_received(self, points: Any):
+        """Callback invoked when OusterSR128_Connector receives point cloud data over ZPipe IPC."""
+        self.last_ouster_points = points
+
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
         success = True
@@ -230,6 +236,21 @@ class IAEPatrolV1:
             except Exception as e:
                 logger.error(f"[IAEPatrolV1] Error initializing TelescopicMast_Connector: {e}")
 
+        # Initialize OusterSR128_Connector for IPC reception
+        if "ouster-sr-128" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.ouster-sr-128" if __name__.startswith("APROS") else "core.device.ouster-sr-128")
+                OusterSR128_Connector = getattr(mod, "OusterSR128_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
+                self.ouster_connector = OusterSR128_Connector(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_ouster_data_received
+                )
+                self.ouster_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV1] Error initializing OusterSR128_Connector: {e}")
+
         # Initialize BaslerGigECamera_Connector for IPC reception
         if "basler_gige_camera" in self.devices:
             try:
@@ -274,6 +295,12 @@ class IAEPatrolV1:
             except Exception:
                 pass
             self.telescopic_mast_connector = None
+        if self.ouster_connector:
+            try:
+                self.ouster_connector.stop()
+            except Exception:
+                pass
+            self.ouster_connector = None
         if self.basler_camera_connector:
             try:
                 self.basler_camera_connector.stop()

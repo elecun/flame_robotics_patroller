@@ -323,6 +323,17 @@ class ViserServerManager:
             point_shape="circle"
         )
 
+        # 6. Ouster-SR-128 Point Cloud visualization attached to Mission Module ouster_link frame (URDF Link Frame)
+        # Tree path: base_link -> mast_stage1_link -> mast_stage2_link -> ... -> mast_stage6_link -> mission_pan_link -> mission_module_link -> ouster_link
+        ouster_frame_path = "/robot/visual/base_link/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
+        self.ouster_pc_handle = self.server.scene.add_point_cloud(
+            name=ouster_frame_path,
+            points=np.zeros((1, 3), dtype=np.float32),
+            colors=np.array([[200, 80, 255]], dtype=np.uint8),
+            point_size=0.015,
+            point_shape="circle"
+        )
+
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
         # ROS Z-Up Camera Orientation
@@ -795,6 +806,20 @@ class ViserServerManager:
 
                     self.vlp16_pc_handle.points = xyz
                     self.vlp16_pc_handle.colors = colors
+
+            # Real-time Ouster-SR-128 point cloud visualization
+            if hasattr(self.robot, 'last_ouster_points') and self.robot.last_ouster_points is not None:
+                pts = self.robot.last_ouster_points
+                if len(pts) > 0:
+                    xyz = pts[:, :3]
+                    # Bright purple color for Ouster points (200, 80, 255)
+                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
+                    colors[:, 0] = 200  # Red channel
+                    colors[:, 1] = 80   # Green channel
+                    colors[:, 2] = 255  # Blue channel
+
+                    self.ouster_pc_handle.points = xyz
+                    self.ouster_pc_handle.colors = colors
 
             elapsed = time.time() - start_time
             time.sleep(max(0.0, dt - elapsed))

@@ -14,3 +14,4 @@ opencv-python
 pypylon
 pyserial
 yourdfpy
+ouster-sdk
