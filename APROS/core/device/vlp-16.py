@@ -42,11 +42,11 @@ class VLP16(BaseDevice):
         port: int = 2368,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
-        offset_x: float = 0.64,
+        offset_x: float = 1.027,
         offset_y: float = 0.0,
-        offset_z: float = 1.027,
+        offset_z: float = 0.32,
         roll_deg: float = 0.0,
-        pitch_deg: float = 0.0,
+        pitch_deg: float = 15.0,
         yaw_deg: float = 0.0,
         enable: bool = True
     ):
@@ -84,7 +84,8 @@ class VLP16(BaseDevice):
     def _compute_rotation_matrix(self, roll_deg: float, pitch_deg: float, yaw_deg: float) -> np.ndarray:
         """Compute 3x3 rotation matrix R = Rz(yaw) * Ry(pitch) * Rx(roll)."""
         r = np.radians(roll_deg)
-        p = np.radians(pitch_deg)
+        # Note: Since Y-axis is inverted (Left/Right mirroring), Y-axis rotation (Pitch down) direction is inverted (-p)
+        p = -np.radians(pitch_deg)
         y = np.radians(yaw_deg)
 
         Rx = np.array([
@@ -108,11 +109,10 @@ class VLP16(BaseDevice):
         return Rz @ Ry @ Rx
 
     def transform_points_to_robot_frame(self, points: np.ndarray) -> np.ndarray:
-        """Transform sensor-relative point cloud to robot center origin frame using rotation & translation offset."""
+        """Return raw sensor-relative point cloud. Transformations are handled by URDF frame links."""
         if points is None or len(points) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        # Return raw sensor-relative points without adding offset or rotation
         return points
 
     def set_zpipe_context(self, zpipe_ctx: Any):
@@ -249,10 +249,8 @@ class VLP16(BaseDevice):
         if points is None or len(points) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        # Compute horizontal azimuth angle in degrees [-180, 180]
-        # Coordinates in Viser frame: X_viser = X_sensor, Y_viser = Z_sensor, Z_viser = Y_sensor
-        # Horizontal plane corresponds to (X_viser, Z_viser)
-        azimuth_deg = np.degrees(np.arctan2(points[:, 0], points[:, 2]))
+        # Compute horizontal azimuth angle in degrees [-180, 180] in sensor local frame (arctan2(Y, X))
+        azimuth_deg = np.degrees(np.arctan2(points[:, 1], points[:, 0]))
 
         if self.min_angle <= self.max_angle:
             mask = (azimuth_deg >= self.min_angle) & (azimuth_deg <= self.max_angle)
@@ -307,21 +305,16 @@ class VLP16(BaseDevice):
                     laser_id = channel % 16
                     omega = vert_rad[laser_id]
 
-                    # Standard Spherical to 3D Cartesian coordinates
+                    # Velodyne Sensor Frame with inverted Y-axis alignment:
+                    # X_sensor = distance * cos(omega) * cos(azimuth)    [Forward / Front]
+                    # Y_sensor = -distance * cos(omega) * sin(azimuth)   [Inverted Y-axis alignment]
+                    # Z_sensor = distance * sin(omega)                   [Up]
                     xy = distance_m * math.cos(omega)
-                    x_sensor = xy * math.sin(azimuth_rad)
-                    y_sensor = xy * math.cos(azimuth_rad)
+                    x_sensor = xy * math.cos(azimuth_rad)
+                    y_sensor = -xy * math.sin(azimuth_rad)
                     z_sensor = distance_m * math.sin(omega)
 
-                    # ROS Standard Robot Frame mapping (Forward-X, Left-Y, Up-Z):
-                    # y_sensor -> X (Forward)
-                    # -x_sensor -> Y (Left)
-                    # z_sensor -> Z (Up)
-                    robot_x = y_sensor
-                    robot_y = -x_sensor
-                    robot_z = z_sensor
-
-                    points.append([robot_x, robot_y, robot_z, float(intensity)])
+                    points.append([x_sensor, y_sensor, z_sensor, float(intensity)])
 
         if not points:
             return np.empty((0, 4), dtype=np.float32)
@@ -361,16 +354,13 @@ class VLP16(BaseDevice):
             # Cycle through 16 vertical laser channels
             omega = vert_rad[i % 16]
             xy = dist * math.cos(omega)
-            x_sensor = xy * math.sin(angle)
-            y_sensor = xy * math.cos(angle)
+            x_sensor = xy * math.cos(angle)
+            y_sensor = -xy * math.sin(angle)
             z_sensor = dist * math.sin(omega)
 
-            robot_x = y_sensor
-            robot_y = -x_sensor
-            robot_z = z_sensor
             intensity = float(100 + (i % 155))
 
-            points.append([robot_x, robot_y, robot_z, intensity])
+            points.append([x_sensor, y_sensor, z_sensor, intensity])
 
         return np.array(points, dtype=np.float32)
 

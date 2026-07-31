@@ -314,9 +314,9 @@ class ViserServerManager:
             closed=True
         )
 
-        # 5. VLP-16 Point Cloud visualization attached to /robot/vlp16_link frame
+        # 5. VLP-16 Point Cloud visualization attached to /robot/visual/base_link/vlp16_link frame (URDF Link Frame)
         self.vlp16_pc_handle = self.server.scene.add_point_cloud(
-            name="/robot/vlp16_link/points",
+            name="/robot/visual/base_link/vlp16_link/points",
             points=np.zeros((1, 3), dtype=np.float32),
             colors=np.array([[255, 0, 0]], dtype=np.uint8),
             point_size=0.015,

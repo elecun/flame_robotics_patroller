@@ -13,3 +13,4 @@ colorlog
 opencv-python
 pypylon
 pyserial
+yourdfpy
