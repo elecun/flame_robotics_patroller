@@ -143,6 +143,9 @@ class IAEPatrolV1:
         tx = status.get('tilt_x', 0.0)
         tz = status.get('tilt_z', 0.0)
         temp = status.get('temperature', 0)
+        # Pass tilt_x to VLP-16 device for ground removal calculation if active
+        if "vlp-16" in self.devices and hasattr(self.devices["vlp-16"], "set_vehicle_tilt_x"):
+            self.devices["vlp-16"].set_vehicle_tilt_x(tx)
         # Update drive base or platform telemetry status
         if self.drive_base and hasattr(self.drive_base, 'parsed_can_status'):
             self.drive_base.parsed_can_status["Baumer Incline Tilt X (deg)"] = f"{tx:.2f}"

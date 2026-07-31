@@ -42,6 +42,8 @@ class VLP16(BaseDevice):
         port: int = 2368,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
+        ground_removal: bool = True,
+        ground_safe: float = 0.03,
         offset_x: float = 1.027,
         offset_y: float = 0.0,
         offset_z: float = 0.32,
@@ -56,6 +58,8 @@ class VLP16(BaseDevice):
         self.port = int(port)
         self.min_angle = float(min_angle)
         self.max_angle = float(max_angle)
+        self.ground_removal = bool(ground_removal) if isinstance(ground_removal, bool) else str(ground_removal).lower() in ("true", "1", "yes")
+        self.ground_safe = float(ground_safe)
 
         # Installation offset relative to robot origin frame (meters)
         self.offset_x = float(offset_x)
@@ -69,6 +73,24 @@ class VLP16(BaseDevice):
 
         # Compute 3x3 rotation matrix from Roll, Pitch, Yaw
         self.R = self._compute_rotation_matrix(self.roll_deg, self.pitch_deg, self.yaw_deg)
+
+        # Initialize GroundRemovalFilter plugin if enabled
+        self.ground_filter: Optional[Any] = None
+        self.current_tilt_x: float = 0.0
+
+        if self.ground_removal:
+            try:
+                from core.algorithm.ground_removal import GroundRemovalFilter
+                self.ground_filter = GroundRemovalFilter(
+                    vlp16_offset_x=self.offset_x,
+                    vlp16_offset_y=self.offset_y,
+                    vlp16_offset_z=self.offset_z,
+                    vlp16_pitch_deg=self.pitch_deg,
+                    ground_safe_m=self.ground_safe
+                )
+                logger.info(f"[{self.name}] Ground removal algorithm module enabled & loaded (ground_safe={self.ground_safe}m).")
+            except Exception as e:
+                logger.error(f"[{self.name}] Failed to load GroundRemovalFilter module: {e}")
 
         self.sock: Optional[socket.socket] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
@@ -230,9 +252,18 @@ class VLP16(BaseDevice):
                 self._publish_points(simulated_points)
                 time.sleep(0.1)
 
+    def set_vehicle_tilt_x(self, tilt_x_deg: float):
+        """Set current vehicle pitch tilt X from Baumer Incline Sensor."""
+        self.current_tilt_x = float(tilt_x_deg)
+
     def _publish_points(self, raw_points: np.ndarray):
-        """Transform points to robot center origin frame and publish full scan points over ZPipe IPC."""
+        """Transform points to robot center origin frame, apply ground removal if enabled, and publish full scan points over ZPipe IPC."""
         points = self.transform_points_to_robot_frame(raw_points)
+
+        # Apply GroundRemovalFilter if enabled
+        if self.ground_removal and self.ground_filter is not None and len(points) > 0:
+            points = self.ground_filter.remove_ground_points(points, tilt_x_deg=self.current_tilt_x)
+
         self._last_points = points
         if self.pub_socket and self.pub_socket.is_joined and len(points) > 0:
             try:

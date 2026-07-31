@@ -334,6 +334,42 @@ class ViserServerManager:
             point_shape="circle"
         )
 
+        # 7. Ground Removal Virtual Plane visualization (ground_safe threshold height)
+        # Display semi-transparent cyan plane at z = ground_safe height if ground_removal is enabled
+        vlp_dev = self.robot.devices.get("vlp-16") if hasattr(self.robot, "devices") else None
+        is_ground_removal_on = getattr(vlp_dev, "ground_removal", True) if vlp_dev else True
+        ground_safe_val = getattr(vlp_dev, "ground_safe", 0.03) if vlp_dev else 0.03
+
+        if is_ground_removal_on:
+            # Create a 10m x 10m semi-transparent ground plane visual box positioned at z = ground_safe (thickness 10mm)
+            z_low = float(ground_safe_val - 0.005)
+            z_high = float(ground_safe_val + 0.005)
+
+            self.ground_plane_handle = self.server.scene.add_mesh_simple(
+                name="/robot/visual/base_link/ground_removal_plane",
+                vertices=np.array([
+                    [-5.0, -5.0, z_low],
+                    [ 5.0, -5.0, z_low],
+                    [ 5.0,  5.0, z_low],
+                    [-5.0,  5.0, z_low],
+                    [-5.0, -5.0, z_high],
+                    [ 5.0, -5.0, z_high],
+                    [ 5.0,  5.0, z_high],
+                    [-5.0,  5.0, z_high],
+                ], dtype=np.float32),
+                faces=np.array([
+                    [0, 1, 2], [0, 2, 3],  # Bottom
+                    [4, 6, 5], [4, 7, 6],  # Top
+                    [0, 4, 5], [0, 5, 1],  # Front
+                    [1, 5, 6], [1, 6, 2],  # Right
+                    [2, 6, 7], [2, 7, 3],  # Back
+                    [3, 7, 4], [3, 4, 0],  # Left
+                ], dtype=np.uint32),
+                color=(0, 220, 255),
+                opacity=0.35
+            )
+            logger.info(f"[APROS Viser UI] Ground Removal Plane (z={ground_safe_val}m) visualizer added to 3D scene.")
+
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
         # ROS Z-Up Camera Orientation
@@ -346,15 +382,11 @@ class ViserServerManager:
 
         # Window 1: APROS Control Tab
         with tabs.add_tab("APROS Control", viser.Icon.SETTINGS):
-            # 1. Left Telemetry Dashboard
-            with client.gui.add_folder("📊 Telemetry Dashboard (APROS System)"):
-                dashboard_md = client.gui.add_markdown(self._format_dashboard_text())
-
-            # 2. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
+            # 1. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
             with client.gui.add_folder("🚘 Robot Drive Status"):
                 robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
 
-            # 3. Remote Control GUI Folder
+            # 2. Remote Control & Mast GUI Folder (Integrated Remote Control & Mast)
             with client.gui.add_folder("🎮 Robot Remote Control"):
                 # CAN Connection Status Display
                 can_status_md = client.gui.add_markdown(self._format_can_status_text())
@@ -382,13 +414,7 @@ class ViserServerManager:
                     initial_value=self.robot.gear
                 )
 
-                # Control Mode buttons: Manual and Auto
-                client.gui.add_markdown("<span style='font-size: 13px; font-weight: 600; color: #E0E0E0;'>Control Mode:</span>")
-                manual_btn = client.gui.add_button("🕹️ Manual")
-                auto_btn = client.gui.add_button("🤖 Auto")
-
-            # 4. Telescopic Mast Control Folder (1800mm ~ 8000mm)
-            with client.gui.add_folder("🏗️ Telescopic Mast Control"):
+                # Telescopic Mast Control (Integrated: 1800mm ~ 8000mm)
                 mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") else None
                 init_mast_height = mast_dev.current_height_mm if mast_dev else 1800.0
 
@@ -404,6 +430,11 @@ class ViserServerManager:
                 def _(_):
                     if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                         self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
+
+                # Control Mode buttons: Manual and Auto
+                client.gui.add_markdown("<span style='font-size: 13px; font-weight: 600; color: #E0E0E0;'>Control Mode:</span>")
+                manual_btn = client.gui.add_button("🕹️ Manual")
+                auto_btn = client.gui.add_button("🤖 Auto")
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP (P Gear & STOP)",
