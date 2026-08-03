@@ -42,8 +42,8 @@
         // Use local tiles from the resource/maptile directory
         // Expected structure is maptile/{z}/{x}/{y}.png
         L.tileLayer('maptile/{z}/{x}/{y}.png', {
-            minZoom: 15, // As requested by folder structure
-            maxZoom: 16, 
+            minZoom: 16,
+            maxZoom: 19,
             attribution: 'Local Patrol Map',
             errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' // Transparent 1x1 image on error
         }).addTo(map);

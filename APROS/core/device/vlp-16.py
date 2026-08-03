@@ -80,17 +80,11 @@ class VLP16(BaseDevice):
 
         if self.ground_removal:
             try:
-                from core.algorithm.ground_removal import GroundRemovalFilter
-                self.ground_filter = GroundRemovalFilter(
-                    vlp16_offset_x=self.offset_x,
-                    vlp16_offset_y=self.offset_y,
-                    vlp16_offset_z=self.offset_z,
-                    vlp16_pitch_deg=self.pitch_deg,
-                    ground_safe_m=self.ground_safe
-                )
-                logger.info(f"[{self.name}] Ground removal algorithm module enabled & loaded (ground_safe={self.ground_safe}m).")
+                from core.plugin.ground_removal import PatchworkPP
+                self.ground_filter = PatchworkPP()
+                logger.info(f"[{self.name}] Ground removal plugin PatchworkPP enabled & loaded.")
             except Exception as e:
-                logger.error(f"[{self.name}] Failed to load GroundRemovalFilter module: {e}")
+                logger.error(f"[{self.name}] Failed to load PatchworkPP ground removal module: {e}")
 
         self.sock: Optional[socket.socket] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
@@ -262,7 +256,7 @@ class VLP16(BaseDevice):
 
         # Apply GroundRemovalFilter if enabled
         if self.ground_removal and self.ground_filter is not None and len(points) > 0:
-            points = self.ground_filter.remove_ground_points(points, tilt_x_deg=self.current_tilt_x)
+            points = self.ground_filter.remove_ground(points)
 
         self._last_points = points
         if self.pub_socket and self.pub_socket.is_joined and len(points) > 0:

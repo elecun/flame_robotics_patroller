@@ -1,53 +1,74 @@
 import time
+
 import numpy as np
+
 import viser
 
-server = viser.ViserServer()
 
-# Viser theme & GUI setup
-server.gui.configure_theme(dark_mode=True)
-server.gui.set_panel_label("Multi-Camera & Sensor Dashboard")
+def main() -> None:
+    server = viser.ViserServer()
 
-# ==========================================
-# 1. 메인 탭 그룹 (Left / Right 패널 구성)
-# ==========================================
-tabs = server.gui.add_tab_group()
+    server.scene.add_frame("/axes", axes_length=1.0, axes_radius=0.02)
 
-# 좌측 카메라 탭
-with tabs.add_tab("Main Cam", viser.Icon.CAMERA):
-    with server.gui.add_folder("📹 Main Camera (Front)"):
-        img_left = np.zeros((240, 320, 3), dtype=np.uint8)
-        cam_gui_1 = server.gui.add_image(
-            img_left, label="Front Camera (320x240)", format="jpeg", jpeg_quality=70
-        )
+    # A panel docked to the right edge, with two tabs. Panels start
+    # expanded; minimize() below collapses the log panel imperatively, and
+    # the user can minimize/expand freely in the browser.
+    stats_panel = server.gui.add_panel()
+    with stats_panel.add_tab("Stats", viser.Icon.CHART_BAR):
+        counter = server.gui.add_number("Counter", initial_value=0, disabled=True)
+        server.gui.add_markdown("Live values update in this docked panel.")
+    with stats_panel.add_tab("Notes", viser.Icon.NOTES):
+        server.gui.add_markdown("A second tab in the same panel.")
+    stats_panel.dock_right()
+    stats_panel.set_width(320)
 
-# 우측 카메라 & 상태 탭
-with tabs.add_tab("Sub Cam & Status", viser.Icon.EYE):
-    with server.gui.add_folder("📷 Sub Camera (Thermal/Depth)"):
-        img_right = np.zeros((240, 320, 3), dtype=np.uint8)
-        cam_gui_2 = server.gui.add_image(
-            img_right, label="Thermal / Depth", format="jpeg", jpeg_quality=70
-        )
-    with server.gui.add_folder("📊 System Status"):
-        server.gui.add_markdown("**System Status**")
-        status_text = server.gui.add_text("FPS", initial_value="30 FPS", disabled=True)
+    # A floating panel at an explicit position. x/y are viewport-relative (the
+    # canvas inside docked panels), so this stays clear of the left-docked main
+    # panel below and shifts if the docked regions change.
+    tools_panel = server.gui.add_panel()
+    with tools_panel.add_tab("Tools", viser.Icon.TOOL):
+        randomize = server.gui.add_button("Randomize point cloud")
+    tools_panel.float(x=30, y=30, width=260)
+    # Start the tools panel minimized (a floating panel collapses to its
+    # header bar). Collapse applies to the panel's CONTAINER -- panels
+    # stacked together minimize together -- so we demo it on a panel with
+    # its own window; log_panel below shares a column with stats_panel,
+    # and minimizing it would rail them both.
+    tools_panel.minimize()
 
+    # A panel stacked below the docked stats panel (a column split).
+    log_panel = server.gui.add_panel()
+    with log_panel.add_tab("Log", viser.Icon.TERMINAL):
+        log = server.gui.add_markdown("Waiting for events...")
+    log_panel.dock_below(stats_panel)
 
-# ==========================================
-# 2. 실시간 프레임 갱신 루프
-# ==========================================
-print("[panel.py] Starting multi-camera frame update loop...")
-try:
+    # The main control panel can be placed too -- here, docked to the left.
+    server.gui.main_panel.dock_left()
+
+    rng = np.random.default_rng(0)
+    points = rng.normal(size=(2000, 3)) * 0.5
+    log_lines: list[str] = []
+
+    def append_log(message: str) -> None:
+        # Keep a short rolling history so the log reads like a real log, not a
+        # single replaced line.
+        log_lines.append(message)
+        del log_lines[:-8]  # keep the last 8 lines
+        log.content = "\n\n".join(log_lines)
+
+    @randomize.on_click
+    def _(_) -> None:
+        nonlocal points
+        points = rng.normal(size=(2000, 3)) * 0.5
+        append_log(f"Randomized at t={counter.value}.")
+
     while True:
-        # 각 패널에 들어갈 프레임 생성
-        frame_left = np.random.randint(0, 255, size=(240, 320, 3), dtype=np.uint8)
-        frame_right = np.random.randint(0, 255, size=(240, 320, 3), dtype=np.uint8)
+        counter.value += 1
+        server.scene.add_point_cloud(
+            "/points", points=points, colors=(120, 180, 255), point_size=0.02
+        )
+        time.sleep(0.5)
 
-        # 각각의 GUI 인스턴스 업데이트
-        cam_gui_1.image = frame_left
-        cam_gui_2.image = frame_right
 
-        time.sleep(0.03)
-except KeyboardInterrupt:
-    print("[panel.py] Stopped.")
-    server.stop()
+if __name__ == "__main__":
+    main()
