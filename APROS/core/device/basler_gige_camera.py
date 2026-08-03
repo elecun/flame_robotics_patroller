@@ -54,9 +54,10 @@ class BaslerGigECamera(BaseDevice):
         roi_resolution: Optional[List[int]] = None,
         exposure_time: int = 5000,
         device_index: int = 0,
+        status_monitor: Optional[Any] = None,
         enable: bool = True
     ):
-        super().__init__(name, enable=enable)
+        super().__init__(name, enable=enable, status_monitor=status_monitor)
         self.robot_model = robot_model
         self.ip = str(ip)
         self.fps = float(fps) if float(fps) > 0 else 15.0

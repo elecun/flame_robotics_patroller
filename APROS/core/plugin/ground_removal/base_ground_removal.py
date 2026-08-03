@@ -40,3 +40,12 @@ class BaseGroundRemoval(ABC):
         :return: Filtered point cloud array (non-ground points) of shape (M, C).
         """
         pass
+
+    def estimate_ground(self, points: np.ndarray):
+        """
+        Classify input point cloud into ground and non-ground points or return a boolean mask (is_ground).
+
+        :param points: Point cloud array of shape (N, 3) or (N, C).
+        :return: Tuple (is_ground_mask, is_non_ground_mask) or boolean array `is_ground`.
+        """
+        pass

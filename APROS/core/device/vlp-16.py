@@ -42,24 +42,25 @@ class VLP16(BaseDevice):
         port: int = 2368,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
-        ground_removal: bool = True,
-        ground_safe: float = 0.03,
+        ground_removal: Optional[Any] = None,
+        ground_removal_params: Optional[Dict[str, Any]] = None,
         offset_x: float = 1.027,
         offset_y: float = 0.0,
         offset_z: float = 0.32,
         roll_deg: float = 0.0,
         pitch_deg: float = 15.0,
         yaw_deg: float = 0.0,
+        status_monitor: Optional[Any] = None,
         enable: bool = True
     ):
-        super().__init__(name, enable=enable)
+        super().__init__(name, enable=enable, status_monitor=status_monitor)
         self.robot_model = robot_model
         self.ip = ip
         self.port = int(port)
         self.min_angle = float(min_angle)
         self.max_angle = float(max_angle)
-        self.ground_removal = bool(ground_removal) if isinstance(ground_removal, bool) else str(ground_removal).lower() in ("true", "1", "yes")
-        self.ground_safe = float(ground_safe)
+        self.ground_removal = str(ground_removal).strip() if ground_removal not in (None, False, "") else None
+        self.ground_removal_params = ground_removal_params if isinstance(ground_removal_params, dict) else {}
 
         # Installation offset relative to robot origin frame (meters)
         self.offset_x = float(offset_x)
@@ -74,17 +75,39 @@ class VLP16(BaseDevice):
         # Compute 3x3 rotation matrix from Roll, Pitch, Yaw
         self.R = self._compute_rotation_matrix(self.roll_deg, self.pitch_deg, self.yaw_deg)
 
-        # Initialize GroundRemovalFilter plugin if enabled
+        # Initialize GroundRemovalFilter plugin if configured
         self.ground_filter: Optional[Any] = None
         self.current_tilt_x: float = 0.0
 
         if self.ground_removal:
             try:
-                from core.plugin.ground_removal import PatchworkPP
-                self.ground_filter = PatchworkPP()
-                logger.info(f"[{self.name}] Ground removal plugin PatchworkPP enabled & loaded.")
+                import importlib
+                module_name = self.ground_removal.lower()
+                pkg_path = "APROS.core.plugin.ground_removal" if __name__.startswith("APROS") else "core.plugin.ground_removal"
+                mod = importlib.import_module(f"{pkg_path}.{module_name}")
+                
+                # Find class inside module that inherits from BaseGroundRemoval or matches module_name
+                filter_cls = None
+                for attr_name in dir(mod):
+                    attr = getattr(mod, attr_name)
+                    if isinstance(attr, type) and attr_name.lower() == module_name.replace("_", "").replace("-", ""):
+                        filter_cls = attr
+                        break
+                if filter_cls is None:
+                    # Fallback to standard class name lookup (e.g. PatchworkPP for patchworkpp)
+                    for attr_name in dir(mod):
+                        attr = getattr(mod, attr_name)
+                        if isinstance(attr, type) and attr_name != "BaseGroundRemoval" and hasattr(attr, "remove_ground"):
+                            filter_cls = attr
+                            break
+
+                if filter_cls:
+                    self.ground_filter = filter_cls(**self.ground_removal_params)
+                    logger.info(f"[{self.name}] Ground removal plugin '{self.ground_removal}' loaded successfully with params: {self.ground_removal_params}")
+                else:
+                    logger.error(f"[{self.name}] Ground removal class not found in module '{self.ground_removal}'.")
             except Exception as e:
-                logger.error(f"[{self.name}] Failed to load PatchworkPP ground removal module: {e}")
+                logger.error(f"[{self.name}] Failed to load '{self.ground_removal}' ground removal module: {e}")
 
         self.sock: Optional[socket.socket] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
@@ -256,7 +279,19 @@ class VLP16(BaseDevice):
 
         # Apply GroundRemovalFilter if enabled
         if self.ground_removal and self.ground_filter is not None and len(points) > 0:
-            points = self.ground_filter.remove_ground(points)
+            if hasattr(self.ground_filter, "estimate_ground"):
+                res = self.ground_filter.estimate_ground(points)
+                if isinstance(res, tuple):
+                    is_ground, fitted_planes = res
+                    self.ground_planes = fitted_planes
+                else:
+                    is_ground = res
+                    self.ground_planes = []
+                # Attach ground flag as 5th column (1.0 for ground, 0.0 for non-ground)
+                ground_col = is_ground.astype(np.float32).reshape(-1, 1)
+                points = np.hstack((points[:, :4], ground_col))
+            else:
+                points = self.ground_filter.remove_ground(points)
 
         self._last_points = points
         if self.pub_socket and self.pub_socket.is_joined and len(points) > 0:

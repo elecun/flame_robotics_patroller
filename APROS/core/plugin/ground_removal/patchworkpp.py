@@ -130,31 +130,26 @@ class PatchworkPP(BaseGroundRemoval):
 
         return ground_mask, ~ground_mask
 
-    def remove_ground(self, points: np.ndarray) -> np.ndarray:
+    def estimate_ground(self, points: np.ndarray) -> Tuple[np.ndarray, List[Tuple[np.ndarray, float]]]:
         """
-        Remove ground points from input point cloud using Patchwork++ regionwise plane fitting.
+        Estimate ground points and return boolean array `is_ground` of length N and list of fitted plane parameters.
 
         :param points: Input point cloud of shape (N, C) with (x, y, z, ...).
-                       Coordinate convention: X=forward, Y=left, Z=up.
-        :return: Non-ground point cloud array of shape (M, C).
+        :return: Tuple of (is_ground mask of shape (N,), list of (normal, d) plane tuples)
         """
         if points is None or len(points) == 0:
-            return np.empty((0, 3), dtype=np.float32)
+            return np.zeros(0, dtype=bool), []
 
         x = points[:, 0]
         y = points[:, 1]
 
-        # Calculate range r and angle azimuth (theta)
         r = np.sqrt(x**2 + y**2)
-        theta = np.arctan2(y, x)  # Range [-pi, pi]
+        theta = np.arctan2(y, x)
 
-        # Filter out points outside radial limits
         valid_range_mask = (r >= self.min_r) & (r <= self.max_r)
-        
-        # Non-ground mask for all points (default True)
-        is_non_ground = np.ones(len(points), dtype=bool)
+        is_ground = np.zeros(len(points), dtype=bool)
+        fitted_planes = []
 
-        # Concentric Zone & Sector Binning
         for zone_idx in range(self.czm_num_zones):
             r_min = self.zone_radii[zone_idx]
             r_max = self.zone_radii[zone_idx + 1]
@@ -176,10 +171,54 @@ class PatchworkPP(BaseGroundRemoval):
                     continue
 
                 sector_points = points[indices]
-                g_mask, _ = self._fit_region_plane(sector_points)
+                g_mask, _, plane_param = self._fit_region_plane_with_param(sector_points)
 
-                # Mark ground points in overall mask
                 ground_indices = indices[g_mask]
-                is_non_ground[ground_indices] = False
+                is_ground[ground_indices] = True
+                if plane_param is not None:
+                    fitted_planes.append(plane_param)
 
-        return points[is_non_ground]
+        return is_ground, fitted_planes
+
+    def _fit_region_plane_with_param(self, points: np.ndarray):
+        """Fit plane for a single sector region and return (ground_mask, non_ground_mask, (normal, d))."""
+        if len(points) < 3:
+            return np.zeros(len(points), dtype=bool), np.ones(len(points), dtype=bool), None
+
+        seeds = self._extract_initial_seeds(points)
+        if len(seeds) < 3:
+            return np.zeros(len(points), dtype=bool), np.ones(len(points), dtype=bool), None
+
+        ground_mask = np.zeros(len(points), dtype=bool)
+        xyz = points[:, :3]
+        last_plane = None
+
+        for _ in range(self.max_iter):
+            normal, d = self._estimate_plane(seeds)
+
+            if normal[2] < self.uprightness_thr:
+                break
+
+            dist = np.abs(np.dot(xyz, normal) + d)
+            ground_mask = dist < self.th_dist
+            seeds = points[ground_mask]
+            last_plane = (normal, d)
+
+            if len(seeds) < 3:
+                break
+
+        return ground_mask, ~ground_mask, last_plane
+
+    def remove_ground(self, points: np.ndarray) -> np.ndarray:
+        """
+        Remove ground points from input point cloud using Patchwork++ regionwise plane fitting.
+
+        :param points: Input point cloud of shape (N, C) with (x, y, z, ...).
+                       Coordinate convention: X=forward, Y=left, Z=up.
+        :return: Non-ground point cloud array of shape (M, C).
+        """
+        if points is None or len(points) == 0:
+            return np.empty((0, 3), dtype=np.float32)
+
+        is_ground, _ = self.estimate_ground(points)
+        return points[~is_ground]

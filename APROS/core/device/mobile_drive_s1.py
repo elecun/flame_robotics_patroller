@@ -5,6 +5,7 @@ Protocol referenced from PatrolCar_SlideBar.py (CAN ID 0x502).
 """
 import time
 import threading
+from typing import Optional, Dict, Any, List, Callable
 import numpy as np
 from core.device.base import BaseDevice
 from util.logger.console import ConsoleLogger
@@ -31,59 +32,58 @@ class CANParser:
         try:
             if can_id == 0x303:
                 if len(data) >= 4:
-                    # show low data in hexa decimal
                     vehicle_gear = data[0] & 0x03
-                    parsed['Vehicle Gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_gear]
+                    parsed['vehicle_gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_gear]
                     drive_state_mode = data[1] & 0x03
-                    parsed['Drive_State_Mode'] = ["Remote Control Mode", "Represents the AD Mode",
+                    parsed['drive_state_mode'] = ["Remote Control Mode", "Represents the AD Mode",
                                                   "Indicates parallel Mode", "Indicates semi-autonomous"][drive_state_mode]
                     vcu_speed_req = int.from_bytes(data[2:4], byteorder='little') * 0.1 - 80
-                    parsed['Vehicle Speed Request (km/h)'] = f"{vcu_speed_req:.1f}"
+                    parsed['vehicle_speed_request'] = f"{vcu_speed_req:.1f} km/h"
 
             elif can_id == 0x314:
                 if len(data) >= 3:
                     directional_angle = int.from_bytes(data[1:3], byteorder='little')
-                    parsed['Direction Angle (deg)'] = f"{directional_angle}"
-                    parsed['eps Control'] = "Works" if data[0] & 0x01 else "Stops"
+                    parsed['direction_angle'] = f"{directional_angle} deg"
+                    parsed['eps_control'] = "Works" if data[0] & 0x01 else "Stops"
 
             elif can_id == 0x304:
                 if len(data) >= 6:
                     speed = int.from_bytes(data[0:2], byteorder='little') * 0.1 - 80
-                    parsed['Vehicle Speed (km/h)'] = f"{speed:.1f}"
-                    parsed['Vehicle Steer Angle (deg)'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f}"
-                    parsed['Vehicle Break Pressure (Mps)'] = f"{int.from_bytes(data[2:4], 'little') * 0.01:.2f}"
+                    parsed['vehicle_velocity'] = f"{speed:.1f} km/h"
+                    parsed['vehicle_steer_angle'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f} deg"
+                    parsed['vehicle_brake_pressure'] = f"{int.from_bytes(data[2:4], 'little') * 0.01:.2f} Mps"
 
             elif can_id == 0x301:
                 if len(data) >= 6:
-                    parsed['Brake Light'] = "ON" if data[5] & 0x01 else "OFF"
-                    parsed['Head Light'] = "ON" if data[1] & 0x80 else "OFF"
-                    parsed['Emergency Button'] = "Pressed" if data[0] & 0x01 else "Not Pressed"
-                    parsed['Back Touch Switch State'] = "trigger" if data[1] & 0x20 else "Not trigger"
-                    parsed['Front Touch Switch State'] = "trigger" if data[1] & 0x10 else "Not trigger"
+                    parsed['brake_light'] = "ON" if data[5] & 0x01 else "OFF"
+                    parsed['head_light'] = "ON" if data[1] & 0x80 else "OFF"
+                    parsed['emergency_button'] = "Pressed" if data[0] & 0x01 else "Not Pressed"
+                    parsed['back_touch_switch'] = "trigger" if data[1] & 0x20 else "Not trigger"
+                    parsed['front_touch_switch'] = "trigger" if data[1] & 0x10 else "Not trigger"
 
             elif can_id == 0x18F:
                 if len(data) >= 7:
-                    parsed['EPS_Current_Angle (deg)'] = str(int.from_bytes(data[1:3], 'little', signed=True))
-                    parsed['EPS_ECU_Temperature (℃)'] = str(int.from_bytes(data[6:7], 'little', signed=True))
+                    parsed['eps_current_angle'] = f"{int.from_bytes(data[1:3], 'little', signed=True)} deg"
+                    parsed['eps_ecu_temperature'] = f"{int.from_bytes(data[6:7], 'little', signed=True)} degC"
 
             elif can_id == 0x060:
                 if len(data) >= 4:
-                    parsed['BUS Voltage (V)'] = f"{int.from_bytes(data[0:2], 'little') * 0.1:.2f}"
-                    parsed['BUS Current (A)'] = f"{int.from_bytes(data[2:4], 'little') * 0.1 - 1000:.2f}"
+                    parsed['bus_voltage'] = f"{int.from_bytes(data[0:2], 'little') * 0.1:.2f} V"
+                    parsed['bus_current'] = f"{int.from_bytes(data[2:4], 'little') * 0.1 - 1000:.2f} A"
 
             elif can_id == 0x160:
                 if len(data) >= 6:
                     mode = (data[0] & 0x06) >> 1
-                    parsed['Drive Mode'] = ["Torque", "Speed", "Torque ring", "Speed loop"][mode]
-                    parsed['MCU_Brake_Request'] = "Hold brake" if data[0] & 0x08 else "Release"
-                    parsed['MCU Speed Request (RPM)'] = str(int.from_bytes(data[3:6], 'little') - 7000)
-                    parsed['MCU Torque Request (Nm)'] = f"{int.from_bytes(data[1:3], 'little') * 0.1 - 1000:.1f}"
+                    parsed['mcu_drive_mode'] = ["Torque", "Speed", "Torque ring", "Speed loop"][mode]
+                    parsed['mcu_brake_request'] = "Hold brake" if data[0] & 0x08 else "Release"
+                    parsed['mcu_speed_request'] = f"{int.from_bytes(data[3:6], 'little') - 7000} RPM"
+                    parsed['mcu_torque_request'] = f"{int.from_bytes(data[1:3], 'little') * 0.1 - 1000:.1f} Nm"
 
             elif can_id == 0x0A0:
                 if len(data) >= 8:
-                    parsed['BMS Battery SOH (%)'] = str(data[7])
-                    parsed['BMS Battery SOC (%)'] = f"{data[4] * 0.4:.2f}"
-                    parsed['BMS Battery Voltage (V)'] = f"{int.from_bytes(data[2:4], 'little') * 0.1:.2f}"
+                    parsed['bms_battery_soh'] = f"{data[7]} %"
+                    parsed['bms_battery_soc'] = f"{data[4] * 0.4:.2f} %"
+                    parsed['bms_battery_voltage'] = f"{int.from_bytes(data[2:4], 'little') * 0.1:.2f} V"
         except Exception as e:
             pass
         return parsed
@@ -96,9 +96,11 @@ class MobileDriveS1(BaseDevice):
         min_steer_angle: float = -28.0,
         max_steer_angle: float = 28.0,
         max_velocity: float = 5.0,
+        lookahead_distance: float = 3.0,
+        status_monitor: Optional[Any] = None,
         enable: bool = True
     ):
-        super().__init__(name, enable=enable)
+        super().__init__(name, enable=enable, status_monitor=status_monitor)
         self.channel = int(can_channel) if isinstance(can_channel, int) or (isinstance(can_channel, str) and str(can_channel).isdigit()) else 0
         self.ch = None
         self.parser = CANParser()
@@ -109,6 +111,9 @@ class MobileDriveS1(BaseDevice):
 
         # Maximum velocity (km/h)
         self.MAX_VELOCITY_KMH = float(max_velocity)
+
+        # Lookahead distance for local path planning (meters)
+        self.lookahead_distance = float(lookahead_distance)
 
         # Command mapping bounds (-2000 ~ +2000)
         # Left: -2000 (at min deg), Right: +2000 (at max deg)
@@ -306,13 +311,19 @@ class MobileDriveS1(BaseDevice):
         clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(angle_deg)))
         self.steer_angle = clamped_angle
 
+    def change_drive_mode(self, mode: str):
+        """Change drive mode (Auto or Manual). Log action to console."""
+        clean_mode = str(mode).strip()
+        self.drive_mode = clean_mode
+        logger.info(f"[{self.name}] change_drive_mode('{clean_mode}') executed.")
+
     def set_mode_manual(self):
         """Switch control mode to Manual."""
-        logger.info(f"[{self.name}] set_mode_manual() called.")
+        self.change_drive_mode("Manual")
 
     def set_mode_auto(self):
         """Switch control mode to Auto."""
-        logger.info(f"[{self.name}] set_mode_auto() called.")
+        self.change_drive_mode("Auto")
 
     def update_simulation_step(self, dt: float = 0.05):
         """Kinematics update step for 3D visualization positioning."""
@@ -332,12 +343,14 @@ class MobileDriveS1(BaseDevice):
         self.lon += d_lon
 
     def get_status(self) -> dict:
-        return {
+        status_dict = {
             "name": self.name,
             "channel": self.channel,
             "connected": self.is_connected,
             "speed": self.speed,
             "steer_angle": self.steer_angle,
+            "vehicle_velocity": f"{self.speed:.1f} km/h",
+            "vehicle_steer_angle": f"{self.steer_angle:.1f} deg",
             "can_cmd_val": self.degree_to_can_cmd(self.steer_angle),
             "latitude": self.lat,
             "longitude": self.lon,
@@ -346,3 +359,4 @@ class MobileDriveS1(BaseDevice):
             "heading": self.simulated_heading,
             "parsed_can_status": self.parsed_can_status
         }
+        return status_dict

@@ -216,12 +216,24 @@ class ViserServerManager:
         self.robot_height = 0.640
         self.lookahead_distance = 3.0  # meters (default 3.0m)
 
-        if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("PLATFORM"):
-            platform_cfg = self.robot.config["PLATFORM"]
-            self.robot_width = float(platform_cfg.get("robot_width", self.robot_width))
-            self.robot_length = float(platform_cfg.get("robot_length", self.robot_length))
-            self.robot_height = float(platform_cfg.get("robot_height", self.robot_height))
-            self.lookahead_distance = float(platform_cfg.get("lookahead_distance", self.lookahead_distance))
+        if hasattr(self.robot, 'config') and self.robot.config:
+            if self.robot.config.has_section("PLATFORM"):
+                platform_cfg = self.robot.config["PLATFORM"]
+                self.robot_width = float(platform_cfg.get("robot_width", self.robot_width))
+                self.robot_length = float(platform_cfg.get("robot_length", self.robot_length))
+                self.robot_height = float(platform_cfg.get("robot_height", self.robot_height))
+                if "lookahead_distance" in platform_cfg:
+                    self.lookahead_distance = float(platform_cfg["lookahead_distance"])
+            if self.robot.config.has_section("mobile_drive_s1"):
+                drive_cfg = self.robot.config["mobile_drive_s1"]
+                if "lookahead_distance" in drive_cfg:
+                    self.lookahead_distance = float(drive_cfg["lookahead_distance"])
+
+        # Also check instantiated mobile_drive_s1 device if available
+        if hasattr(self.robot, 'devices') and "mobile_drive_s1" in self.robot.devices:
+            drive_dev = self.robot.devices["mobile_drive_s1"]
+            if hasattr(drive_dev, "lookahead_distance"):
+                self.lookahead_distance = float(drive_dev.lookahead_distance)
 
         self._running = False
         self._thread = None
@@ -334,41 +346,7 @@ class ViserServerManager:
             point_shape="circle"
         )
 
-        # 7. Ground Removal Virtual Plane visualization (ground_safe threshold height)
-        # Display semi-transparent cyan plane at z = ground_safe height if ground_removal is enabled
-        vlp_dev = self.robot.devices.get("vlp-16") if hasattr(self.robot, "devices") else None
-        is_ground_removal_on = getattr(vlp_dev, "ground_removal", True) if vlp_dev else True
-        ground_safe_val = getattr(vlp_dev, "ground_safe", 0.03) if vlp_dev else 0.03
 
-        if is_ground_removal_on:
-            # Create a 10m x 10m semi-transparent ground plane visual box positioned at z = ground_safe (thickness 10mm)
-            z_low = float(ground_safe_val - 0.005)
-            z_high = float(ground_safe_val + 0.005)
-
-            self.ground_plane_handle = self.server.scene.add_mesh_simple(
-                name="/robot/visual/base_link/ground_removal_plane",
-                vertices=np.array([
-                    [-5.0, -5.0, z_low],
-                    [ 5.0, -5.0, z_low],
-                    [ 5.0,  5.0, z_low],
-                    [-5.0,  5.0, z_low],
-                    [-5.0, -5.0, z_high],
-                    [ 5.0, -5.0, z_high],
-                    [ 5.0,  5.0, z_high],
-                    [-5.0,  5.0, z_high],
-                ], dtype=np.float32),
-                faces=np.array([
-                    [0, 1, 2], [0, 2, 3],  # Bottom
-                    [4, 6, 5], [4, 7, 6],  # Top
-                    [0, 4, 5], [0, 5, 1],  # Front
-                    [1, 5, 6], [1, 6, 2],  # Right
-                    [2, 6, 7], [2, 7, 3],  # Back
-                    [3, 7, 4], [3, 4, 0],  # Left
-                ], dtype=np.uint32),
-                color=(0, 220, 255),
-                opacity=0.35
-            )
-            logger.info(f"[APROS Viser UI] Ground Removal Plane (z={ground_safe_val}m) visualizer added to 3D scene.")
 
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
@@ -431,10 +409,61 @@ class ViserServerManager:
                     if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                         self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
 
-                # Control Mode buttons: Manual and Auto
-                client.gui.add_markdown("<span style='font-size: 13px; font-weight: 600; color: #E0E0E0;'>Control Mode:</span>")
-                manual_btn = client.gui.add_button("🕹️ Manual")
-                auto_btn = client.gui.add_button("🤖 Auto")
+                # Ground Removal Visualization Option
+                client.gui.add_markdown("**Ground Removal Display Mode**")
+                gr_display_dropdown = client.gui.add_dropdown(
+                    label="Display Mode",
+                    options=["All Points (White: Ground, Red: Obstacle)", "Non-Ground Only (Obstacles)", "Ground Only (Surface)"],
+                    initial_value="All Points (White: Ground, Red: Obstacle)"
+                )
+                self.gr_display_mode = "all"
+
+                @gr_display_dropdown.on_update
+                def _(_):
+                    val = gr_display_dropdown.value
+                    if "Non-Ground" in val:
+                        self.gr_display_mode = "non_ground"
+                    elif "Ground Only" in val:
+                        self.gr_display_mode = "ground_only"
+                    else:
+                        self.gr_display_mode = "all"
+
+                # Control Mode Inlined Single-row Buttons with dynamic green highlight
+                client.gui.add_markdown("**Control Mode**")
+                init_is_auto = self.robot.drive_mode.startswith("Auto")
+                
+                # Hidden Viser input handle to receive button clicks from JS
+                drive_mode_input = client.gui.add_text("Drive Mode State", initial_value="Auto" if init_is_auto else "Manual", visible=False)
+
+                mode_btn_html_content = f"""
+                <div id="drive-mode-btn-container" style="display: flex; gap: 8px; width: 100%; margin-top: 4px; margin-bottom: 8px;">
+                    <button id="btn-mode-manual" onclick="window.viserSetDriveMode && window.viserSetDriveMode('Manual')" style="
+                        flex: 1;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        font-size: 13px;
+                        cursor: pointer;
+                        border: 1px solid rgba(255,255,255,0.15);
+                        transition: all 0.2s ease;
+                        background: {'#00E676' if not init_is_auto else 'rgba(255,255,255,0.08)'};
+                        color: {'#000000' if not init_is_auto else '#E0E0E0'};
+                    ">🕹️ Manual</button>
+                    <button id="btn-mode-auto" onclick="window.viserSetDriveMode && window.viserSetDriveMode('Auto')" style="
+                        flex: 1;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        font-size: 13px;
+                        cursor: pointer;
+                        border: 1px solid rgba(255,255,255,0.15);
+                        transition: all 0.2s ease;
+                        background: {'#00E676' if init_is_auto else 'rgba(255,255,255,0.08)'};
+                        color: {'#000000' if init_is_auto else '#E0E0E0'};
+                    ">🤖 Auto</button>
+                </div>
+                """
+                client.gui.add_html(mode_btn_html_content)
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP (P Gear & STOP)",
@@ -542,6 +571,8 @@ class ViserServerManager:
                     </div>
                 </div>
             </div>
+            <script>
+            (function() {
                 var el = document.getElementById('camera-floating-panel');
                 if (!el || el.dataset.dragInit) return;
                 el.dataset.dragInit = "true";
@@ -611,39 +642,67 @@ class ViserServerManager:
         def _(_):
             self.robot.gear = gear_dropdown.value
 
-        # Mode switching cooldown and button state management
-        pending_mode_transition: Optional[str] = None  # "Manual" or "Auto"
-        transition_start_time: float = 0.0
-
-        @manual_btn.on_click
+        @drive_mode_input.on_update
         def _(_):
-            nonlocal pending_mode_transition, transition_start_time
-            if hasattr(self.robot, "set_mode_manual"):
+            selected_mode = drive_mode_input.value
+            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
+            if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
+                mobile_drive_dev.change_drive_mode(selected_mode)
+            elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Manual":
                 self.robot.set_mode_manual()
-            self.robot.drive_mode = "Manual (Remote)"
-            speed_slider.disabled = False
-            steer_slider.disabled = False
-
-            # Lock buttons for 10-second transition period
-            manual_btn.disabled = True
-            auto_btn.disabled = True
-            pending_mode_transition = "Manual"
-            transition_start_time = time.time()
-
-        @auto_btn.on_click
-        def _(_):
-            nonlocal pending_mode_transition, transition_start_time
-            if hasattr(self.robot, "set_mode_auto"):
+            elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                 self.robot.set_mode_auto()
-            self.robot.drive_mode = "Auto (Autonomous)"
-            speed_slider.disabled = True
-            steer_slider.disabled = True
 
-            # Lock buttons for 10-second transition period
-            manual_btn.disabled = True
-            auto_btn.disabled = True
-            pending_mode_transition = "Auto"
-            transition_start_time = time.time()
+            self.robot.drive_mode = f"{selected_mode} (Remote)" if selected_mode == "Manual" else f"{selected_mode} (Autonomous)"
+            if selected_mode == "Manual":
+                speed_slider.disabled = False
+                steer_slider.disabled = False
+            else:
+                speed_slider.disabled = True
+                steer_slider.disabled = True
+
+            # Send client-side JS update to toggle button colors
+            mode_update_js = f"""
+            <script>
+            (function() {{
+                var btnManual = document.getElementById('btn-mode-manual');
+                var btnAuto = document.getElementById('btn-mode-auto');
+                if (btnManual && btnAuto) {{
+                    if ('{selected_mode}' === 'Manual') {{
+                        btnManual.style.background = '#00E676';
+                        btnManual.style.color = '#000000';
+                        btnAuto.style.background = 'rgba(255,255,255,0.08)';
+                        btnAuto.style.color = '#E0E0E0';
+                    }} else {{
+                        btnAuto.style.background = '#00E676';
+                        btnAuto.style.color = '#000000';
+                        btnManual.style.background = 'rgba(255,255,255,0.08)';
+                        btnManual.style.color = '#E0E0E0';
+                    }}
+                }}
+            }})();
+            </script>
+            """
+            client.gui.add_html(mode_update_js)
+
+        # Inject JavaScript Helper to bridge button clicks to Viser input
+        js_bridge_html = f"""
+        <script>
+        window.viserSetDriveMode = function(mode) {{
+            var inputs = document.querySelectorAll('input');
+            for (var i = 0; i < inputs.length; i++) {{
+                if (inputs[i].value === 'Manual' || inputs[i].value === 'Auto') {{
+                    var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeSetter.call(inputs[i], mode);
+                    inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    break;
+                }}
+            }}
+        }};
+        </script>
+        """
+        client.gui.add_html(js_bridge_html)
 
         def execute_emergency_stop():
             self.robot.speed = 0.0
@@ -655,54 +714,19 @@ class ViserServerManager:
             self.robot.drive_mode = "Emergency Stop"
             speed_slider.disabled = True
             steer_slider.disabled = True
+            drive_mode_input.value = "Manual"
 
         @estop_button.on_click
         def _(_):
             execute_emergency_stop()
 
-        # Background update loop for UI Markdown refresh and Mode Button states
+        # Background update loop for UI Markdown refresh
         def ui_update_loop():
-            nonlocal pending_mode_transition, transition_start_time
             while self._running:
                 try:
                     dashboard_md.content = self._format_dashboard_text()
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
                     can_status_md.content = self._format_can_status_text()
-
-                    # Check CAN Drive_State_Mode
-                    status = self.robot.get_status()
-                    parsed_can = status.get("parsed_can_status", {})
-                    current_drive_state = parsed_can.get("Drive_State_Mode", "")
-
-                    now = time.time()
-                    # Check if transition target was achieved early
-                    if pending_mode_transition == "Manual" and (current_drive_state == "Remote Control Mode" or "Remote" in current_drive_state):
-                        pending_mode_transition = None
-                    elif pending_mode_transition == "Auto" and (current_drive_state == "Represents the AD Mode" or "AD" in current_drive_state):
-                        pending_mode_transition = None
-                    elif pending_mode_transition is not None and (now - transition_start_time >= 10.0):
-                        # Timeout 10s elapsed
-                        pending_mode_transition = None
-
-                    # If not in transition, set button enabled/disabled states based on Drive_State_Mode
-                    if pending_mode_transition is None:
-                        if current_drive_state == "Remote Control Mode" or "Remote" in current_drive_state:
-                            # In Remote Control Mode -> Auto button is ENABLED, Manual button is DISABLED
-                            auto_btn.disabled = False
-                            manual_btn.disabled = True
-                        elif current_drive_state == "Represents the AD Mode" or "AD" in current_drive_state:
-                            # In AD Mode -> Manual button is ENABLED, Auto button is DISABLED
-                            manual_btn.disabled = False
-                            auto_btn.disabled = True
-                        else:
-                            # Default fallback if CAN telemetry is absent
-                            if self.robot.drive_mode.startswith("Manual"):
-                                auto_btn.disabled = False
-                                manual_btn.disabled = True
-                            else:
-                                manual_btn.disabled = False
-                                auto_btn.disabled = True
-
                     time.sleep(0.1)
                 except Exception:
                     break
@@ -722,41 +746,43 @@ class ViserServerManager:
                 elif is_connected:
                     status_str = "`ONLINE`"
                 else:
-                    status_str = "`OFFLINE (UNAVAILABLE)`"
+                    status_str = "`OFFLINE`"
 
                 lines.append(f"- **{dev_name}**: {status_str}")
 
-                # Display detailed data if device is connected & enabled
-                if enable and is_connected and hasattr(dev_obj, "get_status"):
+                # Display only status_monitor items defined in config if available
+                status_monitor_keys = getattr(dev_obj, "status_monitor", [])
+                if enable and hasattr(dev_obj, "get_status"):
                     try:
                         dev_status = dev_obj.get_status()
-                        if dev_name == "baumer_incline":
-                            tx = dev_status.get("tilt_x", 0.0)
-                            tz = dev_status.get("tilt_z", 0.0)
-                            lines.append(f"  └ Tilt X: `{tx:.1f}°`, Tilt Z: `{tz:.1f}°`")
-                        elif dev_name == "telescopic_mast":
-                            h_m = dev_status.get("current_height_m", 1.8)
-                            lines.append(f"  └ Mast Height: `{h_m:.2f} m`")
-                        elif dev_name == "basler_gige_camera":
-                            fps = dev_status.get("fps", 15)
-                            cnt = dev_status.get("frame_count", 0)
-                            lines.append(f"  └ Target FPS: `{fps}`, Frames: `{cnt}`")
-                        elif dev_name == "synerex_rtk":
-                            lat = dev_status.get("latitude", 0.0)
-                            lon = dev_status.get("longitude", 0.0)
-                            lines.append(f"  └ GNSS: `{lat:.6f}, {lon:.6f}`")
+                        
+                        # Merge parsed_can_status for mobile_drive_s1 if present
+                        merged_status = dict(dev_status)
+                        if "parsed_can_status" in dev_status and isinstance(dev_status["parsed_can_status"], dict):
+                            merged_status.update(dev_status["parsed_can_status"])
+
+                        if status_monitor_keys:
+                            for key in status_monitor_keys:
+                                if key in merged_status:
+                                    val = merged_status[key]
+                                    lines.append(f"  └ {key}: `{val}`")
+                        else:
+                            # Fallback if no status_monitor is configured for the device
+                            if dev_name == "baumer_incline":
+                                tx = dev_status.get("tilt_x", 0.0)
+                                tz = dev_status.get("tilt_z", 0.0)
+                                lines.append(f"  └ Tilt X: `{tx:.1f}°`, Tilt Z: `{tz:.1f}°`")
+                            elif dev_name == "telescopic_mast":
+                                h_m = dev_status.get("current_height_m", 1.8)
+                                lines.append(f"  └ Mast Height: `{h_m:.2f} m`")
+                            elif dev_name == "basler_gige_camera":
+                                fps = dev_status.get("fps", 15)
+                                cnt = dev_status.get("frame_count", 0)
+                                lines.append(f"  └ Target FPS: `{fps}`, Frames: `{cnt}`")
                     except Exception:
                         pass
         else:
             lines.append("No configured devices found.")
-
-        # Real-time CAN 0 parsed status
-        status = self.robot.get_status()
-        parsed_can = status.get("parsed_can_status", {})
-        if parsed_can:
-            lines.append("\n**CAN Drive Telemetry**")
-            for key, val in parsed_can.items():
-                lines.append(f"- **{key}**: `{val}`")
 
         return "\n".join(lines)
 
@@ -830,10 +856,32 @@ class ViserServerManager:
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
                 pts = self.robot.last_vlp16_points
                 if len(pts) > 0:
-                    xyz = pts[:, :3]
-                    # Solid Red color for all points (255, 0, 0)
-                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
-                    colors[:, 0] = 255  # Red channel
+                    display_mode = getattr(self, "gr_display_mode", "all")
+                    
+                    # If ground flag column (5th column) exists
+                    if pts.shape[1] >= 5:
+                        is_ground = (pts[:, 4] > 0.5)
+
+                        if display_mode == "non_ground":
+                            filter_mask = ~is_ground
+                        elif display_mode == "ground_only":
+                            filter_mask = is_ground
+                        else:
+                            filter_mask = np.ones(len(pts), dtype=bool)
+
+                        selected_pts = pts[filter_mask]
+                        selected_is_ground = is_ground[filter_mask]
+
+                        xyz = selected_pts[:, :3]
+                        colors = np.zeros((len(selected_pts), 3), dtype=np.uint8)
+                        # Ground points: White (255, 255, 255)
+                        colors[selected_is_ground] = [255, 255, 255]
+                        # Non-ground points: Red (255, 0, 0)
+                        colors[~selected_is_ground] = [255, 0, 0]
+                    else:
+                        xyz = pts[:, :3]
+                        colors = np.zeros((len(pts), 3), dtype=np.uint8)
+                        colors[:, 0] = 255  # Red channel
 
                     self.vlp16_pc_handle.points = xyz
                     self.vlp16_pc_handle.colors = colors

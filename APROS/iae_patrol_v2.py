@@ -106,6 +106,27 @@ class IAEPatrolV2:
                 except ValueError:
                     kwargs[key] = val
 
+        # Check if ground_removal algorithm module section (e.g. [patchworkpp]) exists in config
+        ground_removal_module = kwargs.get("ground_removal")
+        if ground_removal_module and isinstance(ground_removal_module, str) and self.config:
+            mod_sec_name = ground_removal_module.lower()
+            if self.config.has_section(mod_sec_name):
+                gr_params = {}
+                for key, val in self.config[mod_sec_name].items():
+                    if val.lower() in ("true", "yes", "1"):
+                        gr_params[key] = True
+                    elif val.lower() in ("false", "no", "0"):
+                        gr_params[key] = False
+                    else:
+                        try:
+                            if "." in val:
+                                gr_params[key] = float(val)
+                            else:
+                                gr_params[key] = int(val)
+                        except ValueError:
+                            gr_params[key] = val
+                kwargs["ground_removal_params"] = gr_params
+
         try:
             instance = cls(name=dev_name, **kwargs)
             logger.info(f"[IAEPatrolV2] Loaded device '{dev_name}' ({class_name}) with parameters: {kwargs}")
