@@ -39,9 +39,34 @@ class DataLogger:
         self._session_dir: Optional[str] = None
         self._start_time: Optional[float] = None
 
+        # Configurable Parameters from apros.cfg [DATA_LOGGER] section
+        cfg_base_dir = ""
+        self.record_interval_sec = 0.05  # Default 50ms (20Hz)
+        self.enable_camera_log = True
+        self.enable_vlp16_log = True
+        self.enable_ouster_log = True
+        self.enable_can_log = True
+        self.enable_incline_log = True
+        self.enable_rtk_log = True
+
+        if hasattr(self.robot, "config") and self.robot.config and self.robot.config.has_section("DATA_LOGGER"):
+            dl_cfg = self.robot.config["DATA_LOGGER"]
+            cfg_base_dir = dl_cfg.get("base_dir", "").strip()
+            interval_ms = float(dl_cfg.get("record_interval_ms", 50))
+            self.record_interval_sec = max(0.001, interval_ms / 1000.0)
+
+            self.enable_camera_log = dl_cfg.getboolean("enable_camera", True)
+            self.enable_vlp16_log = dl_cfg.getboolean("enable_vlp16", True)
+            self.enable_ouster_log = dl_cfg.getboolean("enable_ouster", True)
+            self.enable_can_log = dl_cfg.getboolean("enable_can", True)
+            self.enable_incline_log = dl_cfg.getboolean("enable_incline", True)
+            self.enable_rtk_log = dl_cfg.getboolean("enable_rtk", True)
+
         # Base directory for data logs
         if base_dir:
             self.base_dir = base_dir
+        elif cfg_base_dir:
+            self.base_dir = cfg_base_dir
         else:
             # Default: APROS/datalog relative to project root
             apros_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -81,12 +106,19 @@ class DataLogger:
         self.is_recording = True
         self._running = True
 
-        # Initialize sub-directories and file handles
-        self._init_camera_logging()
-        self._init_vlp16_logging()
-        self._init_ouster_logging()
-        self._init_can_logging()
-        self._init_incline_logging()
+        # Initialize sub-directories and file handles based on configuration flags
+        if self.enable_camera_log:
+            self._init_camera_logging()
+        if self.enable_vlp16_log:
+            self._init_vlp16_logging()
+        if self.enable_ouster_log:
+            self._init_ouster_logging()
+        if self.enable_can_log:
+            self._init_can_logging()
+        if self.enable_incline_log:
+            self._init_incline_logging()
+        if self.enable_rtk_log:
+            self._init_rtk_logging()
 
         # Start background recording thread
         self._thread = threading.Thread(target=self._recording_loop, daemon=True)
@@ -110,6 +142,7 @@ class DataLogger:
         self._close_vlp16_logging()
         self._close_can_logging()
         self._close_incline_logging()
+        self._close_rtk_logging()
         self._close_ouster_logging()
 
         elapsed = time.time() - self._start_time if self._start_time else 0.0
@@ -277,12 +310,15 @@ class DataLogger:
             logger.info(f"[DataLogger] Ouster pcap recording finalized: {self._ouster_pcap_path}")
 
     # ──────────────────────────────────────────────
+    # ──────────────────────────────────────────────
     # CAN Bus (Mobile Drive S1) Logging
     # ──────────────────────────────────────────────
     def _init_can_logging(self):
         drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
         if drive_dev is None:
             return
+
+        # 1. Status CSV logging
         can_csv_path = os.path.join(self._session_dir, "mobile_drive_s1.csv")
         try:
             self._can_csv_file = open(can_csv_path, "w", newline="")
@@ -293,6 +329,28 @@ class DataLogger:
             ])
         except Exception as e:
             logger.error(f"[DataLogger] CAN CSV init error: {e}")
+
+        # 2. Raw 0x301, 0x303 CAN Msg ID txt logging (mobile_can.txt)
+        can_txt_path = os.path.join(self._session_dir, "mobile_can.txt")
+        try:
+            self._mobile_can_txt_file = open(can_txt_path, "a", encoding="utf-8")
+            self._mobile_can_txt_lock = threading.Lock()
+
+            def _record_can_frame(frame):
+                if not self._mobile_can_txt_file or frame is None:
+                    return
+                if frame.id in (0x301, 0x303):
+                    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    hex_str = " ".join(f"{b:02X}" for b in frame.data)
+                    log_line = f"[{timestamp_str}] ID: 0x{frame.id:03X} | Data: {hex_str}\n"
+                    with self._mobile_can_txt_lock:
+                        self._mobile_can_txt_file.write(log_line)
+                        self._mobile_can_txt_file.flush()
+
+            drive_dev.frame_recorder = _record_can_frame
+            logger.info(f"[DataLogger] Raw CAN 0x301/0x303 logging started: {can_txt_path}")
+        except Exception as e:
+            logger.error(f"[DataLogger] mobile_can.txt init error: {e}")
 
     def _record_can_status(self):
         if not self._can_csv_writer:
@@ -314,6 +372,9 @@ class DataLogger:
             pass
 
     def _close_can_logging(self):
+        drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
+        if drive_dev is not None:
+            drive_dev.frame_recorder = None
         if self._can_csv_file:
             try:
                 self._can_csv_file.close()
@@ -321,6 +382,64 @@ class DataLogger:
                 pass
             self._can_csv_file = None
             self._can_csv_writer = None
+        if hasattr(self, "_mobile_can_txt_file") and self._mobile_can_txt_file:
+            try:
+                self._mobile_can_txt_file.close()
+            except Exception:
+                pass
+            self._mobile_can_txt_file = None
+
+    # ──────────────────────────────────────────────
+    # Synerex RTK Logging (CSV format)
+    # ──────────────────────────────────────────────
+    def _init_rtk_logging(self):
+        rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") else None
+        if rtk_dev is None:
+            return
+        csv_path = os.path.join(self._session_dir, "synerex_rtk.csv")
+        try:
+            self._rtk_csv_file = open(csv_path, "w", newline="")
+            self._rtk_csv_writer = csv.writer(self._rtk_csv_file)
+            self._rtk_csv_writer.writerow([
+                "timestamp", "iso_time", "latitude", "longitude", "altitude",
+                "heading", "status", "satellites"
+            ])
+            logger.info(f"[DataLogger] Synerex RTK CSV logging started: {csv_path}")
+        except Exception as e:
+            logger.error(f"[DataLogger] Synerex RTK CSV init error: {e}")
+
+    def _record_rtk_status(self):
+        if not hasattr(self, "_rtk_csv_writer") or not self._rtk_csv_writer:
+            return
+        rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") else None
+        if rtk_dev is None or not rtk_dev.is_connected:
+            return
+        try:
+            status = rtk_dev.get_status()
+            now_ts = time.time()
+            iso_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            self._rtk_csv_writer.writerow([
+                now_ts,
+                iso_str,
+                status.get("latitude", 0.0),
+                status.get("longitude", 0.0),
+                status.get("altitude", 0.0),
+                status.get("heading", 0.0),
+                status.get("status", "FIX_RTK"),
+                status.get("satellites", 0)
+            ])
+            self._rtk_csv_file.flush()
+        except Exception as e:
+            pass
+
+    def _close_rtk_logging(self):
+        if hasattr(self, "_rtk_csv_file") and self._rtk_csv_file:
+            try:
+                self._rtk_csv_file.close()
+            except Exception:
+                pass
+            self._rtk_csv_file = None
+            self._rtk_csv_writer = None
 
     # ──────────────────────────────────────────────
     # Baumer Incline Logging
@@ -374,8 +493,9 @@ class DataLogger:
                 # VLP-16 pcap is recorded inline via socket wrapper
                 self._record_can_status()
                 self._record_incline_status()
+                self._record_rtk_status()
                 # Ouster pcap is recorded in its own dedicated thread
-                time.sleep(0.05)  # 20Hz recording rate
+                time.sleep(self.record_interval_sec)
             except Exception as e:
                 logger.error(f"[DataLogger] Recording loop error: {e}")
                 time.sleep(0.1)

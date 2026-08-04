@@ -413,24 +413,7 @@ class ViserServerManager:
                     if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                         self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
 
-                # Ground Removal Visualization Option
-                client.gui.add_markdown("**Ground Removal Display Mode**")
-                gr_display_dropdown = client.gui.add_dropdown(
-                    label="Display Mode",
-                    options=["All Points (White: Ground, Red: Obstacle)", "Non-Ground Only (Obstacles)", "Ground Only (Surface)"],
-                    initial_value="All Points (White: Ground, Red: Obstacle)"
-                )
-                self.gr_display_mode = "all"
 
-                @gr_display_dropdown.on_update
-                def _(_):
-                    val = gr_display_dropdown.value
-                    if "Non-Ground" in val:
-                        self.gr_display_mode = "non_ground"
-                    elif "Ground Only" in val:
-                        self.gr_display_mode = "ground_only"
-                    else:
-                        self.gr_display_mode = "all"
 
                 # Control Mode Group Buttons (Manual, Auto)
                 init_is_auto = self.robot.drive_mode.startswith("Auto")
@@ -905,34 +888,22 @@ class ViserServerManager:
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
                 pts = self.robot.last_vlp16_points
                 if len(pts) > 0:
-                    display_mode = getattr(self, "gr_display_mode", "all")
-                    
+                    xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
+                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
+
                     # If ground flag column (5th column) exists
                     if pts.shape[1] >= 5:
                         is_ground = (pts[:, 4] > 0.5)
-
-                        if display_mode == "non_ground":
-                            filter_mask = ~is_ground
-                        elif display_mode == "ground_only":
-                            filter_mask = is_ground
-                        else:
-                            filter_mask = np.ones(len(pts), dtype=bool)
-
-                        selected_pts = pts[filter_mask]
-                        selected_is_ground = is_ground[filter_mask]
-
-                    xyz = np.ascontiguousarray(selected_pts[:, :3], dtype=np.float32)
-                    colors = np.zeros((len(selected_pts), 3), dtype=np.uint8)
-                    # Ground points: White (255, 255, 255)
-                    colors[selected_is_ground] = [255, 255, 255]
-                    # Non-ground points: Red (255, 0, 0)
-                    colors[~selected_is_ground] = [255, 0, 0]
+                        # Ground points: White (255, 255, 255)
+                        colors[is_ground] = [255, 255, 255]
+                        # Obstacle / Non-ground points: Red (255, 0, 0)
+                        colors[~is_ground] = [255, 0, 0]
+                    else:
+                        colors[:, 0] = 255  # Red channel default
                     colors = np.ascontiguousarray(colors, dtype=np.uint8)
                 else:
-                    xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
-                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
-                    colors[:, 0] = 255  # Red channel
-                    colors = np.ascontiguousarray(colors, dtype=np.uint8)
+                    xyz = np.empty((0, 3), dtype=np.float32)
+                    colors = np.empty((0, 3), dtype=np.uint8)
 
                 self.vlp16_pc_handle.points = xyz
                 self.vlp16_pc_handle.colors = colors

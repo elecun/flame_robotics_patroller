@@ -246,19 +246,12 @@ class MobileDriveS1(BaseDevice, MobileS1API):
                 last_can_msg_time = time.time()
                 self._has_can_feedback = True
 
-                # Log incoming 0x303 and 0x301 CAN frames to txt log file when Auto mode is active
-                if frame.id in (0x303, 0x301) and self._auto_tx_running:
+                # Forward 0x301 and 0x303 CAN frames to registered frame recorder (DataLogger)
+                if frame.id in (0x301, 0x303) and hasattr(self, 'frame_recorder') and self.frame_recorder is not None:
                     try:
-                        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "datalog")
-                        os.makedirs(log_dir, exist_ok=True)
-                        log_file_path = os.path.join(log_dir, "can_rx_auto_mode.txt")
-                        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                        hex_str = " ".join(f"{b:02X}" for b in frame.data)
-                        log_line = f"[{timestamp_str}] ID: 0x{frame.id:03X} | Data: {hex_str}\n"
-                        with open(log_file_path, "a", encoding="utf-8") as f:
-                            f.write(log_line)
-                    except Exception as le:
-                        logger.error(f"[{self.name}] Error writing CAN RX txt log: {le}")
+                        self.frame_recorder(frame)
+                    except Exception as fe:
+                        pass
 
                 parsed = self.parser.parse(frame.id, frame.data)
                 if parsed:
