@@ -1,0 +1,261 @@
+VERSION "WangHu V1.0"
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: BMS VCU
+
+
+BO_ 419 BMS_1A3h: 8 BMS
+ SG_ BMS_Pwr30s : 48|16@1+ (0.1,0) [0|6553.5] "kw" Vector__XXX
+ SG_ BMS_Pwr : 32|16@1+ (0.1,0) [0|6553.5] "kw" Vector__XXX
+ SG_ BMS_ChgPwr30s : 16|16@1+ (0.1,0) [0|6553.5] "kw" Vector__XXX
+ SG_ BMS_ChgPwr : 0|16@1+ (0.1,0) [0|6553.5] "kw" Vector__XXX
+
+BO_ 689 BMS_2B1h: 8 BMS
+ SG_ BMS_HVBatLowestTemCellNum : 32|8@1+ (1,0) [0|250] ""  VCU
+ SG_ BMS_HVBatHighestTemCellNum : 40|8@1+ (1,0) [0|250] ""  VCU
+ SG_ BMS_HVBatHighestTem : 8|8@1+ (1,-40) [-40|125] "¡æ"  VCU
+ SG_ BMS_HVBatLowestTem : 0|8@1+ (1,-40) [-40|125] "¡æ"  VCU
+
+BO_ 1443 VCU_5A3h: 8 VCU
+ SG_ VCU_Ctrl_AcDc : 8|8@1+ (1,0) [0|255] ""  BMS
+ SG_ VCU_PowerOn_BMS : 0|8@1+ (1,0) [0|255] ""  BMS
+
+BO_ 690 BMS_2B2h: 8 BMS
+ SG_ BMS_HVBatCellTem_No8 : 56|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No7 : 48|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No6 : 40|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No5 : 32|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No4 : 24|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No3 : 16|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No2 : 8|8@1+ (1,-40) [-40|210] "" Vector__XXX
+ SG_ BMS_HVBatCellTem_No1 : 0|8@1+ (1,-40) [-40|210] "" Vector__XXX
+
+BO_ 677 BMS_2A5h: 8 BMS
+ SG_ BMS_HVBatCellVol_No16 : 48|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No15 : 32|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No14 : 16|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No13 : 0|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+
+BO_ 676 BMS_2A4h: 8 BMS
+ SG_ BMS_HVBatCellVol_No12 : 48|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No11 : 32|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No10 : 16|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No9 : 0|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+
+BO_ 675 BMS_2A3h: 8 BMS
+ SG_ BMS_HVBatCellVol_No8 : 48|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No7 : 32|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No6 : 16|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No5 : 0|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+
+BO_ 674 BMS_2A2h: 8 BMS
+ SG_ BMS_HVBatCellVol_No4 : 48|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No3 : 32|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No2 : 16|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatCellVol_No1 : 0|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+
+BO_ 673 BMS_2A1h: 8 BMS
+ SG_ BMS_HVBatLowestVolCellNum : 32|8@1+ (1,0) [0|250] "" Vector__XXX
+ SG_ BMS_HVBatHighestVolCellNum : 40|8@1+ (1,0) [0|250] "" Vector__XXX
+ SG_ BMS_HVBatHighestCellVol : 16|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+ SG_ BMS_HVBatLowestCellVol : 0|16@1+ (1,0) [0|5000] "mV" Vector__XXX
+
+BO_ 160 BMS_A0h: 8 BMS
+ SG_ BMS_HVDisplaySOH : 56|8@1- (1,0) [0|100] "%" Vector__XXX
+ SG_ BMS_Sys_Flt : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BMS_Charge_StsCc : 44|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BMS_Charge_StsCc2 : 43|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BMS_Sys_Sts : 40|3@1+ (1,0) [0|7] ""  VCU
+ SG_ BMS_HVBatSOC : 32|8@1+ (0.4,0) [0|100] "%"  VCU
+ SG_ BMS_HVBatVol : 16|16@1+ (0.1,0) [0|1000] "V"  VCU
+ SG_ BMS_HVBatCrnt : 0|16@1+ (0.1,-1000) [-1000|1000] "A"  VCU
+
+BO_ 418 BMS_1A2h: 8 BMS
+ SG_ Charge_Relay_Sts : 51|1@1+ (1,0) [0|1] ""  VCU
+ SG_ AcDc_Relay_Sts : 52|1@1+ (1,0) [0|1] ""  VCU
+ SG_ BMS_WeakUpSig : 0|4@1+ (1,0) [0|15] ""  VCU
+ SG_ BMS_KeyOn : 16|8@1+ (0.1,0) [0|25.5] "V"  VCU
+ SG_ BMS_Req_HvDown : 40|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Bms_SelfChk_Sts : 43|3@1+ (1,0) [0|7] ""  VCU
+ SG_ Heat_Relay_Sts : 46|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Precharge_Sts : 49|2@1+ (1,0) [0|3] ""  VCU
+ SG_ Charge_Sts : 53|3@1+ (1,0) [0|7] ""  VCU
+ SG_ BMS_Heat_Beat : 56|4@1+ (1,0) [0|15] ""  VCU
+ SG_ Precharge_Relay_Sts : 48|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Parent_Relay_Sts : 47|1@1+ (1,0) [0|1] ""  VCU
+
+
+
+BA_DEF_ EV_  "GenEnvIsGeneratedDsp" ENUM  "No","Yes";
+BA_DEF_ EV_  "GenEnvAutoGenCtrl" ENUM  "No","Yes";
+BA_DEF_ EV_  "GenEnvMsgOffset" INT 0 2147483647;
+BA_DEF_ EV_  "GenEnvMsgName" STRING ;
+BA_DEF_ EV_  "GenEnvIsGeneratedSnd" ENUM  "No","Yes";
+BA_DEF_ SG_  "GenSigStartValue" FLOAT 0 1215752192;
+BA_DEF_ SG_  "GenSigTimeoutValue" FLOAT 0 1215752192;
+BA_DEF_ SG_  "GenSigInactiveValue" FLOAT 0 1215752192;
+BA_DEF_ SG_  "GenSigMinValue" INT 0 2147483647;
+BA_DEF_ SG_  "GenSigMaxValue" INT 0 2147483647;
+BA_DEF_ SG_  "GenSigSendType" ENUM  "cycle";
+BA_DEF_ SG_  "GenSigEnvVarType" ENUM  "int","float","undef";
+BA_DEF_ BO_  "GenMsgDelayTime" INT 0 0;
+BA_DEF_ BO_  "GenMsgNrOfRepetition" INT 0 0;
+BA_DEF_ BO_  "GenMsgCycleTimeFast" INT 0 0;
+BA_DEF_ BO_  "NmMessage" ENUM  "No","Yes";
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_  "GenMsgSendType" ENUM  "cycle";
+BA_DEF_ BU_  "NmStationAddress" HEX 0 127;
+BA_DEF_ BU_  "CANoeStartDelay" INT 0 0;
+BA_DEF_ BU_  "CANoeDrift" INT 0 0;
+BA_DEF_ BU_  "CANoeJitterMin" INT 0 0;
+BA_DEF_ BU_  "CANoeJitterMax" INT 0 0;
+BA_DEF_ BU_  "ECU" STRING ;
+BA_DEF_ BU_  "NodeLayerModules" STRING ;
+BA_DEF_  "BusType" STRING ;
+BA_DEF_  "GenEnvVarPrefix" STRING ;
+BA_DEF_  "GenEnvVarEndingSnd" STRING ;
+BA_DEF_  "GenEnvVarEndingDsp" STRING ;
+BA_DEF_  "DBName" STRING ;
+BA_DEF_ BO_  "_Cdb_Sc_CTm_FAW_v3_0" INT 0 0;
+BA_DEF_ BO_  "_Cdb_Sc_CTm_FAW_v2_3" INT 0 0;
+BA_DEF_ BO_  "_Cdb_Sc_CTm_FAW_v3_1" INT 0 0;
+BA_DEF_ BO_  "_Cdb_Sc_CTm_FAW_v2_2" INT 0 0;
+BA_DEF_ BO_  "_Cdb_Sc_CTm_FAW_v2_1" INT 0 0;
+BA_DEF_DEF_  "GenEnvIsGeneratedDsp" "No";
+BA_DEF_DEF_  "GenEnvAutoGenCtrl" "No";
+BA_DEF_DEF_  "GenEnvMsgOffset" 0;
+BA_DEF_DEF_  "GenEnvMsgName" "";
+BA_DEF_DEF_  "GenEnvIsGeneratedSnd" "No";
+BA_DEF_DEF_  "GenSigStartValue" 0;
+BA_DEF_DEF_  "GenSigTimeoutValue" 0;
+BA_DEF_DEF_  "GenSigInactiveValue" 0;
+BA_DEF_DEF_  "GenSigMinValue" 0;
+BA_DEF_DEF_  "GenSigMaxValue" 0;
+BA_DEF_DEF_  "GenSigSendType" "cycle";
+BA_DEF_DEF_  "GenSigEnvVarType" "undef";
+BA_DEF_DEF_  "GenMsgDelayTime" 0;
+BA_DEF_DEF_  "GenMsgNrOfRepetition" 0;
+BA_DEF_DEF_  "GenMsgCycleTimeFast" 0;
+BA_DEF_DEF_  "NmMessage" "No";
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_DEF_DEF_  "GenMsgSendType" "cycle";
+BA_DEF_DEF_  "NmStationAddress" 0;
+BA_DEF_DEF_  "CANoeStartDelay" 0;
+BA_DEF_DEF_  "CANoeDrift" 0;
+BA_DEF_DEF_  "CANoeJitterMin" 0;
+BA_DEF_DEF_  "CANoeJitterMax" 0;
+BA_DEF_DEF_  "ECU" "";
+BA_DEF_DEF_  "NodeLayerModules" "";
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "GenEnvVarPrefix" "PE";
+BA_DEF_DEF_  "GenEnvVarEndingSnd" "_Ps";
+BA_DEF_DEF_  "GenEnvVarEndingDsp" "_Pd";
+BA_DEF_DEF_  "DBName" "";
+BA_DEF_DEF_  "_Cdb_Sc_CTm_FAW_v3_0" 0;
+BA_DEF_DEF_  "_Cdb_Sc_CTm_FAW_v2_3" 0;
+BA_DEF_DEF_  "_Cdb_Sc_CTm_FAW_v3_1" 0;
+BA_DEF_DEF_  "_Cdb_Sc_CTm_FAW_v2_2" 0;
+BA_DEF_DEF_  "_Cdb_Sc_CTm_FAW_v2_1" 0;
+BA_ "DBName" "W1_CAN0_Tbox";
+BA_ "GenMsgCycleTime" BO_ 419 100;
+BA_ "GenMsgCycleTime" BO_ 689 100;
+BA_ "GenMsgCycleTime" BO_ 1443 20;
+BA_ "GenMsgCycleTime" BO_ 690 1000;
+BA_ "GenMsgCycleTime" BO_ 677 1000;
+BA_ "GenMsgCycleTime" BO_ 676 1000;
+BA_ "GenMsgCycleTime" BO_ 675 1000;
+BA_ "GenMsgCycleTime" BO_ 674 1000;
+BA_ "GenMsgCycleTime" BO_ 673 100;
+BA_ "GenMsgCycleTime" BO_ 160 100;
+BA_ "GenMsgCycleTime" BO_ 418 100;
+BA_ "GenSigMaxValue" SG_ 419 BMS_Pwr30s 65535;
+BA_ "GenSigMaxValue" SG_ 419 BMS_Pwr 65535;
+BA_ "GenSigMaxValue" SG_ 419 BMS_ChgPwr30s 65535;
+BA_ "GenSigMaxValue" SG_ 419 BMS_ChgPwr 65535;
+BA_ "GenSigMaxValue" SG_ 689 BMS_HVBatLowestTemCellNum 255;
+BA_ "GenSigMaxValue" SG_ 689 BMS_HVBatHighestTemCellNum 255;
+BA_ "GenSigMaxValue" SG_ 689 BMS_HVBatHighestTem 255;
+BA_ "GenSigMaxValue" SG_ 689 BMS_HVBatLowestTem 255;
+BA_ "GenSigMaxValue" SG_ 1443 VCU_Ctrl_AcDc 255;
+BA_ "GenSigMaxValue" SG_ 1443 VCU_PowerOn_BMS 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No8 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No7 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No6 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No5 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No4 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No3 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No2 255;
+BA_ "GenSigMaxValue" SG_ 690 BMS_HVBatCellTem_No1 255;
+BA_ "GenSigMaxValue" SG_ 677 BMS_HVBatCellVol_No16 65535;
+BA_ "GenSigMaxValue" SG_ 677 BMS_HVBatCellVol_No15 65535;
+BA_ "GenSigMaxValue" SG_ 677 BMS_HVBatCellVol_No14 65535;
+BA_ "GenSigMaxValue" SG_ 677 BMS_HVBatCellVol_No13 65535;
+BA_ "GenSigMaxValue" SG_ 676 BMS_HVBatCellVol_No12 65535;
+BA_ "GenSigMaxValue" SG_ 676 BMS_HVBatCellVol_No11 65535;
+BA_ "GenSigMaxValue" SG_ 676 BMS_HVBatCellVol_No10 65535;
+BA_ "GenSigMaxValue" SG_ 676 BMS_HVBatCellVol_No9 65535;
+BA_ "GenSigMaxValue" SG_ 675 BMS_HVBatCellVol_No8 65535;
+BA_ "GenSigMaxValue" SG_ 675 BMS_HVBatCellVol_No7 65535;
+BA_ "GenSigMaxValue" SG_ 675 BMS_HVBatCellVol_No6 65535;
+BA_ "GenSigMaxValue" SG_ 675 BMS_HVBatCellVol_No5 65535;
+BA_ "GenSigMaxValue" SG_ 674 BMS_HVBatCellVol_No4 65535;
+BA_ "GenSigMaxValue" SG_ 674 BMS_HVBatCellVol_No3 65535;
+BA_ "GenSigMaxValue" SG_ 674 BMS_HVBatCellVol_No2 65535;
+BA_ "GenSigMaxValue" SG_ 674 BMS_HVBatCellVol_No1 65535;
+BA_ "GenSigMaxValue" SG_ 673 BMS_HVBatLowestVolCellNum 255;
+BA_ "GenSigMaxValue" SG_ 673 BMS_HVBatHighestVolCellNum 255;
+BA_ "GenSigMaxValue" SG_ 673 BMS_HVBatHighestCellVol 65535;
+BA_ "GenSigMaxValue" SG_ 673 BMS_HVBatLowestCellVol 65535;
+BA_ "GenSigMaxValue" SG_ 160 BMS_HVDisplaySOH 255;
+BA_ "GenSigMaxValue" SG_ 160 BMS_Sys_Flt 255;
+BA_ "GenSigMaxValue" SG_ 160 BMS_Charge_StsCc 1;
+BA_ "GenSigMaxValue" SG_ 160 BMS_Charge_StsCc2 1;
+BA_ "GenSigMaxValue" SG_ 160 BMS_Sys_Sts 7;
+BA_ "GenSigMaxValue" SG_ 160 BMS_HVBatSOC 255;
+BA_ "GenSigMaxValue" SG_ 160 BMS_HVBatVol 65535;
+BA_ "GenSigMaxValue" SG_ 160 BMS_HVBatCrnt 65535;
+BA_ "GenSigMaxValue" SG_ 418 Charge_Relay_Sts 1;
+BA_ "GenSigMaxValue" SG_ 418 AcDc_Relay_Sts 1;
+BA_ "GenSigMaxValue" SG_ 418 BMS_WeakUpSig 15;
+BA_ "GenSigMaxValue" SG_ 418 BMS_KeyOn 255;
+BA_ "GenSigMaxValue" SG_ 418 BMS_Req_HvDown 1;
+BA_ "GenSigMaxValue" SG_ 418 Bms_SelfChk_Sts 7;
+BA_ "GenSigMaxValue" SG_ 418 Heat_Relay_Sts 1;
+BA_ "GenSigMaxValue" SG_ 418 Precharge_Sts 3;
+BA_ "GenSigMaxValue" SG_ 418 Charge_Sts 7;
+BA_ "GenSigMaxValue" SG_ 418 BMS_Heat_Beat 15;
+BA_ "GenSigMaxValue" SG_ 418 Precharge_Relay_Sts 1;
+BA_ "GenSigMaxValue" SG_ 418 Parent_Relay_Sts 1;
+

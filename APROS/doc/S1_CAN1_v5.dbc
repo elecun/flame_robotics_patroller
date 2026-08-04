@@ -1,0 +1,386 @@
+VERSION ""
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: Parallel_Driving Remote ADU VCU DBS EPS MCU ICM
+
+
+BO_ 3221225472 VECTOR__INDEPENDENT_SIG_MSG: 0 Vector__XXX
+ SG_ Parallel_driving_Speed_Control : 0|16@1+ (0.1,0) [0|20] "km/h" Vector__XXX
+
+BO_ 771 VCU_Vehicle_Status_1: 8 VCU
+ SG_ Vehicle_Status_MsgCntr : 60|4@1+ (1,0) [0|15] ""  ADU
+ SG_ Drive_Mode_State : 8|4@1+ (1,0) [0|15] ""  ADU
+ SG_ Vehicle_Soc : 48|8@1+ (1,0) [0|100] "%"  ADU
+ SG_ VCU_Speed_Req : 16|16@1+ (0.1,-80) [-80|80] "km/h"  ADU
+ SG_ Clamping_Brake_Status : 3|1@1+ (1,0) [0|1] ""  ADU
+ SG_ Vehicle_Gear : 0|2@1+ (1,0) [0|3] "N/A"  ADU
+
+BO_ 1297 Parallel_Control_Flag: 8 Parallel_Driving
+ SG_ Parallel_Flag_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ Parallel_Control_Request_Flag : 0|4@1+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 1302 Parallel_Control_Body: 8 Parallel_Driving
+ SG_ Parallel_Right_Light_Switch : 1|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ Parallel_BrakeLight_Switch : 8|1@1+ (1,0) [0|1] "N/A" Vector__XXX
+ SG_ Parallel_Body_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ Parallel_Hom_Switch : 2|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ Parallel_Headlight_Switch : 3|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ Parallel_Left_Light_Switch : 0|1@1+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 1298 Parallel_Control_Steering: 8 Parallel_Driving
+ SG_ Parallel_Steering_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ Parallel_Steering_Valid : 0|4@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ Parallel_Steering_Angle_Cmd : 32|16@1+ (0.1,-30) [-30|30] "deg"  VCU
+
+BO_ 1300 Parallel_Control_Accelerate: 8 Parallel_Driving
+ SG_ Parallel_Accelerate_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ Parallel_Acc_De : 32|8@1+ (0.1,-5) [-5|5] "m/ss"  VCU
+ SG_ Parallel_driving_Torque_Control : 40|8@1+ (1,0) [0|100] "%"  VCU
+ SG_ Parallel_Accelerate_Gear : 24|8@1+ (1,0) [0|3] ""  VCU
+ SG_ Parallel_Accelerate_Work_Mode : 16|8@1+ (1,0) [0|2] ""  VCU
+ SG_ Parallel_Accelerate_Valid : 0|4@1+ (1,0) [0|15] ""  VCU
+
+BO_ 1299 Parallel_Control_Brake: 8 Parallel_Driving
+ SG_ Parallel_DBS_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ Parallel_BrakePressure_Cmd : 8|8@1+ (1,0) [0|100] "%"  VCU
+ SG_ Parallel_DBS_Valid : 0|4@1+ (1,0) [0|15] ""  VCU
+
+BO_ 788 VCU_EPS_Control_Request: 8 VCU
+ SG_ VCU_EPS_StrAngle_Req : 15|16@0- (1,0) [-720|720] "deg" Vector__XXX
+ SG_ VCU_EPS_CtrlEnable : 0|1@0+ (1,0) [0|1] "N/A"  EPS
+ SG_ VCU_EPS_Calibration_Req : 2|1@0+ (1,0) [0|1] "N/A"  EPS
+
+BO_ 1286 AD_Control_Body: 8 ADU
+ SG_ AD_Brake_Light : 8|1@1+ (1,0) [0|1] "N/A" Vector__XXX
+ SG_ AD_Body_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ AD_Horn_Control : 2|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ AD_HeadLight : 3|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ AD_Right_Turn_Light : 1|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ AD_Left_Turn_Light : 0|1@1+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 772 VCU_Vehicle_Status_2: 8 VCU
+ SG_ Vehicle_Status_2_MsgCntr : 60|4@1+ (1,0) [0|15] ""  ADU
+ SG_ Vehicle_Steering_Angle : 32|10@1+ (0.1,-35) [-35|67.3] "deg"  ADU
+ SG_ Vehicle_Brake_Pressure : 16|16@1+ (0.01,0) [0|8] "Mpa"  ADU
+ SG_ Vehicle_Speed : 0|16@1+ (0.1,-80) [-80|80] "km/h"  ADU
+
+BO_ 1284 AD_Control_Accelerate: 8 ADU
+ SG_ AD_Accelerate_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ AD_Acc_De : 32|8@1+ (0.1,-5) [-5|5] "m/ss"  VCU
+ SG_ AD_Speed_Control : 48|16@1+ (0.1,0) [0|80] "km/h"  VCU
+ SG_ AD_Torque_Control : 40|8@1+ (1,0) [0|100] "%"  VCU
+ SG_ AD_Accelerate_Gear : 24|8@1+ (1,0) [0|3] "N/A"  VCU
+ SG_ AD_Accelerate_Work_Mode : 16|8@1+ (1,0) [0|2] "N/A"  VCU
+ SG_ AD_Accelerate_Valid : 0|4@1+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 1283 AD_Control_Brake: 8 ADU
+ SG_ AD_DBS_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ AD_BrakePressure_Cmd : 8|8@1+ (1,0) [0|100] "%"  VCU
+ SG_ AD_DBS_Valid : 0|4@1+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 1282 AD_Control_Steering: 8 ADU
+ SG_ AD_Steering_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ AD_Steering_Angle_Cmd : 32|16@1+ (0.1,-30) [-30|30] "deg"  VCU
+ SG_ AD_Steering_Valid : 0|4@1+ (1,0) [0|15] "N/A"  VCU
+
+BO_ 1281 AD_Control_Flag: 8 ADU
+ SG_ AD_Flag_MsgCntr : 4|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ AD_Control_Request_Flag : 0|4@1+ (1,0) [0|15] "N/A"  VCU
+
+BO_ 769 VCU_Vehicle_Diagnosis: 8 VCU
+ SG_ Vehicle_Voltage : 22|10@1+ (0.1,0) [0|90] "V"  ADU
+ SG_ Light_states_Brake : 40|1@1+ (1,0) [0|1] ""  ADU
+ SG_ EPS_State : 10|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ Oil_pot_State : 41|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ Vehicle_Diagnosis_MsgCntr : 60|4@1+ (1,0) [0|15] ""  ADU
+ SG_ Horn_State : 43|1@1+ (1,0) [0|1] ""  ADU
+ SG_ HeadLight_State : 15|1@1+ (1,0) [0|1] ""  ADU
+ SG_ Right_Turn_Light_State : 48|1@1+ (1,0) [0|1] ""  ADU
+ SG_ Left_Turn_Light_State : 32|1@1+ (1,0) [0|1] ""  ADU
+ SG_ R_Touch_Switch_State : 13|1@1+ (1,0) [0|1] ""  ADU
+ SG_ F_Touch_Switch_State : 12|1@1+ (1,0) [0|1] ""  ADU
+ SG_ BMS_State : 9|1@1+ (1,0) [0|1] ""  ADU
+ SG_ Emergency_Button_State : 0|1@1+ (1,0) [0|1] ""  ADU
+ SG_ Parallel_State : 8|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ DBS_State : 7|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ AD_State : 6|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ Remote_State : 5|1@1+ (1,0) [0|1] "N/A"  ADU
+ SG_ Motor_State : 1|1@1+ (1,0) [0|1] "N/A"  ADU
+
+BO_ 267 RemoteT10_Control_Shake_2: 8 Remote
+ SG_ Remote_Y1_Longitudinal_Control : 32|16@1- (1,0) [-450|450] "N/A"  VCU
+ SG_ Remote_X2_Lateral_Control : 0|16@1- (1,0) [-450|450] "N/A"  VCU
+
+BO_ 266 RemoteT10_Control_IO: 8 Remote
+ SG_ Remote_F_Horn : 8|8@1+ (1,0) [0|2] ""  VCU
+ SG_ Remote_D_HeadLight : 40|8@1+ (1,0) [0|2] "N/A"  VCU
+ SG_ Remote_B_Motor_Holding_Brake : 24|8@1+ (1,0) [0|2] "N/A"  VCU
+ SG_ Remote_A_Mode_Switch : 16|8@1+ (1,0) [0|2] "N/A"  VCU
+ SG_ Remote_C_Speed_Torque : 32|8@1+ (1,0) [0|2] "N/A"  VCU
+ SG_ Remote_E_Gear : 0|8@1+ (1,0) [0|2] "N/A"  VCU
+
+BO_ 399 EPS_Status: 8 EPS
+ SG_ EPS_StrAngle_Act : 15|16@0- (1,0) [-720|720] ""  VCU
+ SG_ EPS_Temperature : 55|8@0- (1,0) [-128|127] "℃"  VCU
+ SG_ EPS_Motor_Current : 31|16@0- (1,0) [-32768|32767] "mA"  VCU
+ SG_ EPS_Fault : 1|1@0+ (1,0) [0|1] ""  VCU
+ SG_ EPS_Calibration_Status : 2|1@0+ (1,0) [0|1] ""  VCU
+ SG_ EPS_Work_Mode : 0|1@0+ (1,0) [0|1] "N/A"  VCU
+
+BO_ 340 VCU_DBS_Request: 8 VCU
+ SG_ VCU_ABS_Active : 24|8@1+ (1,0) [0|1] ""  DBS
+ SG_ VCU_DBS_Request_Flag : 0|8@1+ (1,0) [0|1] ""  DBS
+ SG_ VCU_DBS_Pressure_Request : 16|8@1+ (0.1,0) [0|8] "Mpa"  DBS
+ SG_ VCU_DBS_Work_Mode : 8|8@1+ (1,0) [0|0] ""  DBS
+
+BO_ 323 DBS_Status2: 8 DBS
+ SG_ DBS_CheckSum : 56|8@1+ (1,0) [0|255] ""  VCU
+ SG_ DBS_RollingCounter : 48|4@1+ (1,0) [0|15] ""  VCU
+ SG_ DBS_WaringCode : 24|24@1+ (1,0) [0|16777215] ""  VCU
+ SG_ DBS_FaultCode : 0|24@1+ (1,0) [0|16777215] ""  VCU
+
+BO_ 322 DBS_Status: 8 DBS
+ SG_ DBS_EstopFlag : 54|1@1+ (1,0) [0|1] ""  VCU
+ SG_ DBS_PedaiFlag : 55|1@1+ (1,0) [0|1] ""  VCU
+ SG_ DBS_Ref_Iq : 40|8@1+ (0.5,-20) [-20|107.5] ""  VCU
+ SG_ DBS_Work_Mode : 8|8@1+ (1,0) [0|2] ""  VCU
+ SG_ BrakePressureReqACK : 16|8@1+ (1,0) [0|1] ""  VCU
+ SG_ DBS_RollingCounter : 48|4@1+ (1,0) [0|15] ""  VCU
+ SG_ DBS_Park_Warning : 6|2@1+ (1,0) [0|1] ""  VCU
+ SG_ DBS_PeadalOpening : 32|8@1+ (1,0) [0|100] "%"  VCU
+ SG_ DBS_CheckSum : 56|8@1+ (1,0) [0|255] ""  VCU
+ SG_ DBS_HP_pressure : 24|8@1+ (0.1,0) [0|8] "Mpa"  VCU
+ SG_ DBS_System_Status : 0|2@1+ (1,0) [0|3] "N/A"  VCU
+
+BO_ 96 MCU_Drive_Motor_Feedback_Msg: 8 MCU
+ SG_ Clamping_brake_status : 47|1@1+ (1,0) [0|1] "N/A"  VCU
+ SG_ MCU_Motor_Error_Grade : 41|2@1+ (1,0) [0|3] "N/A"  VCU
+ SG_ Motor_ControlTemp : 32|8@1+ (1,-50) [-50|205] "度"  VCU
+ SG_ Motor_Idc : 16|16@1+ (0.1,-1000) [-1000|5553.5] "A"  VCU
+ SG_ Motor_Udc : 0|16@1+ (0.1,0) [0|6553.5] "V"  VCU
+
+BO_ 352 VCU_MCU_Request: 8 VCU
+ SG_ MCU_Clamping_Brake_Req : 3|1@1+ (1,0) [0|1] ""  MCU
+ SG_ MCU_Speed_Req : 24|16@1+ (1,-7000) [-7000|7000] "RPM"  MCU
+ SG_ MCU_Torque_Req : 8|16@1+ (0.1,-1000) [-1000|1000] "Nm"  MCU
+ SG_ MCU_DriveMode : 1|2@1+ (1,0) [0|3] ""  MCU
+ SG_ MCU_VCU_Motor_Request_Valid : 0|1@1+ (1,0) [0|1] ""  MCU
+
+BO_ 16 MCU_Torque_Feedback: 8 MCU
+ SG_ MCU_ERRORCODE : 56|8@1+ (1,0) [0|255] "N/A"  VCU
+ SG_ MCU_MOTORTEMP : 48|8@1+ (1,-50) [-50|205] "度"  VCU
+ SG_ MCU_CURRENT : 36|12@1+ (1,0) [0|1000] "A"  VCU
+ SG_ MCU_TORQUE : 20|16@1+ (0.1,-1000) [-1000|5553.5] "Nm"  VCU
+ SG_ MCU_SPEED : 2|18@1+ (1,-100000) [-100000|162143] "rpm"  VCU
+ SG_ MCU_Shift : 0|2@1+ (1,0) [0|3] "N/A"  VCU
+
+BO_ 1810 VCU_Meter_Req: 8 VCU
+ SG_ VCU_Meter_Req_Voltage : 0|10@1+ (1,0) [0|1023] ""  ICM
+ SG_ VCU_Meter_Req_SOC : 20|8@1+ (1,0) [0|255] ""  ICM
+ SG_ VCU_Meter_Req_Ready : 62|1@1+ (1,0) [0|1] ""  ICM
+ SG_ VCU_Meter_Req_Mileage : 28|20@1+ (1,0) [0|1048575] "km"  ICM
+ SG_ VCU_Meter_Req_ErrorCode : 52|10@1+ (1,0) [0|1023] ""  ICM
+ SG_ VCU_Meter_Req_Current : 10|10@1+ (1,-500) [-500|500] ""  ICM
+ SG_ VCU_Meter_Req_Charge_State : 63|1@1+ (1,0) [0|1] ""  ICM
+
+BO_ 1554 VCU_ICM_Req: 8 VCU
+ SG_ VCU_ICM_Req_msg5 : 32|32@1- (1,0) [-2147483648|2147483647] ""  ICM
+ SG_ VCU_ICM_Req_msg4 : 24|8@1+ (1,0) [0|255] ""  ICM
+ SG_ VCU_ICM_Req_msg3 : 16|8@1+ (1,0) [0|255] ""  ICM
+ SG_ VCU_ICM_Req_msg2 : 8|8@1+ (1,0) [0|255] ""  ICM
+ SG_ VCU_ICM_Req_msg1 : 0|8@1+ (1,0) [0|255] ""  ICM
+
+BO_ 689 BMS_2B1h: 8 VCU
+ SG_ BMS_HVBatLowestTemCellNum : 32|8@1+ (1,0) [0|250] ""  VCU
+ SG_ BMS_HVBatHighestTemCellNum : 40|8@1+ (1,0) [0|250] ""  VCU
+ SG_ BMS_HVBatHighestTem : 8|8@1+ (1,-40) [-40|125] "℃"  VCU
+ SG_ BMS_HVBatLowestTem : 0|8@1+ (1,-40) [-40|125] "℃"  VCU
+
+BO_ 160 BMS_A0h: 8 VCU
+ SG_ BMS_HVDisplaySOH : 56|8@1- (1,0) [0|100] "%" Vector__XXX
+ SG_ BMS_Sys_Flt : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BMS_Charge_StsCc : 44|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BMS_Charge_StsCc2 : 43|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BMS_Sys_Sts : 40|3@1+ (1,0) [0|7] ""  VCU
+ SG_ BMS_HVBatSOC : 32|8@1+ (0.4,0) [0|100] "%"  VCU
+ SG_ BMS_HVBatVol : 16|16@1+ (0.1,0) [0|1000] "V"  VCU
+ SG_ BMS_HVBatCrnt : 0|16@1+ (0.1,-1000) [-1000|1000] "A"  VCU
+
+BO_ 418 BMS_1A2h: 8 VCU
+ SG_ Charge_Relay_Sts : 51|1@1+ (1,0) [0|1] ""  VCU
+ SG_ AcDc_Relay_Sts : 52|1@1+ (1,0) [0|1] ""  VCU
+ SG_ BMS_WeakUpSig : 0|4@1+ (1,0) [0|15] ""  VCU
+ SG_ BMS_KeyOn : 16|8@1+ (0.1,0) [0|25.5] "V"  VCU
+ SG_ BMS_Req_HvDown : 40|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Bms_SelfChk_Sts : 43|3@1+ (1,0) [0|7] ""  VCU
+ SG_ Heat_Relay_Sts : 46|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Precharge_Sts : 49|2@1+ (1,0) [0|3] ""  VCU
+ SG_ Charge_Sts : 53|3@1+ (1,0) [0|7] ""  VCU
+ SG_ BMS_Heat_Beat : 56|4@1+ (1,0) [0|15] ""  VCU
+ SG_ Precharge_Relay_Sts : 48|1@1+ (1,0) [0|1] ""  VCU
+ SG_ Parent_Relay_Sts : 47|1@1+ (1,0) [0|1] ""  VCU
+
+
+
+CM_ BO_ 3221225472 "This is a message for not used signals, created by Vector CANdb++ DBC OLE DB Provider.";
+CM_ SG_ 3221225472 Parallel_driving_Speed_Control "车辆请求车速km/h";
+CM_ BO_ 771 "VCU车辆状态反馈";
+CM_ BO_ 1297 "平行驾驶总体有效位请求";
+CM_ BO_ 1302 "平行驾驶模式下灯光请求";
+CM_ BO_ 1298 "平行驾驶模式下转向请求";
+CM_ BO_ 1300 "平行驾驶模式下驱动请求";
+CM_ BO_ 1299 "平行驾驶模式下制动请求";
+CM_ BO_ 788 "VCU转向请求";
+CM_ BO_ 1286 "AD灯光和喇叭请求
+由iECU节点发送，由VCU节点接收";
+CM_ BO_ 772 "VCU车辆状态反馈";
+CM_ BO_ 1284 "AD驱动请求
+由AD节点发送，由VCU节点接收";
+CM_ BO_ 1283 "AD制动请求
+由AD节点发送，由VCU节点接收";
+CM_ BO_ 1282 "AD转向请求
+由AD节点发送，由VCU节点接收";
+CM_ BO_ 1281 "AD总体有效位请求
+由AD节点发送，由VCU节点接收";
+CM_ BO_ 769 "VCU车辆状态反馈";
+CM_ BO_ 267 "遥控器拨杆";
+CM_ BO_ 266 "遥控器按键";
+CM_ BO_ 399 "转向控制器反馈信号";
+CM_ BO_ 340 "VCU对DBS的请求";
+CM_ BO_ 323 "线控制动系统反馈报文";
+CM_ BO_ 322 "线控制动系统反馈报文";
+CM_ BO_ 96 "主驱电机反馈报文";
+CM_ BO_ 352 "VCU发送给主驱";
+CM_ BO_ 16 "电机控制器反馈报文";
+CM_ BO_ 1810 "Instrument Cluster Module  VCU采用轮询";
+CM_ BO_ 1554 "Instrument Cluster Module  VCU采用轮询";
+BA_DEF_ SG_  "GenSigSendType" ENUM  "Cyclic","OnWrite","OnWriteWithRepetition","OnChange","OnChangeWithRepetition","IfActive","IfActiveWithRepetition","NoSigSendType";
+BA_DEF_ SG_  "GenSigInactiveValue" INT 0 0;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 0;
+BA_DEF_ BO_  "GenMsgSendType" ENUM  "Cyclic","not_used","not_used","not_used","not_used","Cyclic","not_used","IfActive","NoMsgSendType";
+BA_DEF_ BU_  "NmStationAddress" HEX 0 0;
+BA_DEF_  "DBName" STRING ;
+BA_DEF_  "BusType" STRING ;
+BA_DEF_DEF_  "GenSigSendType" "Cyclic";
+BA_DEF_DEF_  "GenSigInactiveValue" 20;
+BA_DEF_DEF_  "GenMsgCycleTime" 20;
+BA_DEF_DEF_  "GenMsgSendType" "Cyclic";
+BA_DEF_DEF_  "NmStationAddress" 0;
+BA_DEF_DEF_  "DBName" "";
+BA_DEF_DEF_  "BusType" "CAN";
+BA_ "DBName" "W1_CAN1_Tbox";
+BA_ "GenMsgCycleTime" BO_ 771 20;
+BA_ "GenMsgCycleTime" BO_ 1297 20;
+BA_ "GenMsgCycleTime" BO_ 1302 50;
+BA_ "GenMsgCycleTime" BO_ 1298 20;
+BA_ "GenMsgCycleTime" BO_ 1300 20;
+BA_ "GenMsgCycleTime" BO_ 1299 20;
+BA_ "GenMsgSendType" BO_ 788 0;
+BA_ "GenMsgCycleTime" BO_ 788 20;
+BA_ "GenMsgSendType" BO_ 1286 0;
+BA_ "GenMsgCycleTime" BO_ 1286 50;
+BA_ "GenMsgCycleTime" BO_ 772 20;
+BA_ "GenMsgSendType" BO_ 1284 0;
+BA_ "GenMsgCycleTime" BO_ 1284 20;
+BA_ "GenMsgSendType" BO_ 1283 0;
+BA_ "GenMsgCycleTime" BO_ 1283 20;
+BA_ "GenMsgSendType" BO_ 1282 0;
+BA_ "GenMsgCycleTime" BO_ 1282 20;
+BA_ "GenMsgSendType" BO_ 1281 0;
+BA_ "GenMsgCycleTime" BO_ 1281 20;
+BA_ "GenMsgSendType" BO_ 769 0;
+BA_ "GenMsgCycleTime" BO_ 769 20;
+BA_ "GenMsgSendType" BO_ 267 0;
+BA_ "GenMsgCycleTime" BO_ 267 20;
+BA_ "GenMsgSendType" BO_ 266 0;
+BA_ "GenMsgCycleTime" BO_ 266 20;
+BA_ "GenMsgCycleTime" BO_ 399 20;
+BA_ "GenMsgSendType" BO_ 399 0;
+BA_ "GenMsgCycleTime" BO_ 340 20;
+BA_ "GenMsgCycleTime" BO_ 323 20;
+BA_ "GenMsgCycleTime" BO_ 322 20;
+BA_ "GenMsgCycleTime" BO_ 96 20;
+BA_ "GenMsgCycleTime" BO_ 352 20;
+BA_ "GenMsgCycleTime" BO_ 16 20;
+BA_ "GenMsgCycleTime" BO_ 1810 100;
+BA_ "GenMsgCycleTime" BO_ 1554 100;
+BA_ "GenMsgCycleTime" BO_ 689 20;
+BA_ "GenMsgCycleTime" BO_ 160 20;
+BA_ "GenMsgCycleTime" BO_ 418 20;
+BA_ "GenSigInactiveValue" SG_ 1302 Parallel_Right_Light_Switch 50;
+BA_ "GenSigInactiveValue" SG_ 1302 Parallel_BrakeLight_Switch 50;
+BA_ "GenSigInactiveValue" SG_ 1302 Parallel_Hom_Switch 50;
+BA_ "GenSigInactiveValue" SG_ 1302 Parallel_Headlight_Switch 50;
+BA_ "GenSigInactiveValue" SG_ 1302 Parallel_Left_Light_Switch 50;
+BA_ "GenSigInactiveValue" SG_ 1286 AD_Brake_Light 50;
+BA_ "GenSigInactiveValue" SG_ 1286 AD_Horn_Control 50;
+BA_ "GenSigInactiveValue" SG_ 1286 AD_HeadLight 50;
+BA_ "GenSigInactiveValue" SG_ 1286 AD_Right_Turn_Light 50;
+BA_ "GenSigInactiveValue" SG_ 1286 AD_Left_Turn_Light 50;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_Voltage 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_SOC 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_Ready 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_Mileage 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_ErrorCode 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_Current 100;
+BA_ "GenSigInactiveValue" SG_ 1810 VCU_Meter_Req_Charge_State 100;
+BA_ "GenSigInactiveValue" SG_ 1554 VCU_ICM_Req_msg5 100;
+BA_ "GenSigInactiveValue" SG_ 1554 VCU_ICM_Req_msg4 100;
+BA_ "GenSigInactiveValue" SG_ 1554 VCU_ICM_Req_msg3 100;
+BA_ "GenSigInactiveValue" SG_ 1554 VCU_ICM_Req_msg2 100;
+BA_ "GenSigInactiveValue" SG_ 1554 VCU_ICM_Req_msg1 100;
+VAL_ 1297 Parallel_Control_Request_Flag 1 "Value" 0 "Invalue" ;
+VAL_ 1302 Parallel_Right_Light_Switch 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1302 Parallel_BrakeLight_Switch 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1302 Parallel_Hom_Switch 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1302 Parallel_Headlight_Switch 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1302 Parallel_Left_Light_Switch 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1298 Parallel_Steering_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1300 Parallel_Accelerate_Gear 3 "R" 2 "N" 1 "D" 0 "P" ;
+VAL_ 1300 Parallel_Accelerate_Work_Mode 2 "Acc_Control" 1 "Speed_Control" 0 "Torque_Control" ;
+VAL_ 1300 Parallel_Accelerate_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1299 Parallel_DBS_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1286 AD_Brake_Light 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1286 AD_Horn_Control 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1286 AD_HeadLight 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1286 AD_Right_Turn_Light 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1286 AD_Left_Turn_Light 1 "Turn On" 0 "Turn Off" ;
+VAL_ 1284 AD_Accelerate_Gear 3 "R" 2 "N" 1 "D" 0 "P" ;
+VAL_ 1284 AD_Accelerate_Work_Mode 2 "Acc_Control" 1 "Speed_Control" 0 "Torque_Control" ;
+VAL_ 1284 AD_Accelerate_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1283 AD_DBS_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1282 AD_Steering_Valid 1 "Valid" 0 "Invalid" ;
+VAL_ 1281 AD_Control_Request_Flag 1 "Value" 0 "Invalue" ;
+

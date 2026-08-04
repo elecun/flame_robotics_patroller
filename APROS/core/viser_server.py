@@ -428,42 +428,114 @@ class ViserServerManager:
                     else:
                         self.gr_display_mode = "all"
 
-                # Control Mode Inlined Single-row Buttons with dynamic green highlight
-                client.gui.add_markdown("**Control Mode**")
+                # Control Mode Group Buttons (Manual, Auto)
                 init_is_auto = self.robot.drive_mode.startswith("Auto")
-                
-                # Hidden Viser input handle to receive button clicks from JS
-                drive_mode_input = client.gui.add_text("Drive Mode State", initial_value="Auto" if init_is_auto else "Manual", visible=False)
+                options = ("🤖 Auto", "🕹️ Manual") if init_is_auto else ("🕹️ Manual", "🤖 Auto")
+                control_mode_group = client.gui.add_button_group(
+                    label="Control Mode",
+                    options=options
+                )
 
-                mode_btn_html_content = f"""
-                <div id="drive-mode-btn-container" style="display: flex; gap: 8px; width: 100%; margin-top: 4px; margin-bottom: 8px;">
-                    <button id="btn-mode-manual" onclick="window.viserSetDriveMode && window.viserSetDriveMode('Manual')" style="
-                        flex: 1;
-                        padding: 8px 12px;
-                        border-radius: 6px;
-                        font-weight: 600;
-                        font-size: 13px;
-                        cursor: pointer;
-                        border: 1px solid rgba(255,255,255,0.15);
-                        transition: all 0.2s ease;
-                        background: {'#00E676' if not init_is_auto else 'rgba(255,255,255,0.08)'};
-                        color: {'#000000' if not init_is_auto else '#E0E0E0'};
-                    ">🕹️ Manual</button>
-                    <button id="btn-mode-auto" onclick="window.viserSetDriveMode && window.viserSetDriveMode('Auto')" style="
-                        flex: 1;
-                        padding: 8px 12px;
-                        border-radius: 6px;
-                        font-weight: 600;
-                        font-size: 13px;
-                        cursor: pointer;
-                        border: 1px solid rgba(255,255,255,0.15);
-                        transition: all 0.2s ease;
-                        background: {'#00E676' if init_is_auto else 'rgba(255,255,255,0.08)'};
-                        color: {'#000000' if init_is_auto else '#E0E0E0'};
-                    ">🤖 Auto</button>
-                </div>
-                """
-                client.gui.add_html(mode_btn_html_content)
+                self._current_control_mode = "Auto" if init_is_auto else "Manual"
+                _is_processing_mode_change = False
+
+                def set_group_value_silently(val: str):
+                    # Update internal value and notify client GUI without calling update_cb (avoids recursion)
+                    control_mode_group._impl.value = val
+                    client._websock_interface.queue_message(
+                        viser._messages.GuiUpdateMessage(control_mode_group._impl.uuid, {"value": val})
+                    )
+
+                def apply_control_mode(selected_mode: str):
+                    self._current_control_mode = selected_mode
+                    print(f"[Control Mode Event] Mode applied: {selected_mode}")
+                    mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
+                    if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
+                        mobile_drive_dev.change_drive_mode(selected_mode)
+                    elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Manual":
+                        self.robot.set_mode_manual()
+                    elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
+                        self.robot.set_mode_auto()
+
+                    self.robot.drive_mode = f"{selected_mode} (Remote)" if selected_mode == "Manual" else f"{selected_mode} (Autonomous)"
+                    if selected_mode == "Manual":
+                        speed_slider.disabled = False
+                        steer_slider.disabled = False
+                        set_group_value_silently("🕹️ Manual")
+                    else:
+                        speed_slider.disabled = True
+                        steer_slider.disabled = True
+                        set_group_value_silently("🤖 Auto")
+
+                @control_mode_group.on_click
+                def _(_):
+                    nonlocal _is_processing_mode_change
+                    if _is_processing_mode_change:
+                        return
+                    
+                    val = control_mode_group.value
+                    selected_mode = "Manual" if "Manual" in val else "Auto"
+                    print(f"[Control Mode Event] Button clicked: {selected_mode} (Value: '{val}')")
+
+                    if selected_mode == "Auto" and self._current_control_mode == "Manual":
+                        _is_processing_mode_change = True
+                        # Revert group button visual selection until user confirms
+                        set_group_value_silently("🕹️ Manual")
+                        modal = client.gui.add_modal("Auto 모드 전환 확인")
+                        with modal:
+                            client.gui.add_markdown("Auto 모드로 전환합니다.")
+                            confirm_btn = client.gui.add_button("확인", color="green")
+                            cancel_btn = client.gui.add_button("취소", color="red")
+
+                            @confirm_btn.on_click
+                            def _(_):
+                                nonlocal _is_processing_mode_change
+                                modal.close()
+                                apply_control_mode("Auto")
+                                _is_processing_mode_change = False
+
+                            @cancel_btn.on_click
+                            def _(_):
+                                nonlocal _is_processing_mode_change
+                                modal.close()
+                                print("[Control Mode Event] Auto mode transition cancelled by user.")
+                                _is_processing_mode_change = False
+                    else:
+                        apply_control_mode(selected_mode)
+
+            # Basler GigE Camera Folder in APROS Control tab
+            with client.gui.add_folder("📷 Basler GigE Camera Stream", expand_by_default=True):
+                client.gui.add_markdown("""
+<div style="font-size: 12px; color: #88C0D0; margin-bottom: 6px;">
+    <b>ZPipe IPC Camera Feed</b> (Click image to open popup window)
+</div>
+""")
+                # Placeholder 320x240 image
+                init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
+                init_cam_img[::20, :] = [30, 30, 45]
+                init_cam_img[:, ::20] = [30, 30, 45]
+                
+                gui_cam_image = client.gui.add_image(
+                    image=init_cam_img,
+                    label="Live Camera Stream (Click to Expand)",
+                    format="jpeg"
+                )
+
+                cam_popup_btn = client.gui.add_button("🔍 Open Camera Popup Window", color="blue")
+
+                @cam_popup_btn.on_click
+                def _(_):
+                    cam_modal = client.gui.add_modal("📷 Basler Camera Detailed View")
+                    with cam_modal:
+                        modal_cam_img = client.gui.add_image(
+                            image=getattr(self.robot, "last_camera_frame", init_cam_img) or init_cam_img,
+                            label="Basler GigE Live Stream",
+                            format="jpeg"
+                        )
+                        close_modal_btn = client.gui.add_button("닫기", color="red")
+                        @close_modal_btn.on_click
+                        def _(_):
+                            cam_modal.close()
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP (P Gear & STOP)",
@@ -642,68 +714,6 @@ class ViserServerManager:
         def _(_):
             self.robot.gear = gear_dropdown.value
 
-        @drive_mode_input.on_update
-        def _(_):
-            selected_mode = drive_mode_input.value
-            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
-            if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
-                mobile_drive_dev.change_drive_mode(selected_mode)
-            elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Manual":
-                self.robot.set_mode_manual()
-            elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
-                self.robot.set_mode_auto()
-
-            self.robot.drive_mode = f"{selected_mode} (Remote)" if selected_mode == "Manual" else f"{selected_mode} (Autonomous)"
-            if selected_mode == "Manual":
-                speed_slider.disabled = False
-                steer_slider.disabled = False
-            else:
-                speed_slider.disabled = True
-                steer_slider.disabled = True
-
-            # Send client-side JS update to toggle button colors
-            mode_update_js = f"""
-            <script>
-            (function() {{
-                var btnManual = document.getElementById('btn-mode-manual');
-                var btnAuto = document.getElementById('btn-mode-auto');
-                if (btnManual && btnAuto) {{
-                    if ('{selected_mode}' === 'Manual') {{
-                        btnManual.style.background = '#00E676';
-                        btnManual.style.color = '#000000';
-                        btnAuto.style.background = 'rgba(255,255,255,0.08)';
-                        btnAuto.style.color = '#E0E0E0';
-                    }} else {{
-                        btnAuto.style.background = '#00E676';
-                        btnAuto.style.color = '#000000';
-                        btnManual.style.background = 'rgba(255,255,255,0.08)';
-                        btnManual.style.color = '#E0E0E0';
-                    }}
-                }}
-            }})();
-            </script>
-            """
-            client.gui.add_html(mode_update_js)
-
-        # Inject JavaScript Helper to bridge button clicks to Viser input
-        js_bridge_html = f"""
-        <script>
-        window.viserSetDriveMode = function(mode) {{
-            var inputs = document.querySelectorAll('input');
-            for (var i = 0; i < inputs.length; i++) {{
-                if (inputs[i].value === 'Manual' || inputs[i].value === 'Auto') {{
-                    var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    nativeSetter.call(inputs[i], mode);
-                    inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    break;
-                }}
-            }}
-        }};
-        </script>
-        """
-        client.gui.add_html(js_bridge_html)
-
         def execute_emergency_stop():
             self.robot.speed = 0.0
             speed_slider.value = 0.0
@@ -714,19 +724,30 @@ class ViserServerManager:
             self.robot.drive_mode = "Emergency Stop"
             speed_slider.disabled = True
             steer_slider.disabled = True
-            drive_mode_input.value = "Manual"
+            control_mode_group.value = "🕹️ Manual"
 
         @estop_button.on_click
         def _(_):
             execute_emergency_stop()
 
-        # Background update loop for UI Markdown refresh
+        # Background update loop for UI Markdown refresh and Camera Stream
         def ui_update_loop():
+            last_img_ts = 0.0
             while self._running:
                 try:
                     dashboard_md.content = self._format_dashboard_text()
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
                     can_status_md.content = self._format_can_status_text()
+
+                    # Update live camera stream in GUI folder if frame updated
+                    if hasattr(self.robot, "last_camera_frame") and self.robot.last_camera_frame is not None:
+                        frame_bytes = self.robot.last_camera_frame
+                        cam_hdr = getattr(self.robot, "last_camera_header", {}) or {}
+                        ts = cam_hdr.get("timestamp", 0.0)
+                        if ts != last_img_ts:
+                            last_img_ts = ts
+                            gui_cam_image.image = frame_bytes
+
                     time.sleep(0.1)
                 except Exception:
                     break

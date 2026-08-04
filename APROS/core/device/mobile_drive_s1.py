@@ -8,6 +8,10 @@ import threading
 from typing import Optional, Dict, Any, List, Callable
 import numpy as np
 from core.device.base import BaseDevice
+try:
+    from APROS.core.device.mobile_s1_api import MobileS1API
+except ImportError:
+    from core.device.mobile_s1_api import MobileS1API
 from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
@@ -35,6 +39,7 @@ class CANParser:
                     vehicle_gear = data[0] & 0x03
                     parsed['vehicle_gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_gear]
                     drive_state_mode = data[1] & 0x03
+                    parsed['drive_mode_state_val'] = drive_state_mode
                     parsed['drive_state_mode'] = ["Remote Control Mode", "Represents the AD Mode",
                                                   "Indicates parallel Mode", "Indicates semi-autonomous"][drive_state_mode]
                     vcu_speed_req = int.from_bytes(data[2:4], byteorder='little') * 0.1 - 80
@@ -88,7 +93,7 @@ class CANParser:
             pass
         return parsed
 
-class MobileDriveS1(BaseDevice):
+class MobileDriveS1(BaseDevice, MobileS1API):
     def __init__(
         self,
         name: str = "MobileDriveS1",
@@ -97,8 +102,10 @@ class MobileDriveS1(BaseDevice):
         max_steer_angle: float = 28.0,
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
+        auto_mode_interval_ms: float = 20.0,
         status_monitor: Optional[Any] = None,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
         super().__init__(name, enable=enable, status_monitor=status_monitor)
         self.channel = int(can_channel) if isinstance(can_channel, int) or (isinstance(can_channel, str) and str(can_channel).isdigit()) else 0
@@ -114,6 +121,9 @@ class MobileDriveS1(BaseDevice):
 
         # Lookahead distance for local path planning (meters)
         self.lookahead_distance = float(lookahead_distance)
+
+        # Auto Mode transmission interval (ms)
+        self.auto_mode_interval_ms = float(auto_mode_interval_ms)
 
         # Command mapping bounds (-2000 ~ +2000)
         # Left: -2000 (at min deg), Right: +2000 (at max deg)
@@ -135,6 +145,15 @@ class MobileDriveS1(BaseDevice):
         self._tx_thread = None
         self._rx_running = False
         self._rx_thread = None
+
+        # Auto Mode Thread Control
+        self._auto_tx_running = False
+        self._auto_tx_thread = None
+        self._auto_tx_lock = threading.Lock()
+
+    def set_auto_mode_interval(self, interval_ms: float):
+        """Set auto mode CAN transmission interval in milliseconds."""
+        self.auto_mode_interval_ms = float(interval_ms)
 
     def connect(self) -> bool:
         """Connect to Kvaser CANlib channel 0 in Standard CAN mode (500k) and start TX/RX threads if enabled."""
@@ -179,6 +198,7 @@ class MobileDriveS1(BaseDevice):
 
     def disconnect(self) -> bool:
         """Disconnect Kvaser CANlib interface and stop threads."""
+        self.set_mode_manual()
         self._stop_threads()
         if self.ch is not None:
             try:
@@ -206,6 +226,7 @@ class MobileDriveS1(BaseDevice):
         """Stop periodic CAN transmission and RX receiver threads."""
         self._tx_running = False
         self._rx_running = False
+        self.stop_auto_mode_thread()
         if self._tx_thread:
             self._tx_thread.join(timeout=1.0)
             self._tx_thread = None
@@ -226,6 +247,12 @@ class MobileDriveS1(BaseDevice):
                 if parsed:
                     # Update parsed CAN status storage quietly
                     self.parsed_can_status.update(parsed)
+                    
+                    # Stop Auto mode periodic TX thread if VCU reports Drive_Mode_State == 1 (Represents the AD Mode)
+                    if frame.id == 0x303 and parsed.get("drive_mode_state_val") == 1:
+                        if self._auto_tx_running:
+                            logger.info(f"[{self.name}] Received VCU_Vehicle_Status_1 (0x303) Drive_Mode_State == 1 (AD Mode Active). Stopping Auto periodic TX thread.")
+                            self.stop_auto_mode_thread()
             except canlib.CanNoMsg:
                 continue
             except canlib.CanError:
@@ -247,15 +274,13 @@ class MobileDriveS1(BaseDevice):
             time.sleep(max(0.0, 0.1 - elapsed))
 
     def _send_can_control_frames(self):
-        """Build and send current steering angle and speed CAN control frames using Standard CAN."""
+        """Build and send current steering angle and speed CAN control frames using Standard CAN via S1 API functions."""
         # 1. Steering Angle Frame (0x502)
         clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(self.steer_angle)))
-        raw_cmd = self.degree_to_can_cmd(clamped_angle)
-        unsigned_val = raw_cmd & 0xFFFF
-        angular_v1 = unsigned_val & 0xFF
-        angular_v2 = (unsigned_val >> 8) & 0xFF
-
-        steer_payload = bytearray([0xF1, 0, 0, 0, angular_v1, angular_v2, 0, 0])
+        steer_payload = self._s1_api_ad_control_steering(
+            ad_steering_valid=0xF1,
+            ad_steering_angle_cmd=clamped_angle
+        )
 
         # 2. Drive Speed & Gear Frame (0x504)
         gear_code = 0x02  # N
@@ -268,11 +293,15 @@ class MobileDriveS1(BaseDevice):
         elif self.gear == "R":
             gear_code = 0x03
 
-        speed_val = int(abs(self.speed) / 0.1)  # 0.1 km/h resolution
-        linear_v1 = speed_val & 0xFF
-        linear_v2 = (speed_val >> 8) & 0xFF
+        speed_payload = self._s1_api_ad_control_accelerate(
+            ad_accelerate_valid=0xF1,
+            ad_accelerate_work_mode=0x00,
+            ad_accelerate_gear=gear_code,
+            ad_speed_control=abs(self.speed)
+        )
 
-        speed_payload = bytearray([0xF1, 0x00, 0x01, gear_code, 0, 0, linear_v1, linear_v2])
+        if not self.is_connected or self.ch is None or Frame is None:
+            return
 
         try:
             # Standard CAN Frames (0x502 & 0x504)
@@ -280,9 +309,6 @@ class MobileDriveS1(BaseDevice):
             frame_504 = Frame(id_=0x504, data=speed_payload)
             self.ch.write(frame_502)
             self.ch.write(frame_504)
-
-            spaced_steer = " ".join(f"{b:02X}" for b in steer_payload)
-            spaced_speed = " ".join(f"{b:02X}" for b in speed_payload)
 
         except canlib.CanError as e:
             if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
@@ -301,6 +327,91 @@ class MobileDriveS1(BaseDevice):
         cmd_val = int(round((clamped_deg / self.MAX_ANGLE_DEG) * self.MAX_CMD_VAL))
         return max(self.MIN_CMD_VAL, min(self.MAX_CMD_VAL, cmd_val))
 
+    def _send_ad_control_flag_frame(self, request_flag: int):
+        """
+        Send CAN frame 0x501 (AD_Control_Flag).
+        Byte 0 header: 0xF1 for Auto mode request (0x01), 0xF0 for exiting Auto mode (0x00).
+        """
+        first_byte = 0xF1 if (request_flag & 0xFF) == 1 else 0xF0
+        payload = self._s1_api_ad_control_flag(ad_control_request_flag=first_byte)
+
+        if not self.is_connected or self.ch is None or Frame is None:
+            return
+
+        try:
+            frame_501 = Frame(id_=0x501, data=payload)
+            self.ch.write(frame_501)
+        except canlib.CanError as e:
+            if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
+                pass
+            else:
+                logger.error(f"[{self.name}] CAN Error sending 0x501 frame: {e}")
+        except Exception as e:
+            logger.error(f"[{self.name}] Unexpected error sending 0x501 CAN frame: {e}")
+
+    def _send_ad_control_accelerate_frame(self, valid_flag: int):
+        """
+        Send CAN frame 0x504 (AD_Control_Accelerate).
+        Byte 0 header: 0xF1 for AD_Accelerate_Valid = 0x01 (Auto mode), 0xF0 for exiting Auto mode (0x00).
+        """
+        first_byte = 0xF1 if (valid_flag & 0xFF) == 1 else 0xF0
+        payload = self._s1_api_ad_control_accelerate(ad_accelerate_valid=first_byte)
+
+        if not self.is_connected or self.ch is None or Frame is None:
+            return
+
+        try:
+            frame_504 = Frame(id_=0x504, data=payload)
+            self.ch.write(frame_504)
+        except canlib.CanError as e:
+            if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
+                pass
+            else:
+                logger.error(f"[{self.name}] CAN Error sending 0x504 frame: {e}")
+        except Exception as e:
+            logger.error(f"[{self.name}] Unexpected error sending 0x504 CAN frame: {e}")
+
+    def _auto_mode_tx_loop(self):
+        """
+        Periodic thread loop for Auto mode.
+        Sends CAN ID 0x501 (AD_Control_Flag) and 0x503 (AD_Control_Accelerate) at configured interval (default 20ms).
+        """
+        logger.info(f"[{self.name}] Auto Mode CAN TX thread started (Interval: {self.auto_mode_interval_ms} ms)")
+        while self._auto_tx_running:
+            start_time = time.time()
+            self._send_ad_control_flag_frame(0x01)
+            self._send_ad_control_accelerate_frame(0x01)
+            elapsed = time.time() - start_time
+            interval_sec = max(0.001, self.auto_mode_interval_ms / 1000.0)
+            time.sleep(max(0.0, interval_sec - elapsed))
+        
+        # Send 0x00 / 0xF0 flag when exiting Auto Mode
+        self._send_ad_control_flag_frame(0x00)
+        self._send_ad_control_accelerate_frame(0x00)
+        logger.info(f"[{self.name}] Auto Mode CAN TX thread stopped (Sent exit flags 0xF0)")
+
+    def start_auto_mode_thread(self):
+        """Start the Auto mode CAN transmission thread if not already running."""
+        with self._auto_tx_lock:
+            if self._auto_tx_running and self._auto_tx_thread and self._auto_tx_thread.is_alive():
+                logger.info(f"[{self.name}] Auto mode thread is already running.")
+                return
+            self._auto_tx_running = True
+            self._auto_tx_thread = threading.Thread(target=self._auto_mode_tx_loop, daemon=True)
+            self._auto_tx_thread.start()
+
+    def stop_auto_mode_thread(self):
+        """Stop the Auto mode CAN transmission thread if running."""
+        with self._auto_tx_lock:
+            if not self._auto_tx_running:
+                return
+            self._auto_tx_running = False
+            thread = self._auto_tx_thread
+            self._auto_tx_thread = None
+
+        if thread and thread.is_alive() and threading.current_thread() != thread:
+            thread.join(timeout=1.0)
+
     def can_cmd_to_degree(self, cmd_val: int) -> float:
         """Map raw CAN command (-2000 to +2000) back to degree (-28.0 to +28.0)."""
         clamped_cmd = max(self.MIN_CMD_VAL, min(self.MAX_CMD_VAL, int(cmd_val)))
@@ -312,17 +423,28 @@ class MobileDriveS1(BaseDevice):
         self.steer_angle = clamped_angle
 
     def change_drive_mode(self, mode: str):
-        """Change drive mode (Auto or Manual). Log action to console."""
+        """Change drive mode (Auto or Manual). Log action to console and manage Auto thread/timer."""
         clean_mode = str(mode).strip()
+        is_target_auto = clean_mode.lower().startswith("auto")
+        is_current_auto = self.drive_mode.lower().startswith("auto")
+
+        if is_target_auto == is_current_auto and (self._auto_tx_running if is_target_auto else not self._auto_tx_running):
+            logger.info(f"[{self.name}] Drive mode already set to '{clean_mode}'. Ignoring duplicate mode switch request.")
+            return
+
         self.drive_mode = clean_mode
         logger.info(f"[{self.name}] change_drive_mode('{clean_mode}') executed.")
+        if is_target_auto:
+            self.start_auto_mode_thread()
+        else:
+            self.stop_auto_mode_thread()
 
     def set_mode_manual(self):
-        """Switch control mode to Manual."""
+        """Switch control mode to Manual and stop Auto thread."""
         self.change_drive_mode("Manual")
 
     def set_mode_auto(self):
-        """Switch control mode to Auto."""
+        """Switch control mode to Auto and start Auto thread."""
         self.change_drive_mode("Auto")
 
     def update_simulation_step(self, dt: float = 0.05):
@@ -360,3 +482,4 @@ class MobileDriveS1(BaseDevice):
             "parsed_can_status": self.parsed_can_status
         }
         return status_dict
+
