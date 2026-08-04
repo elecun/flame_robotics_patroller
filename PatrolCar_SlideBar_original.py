@@ -713,7 +713,8 @@ class MainWindow(QMainWindow):
 
         try:
             for m in msgs:
-                self.bus.write(m)
+                pass
+                #self.bus.write(m)
         except canlib.CanError as e:
             if getattr(e, 'status', None) == getattr(canlib, 'ErrorNumber', None) and getattr(canlib.ErrorNumber, 'TXBUFOVRFL', None) == e.status:
                 pass

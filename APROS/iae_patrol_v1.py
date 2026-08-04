@@ -352,8 +352,11 @@ class IAEPatrolV1:
 
     @speed.setter
     def speed(self, val: float):
-        if self.drive_base and hasattr(self.drive_base, 'speed'):
-            self.drive_base.speed = val
+        if self.drive_base:
+            if hasattr(self.drive_base, 'set_speed'):
+                self.drive_base.set_speed(val)
+            elif hasattr(self.drive_base, 'speed'):
+                self.drive_base.speed = val
 
     @property
     def steer_angle(self) -> float:
@@ -361,8 +364,11 @@ class IAEPatrolV1:
 
     @steer_angle.setter
     def steer_angle(self, val: float):
-        if self.drive_base and hasattr(self.drive_base, 'steer_angle'):
-            self.drive_base.steer_angle = val
+        if self.drive_base:
+            if hasattr(self.drive_base, 'set_steering_angle'):
+                self.drive_base.set_steering_angle(val)
+            elif hasattr(self.drive_base, 'steer_angle'):
+                self.drive_base.steer_angle = val
 
     @property
     def gear(self) -> str:

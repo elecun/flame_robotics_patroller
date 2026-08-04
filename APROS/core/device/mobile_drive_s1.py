@@ -106,6 +106,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         can_channel: int = 0,
         min_steer_angle: float = -28.0,
         max_steer_angle: float = 28.0,
+        max_steering_angle: float = 30.0,
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
         auto_mode_interval_ms: float = 20.0,
@@ -121,7 +122,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.MIN_ANGLE_DEG = float(min_steer_angle)
         self.MAX_ANGLE_DEG = float(max_steer_angle)
 
-        # Maximum velocity (km/h)
+        # Soft limit steering angle bound (degrees)
+        self.MAX_STEERING_ANGLE_DEG = abs(float(max_steering_angle))
+
+        # Maximum velocity (km/h) - soft limit bound for input velocity control
         self.MAX_VELOCITY_KMH = float(max_velocity)
 
         # Lookahead distance for local path planning (meters)
@@ -136,8 +140,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.MAX_CMD_VAL = 2000
 
         # Initial State (As required: speed=0, steer=0, gear=P, drive_mode=Remote Control Mode)
-        self.speed = 0.0  # km/h
-        self.steer_angle = 0.0  # degrees
+        self.speed = 0.0  # km/h (monitored/actual status value or current setpoint)
+        self.steer_angle = 0.0  # degrees (monitored/actual status value or current setpoint)
+        self.cmd_speed = 0.0  # km/h (command input value with soft limit applied)
+        self.cmd_steering_angle = 0.0  # degrees (command input value with soft limit applied)
         self.lat = 37.5665
         self.lon = 126.9780
         self.target_gear = "P"  # Commanded Gear (P, D, N, R)
@@ -426,9 +432,18 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         else:
             self.stop_ad_tx_thread()
 
-    def set_mode_manual(self):
-        """Switch control mode to Remote Control Mode (ad_control_req_flag=0)."""
-        self.change_drive_mode("Remote")
+    def set_speed(self, speed_kmh: float):
+        """Set control target velocity with soft limit applied (must not exceed max_velocity)."""
+        clamped_speed = max(0.0, min(float(speed_kmh), self.MAX_VELOCITY_KMH))
+        self.cmd_speed = clamped_speed
+        self.speed = clamped_speed
+
+    def set_steering_angle(self, angle_deg: float):
+        """Set control target steering angle with soft limit applied (must stay within [-max_steering_angle, +max_steering_angle])."""
+        max_angle = self.MAX_STEERING_ANGLE_DEG
+        clamped_angle = max(-max_angle, min(float(angle_deg), max_angle))
+        self.cmd_steering_angle = clamped_angle
+        self.steer_angle = clamped_angle
 
     def set_mode_remote(self):
         """Switch control mode to Remote Control Mode (ad_control_req_flag=0)."""

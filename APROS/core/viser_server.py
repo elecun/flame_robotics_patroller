@@ -441,8 +441,6 @@ class ViserServerManager:
                         mobile_drive_dev.change_drive_mode(selected_mode)
                     elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
                         self.robot.set_mode_remote()
-                    elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Remote":
-                        self.robot.set_mode_manual()
                     elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                         self.robot.set_mode_auto()
 
