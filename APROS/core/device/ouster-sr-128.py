@@ -9,6 +9,13 @@ from core.zpipe import AsyncZSocket, ZPipe
 from util.logger.console import ConsoleLogger
 
 import ouster.sdk._bindings.client as cl
+try:
+    import ouster.sdk.core as client_core
+except ImportError:
+    try:
+        import ouster.sdk.client as client_core
+    except ImportError:
+        import ouster.client as client_core
 
 logger = ConsoleLogger.get_logger()
 
@@ -166,8 +173,10 @@ class OusterSR128(BaseDevice):
         if self._pkt_source is None or self._sensor_info is None or self._xyz_lut is None:
             return
 
-        batcher = cl.ScanBatcher(self._sensor_info)
-        scan = cl.LidarScan(self._sensor_info.format.pixels_per_column, self._sensor_info.format.columns_per_frame, self._sensor_info.format.udp_profile_lidar)
+        batcher_cls = getattr(cl, 'FrameBatcher', getattr(client_core, 'FrameBatcher', getattr(client_core, 'ScanBatcher', None)))
+        batcher = batcher_cls(self._sensor_info)
+        scan_cls = getattr(cl, 'LidarFrame', getattr(client_core, 'LidarFrame', getattr(client_core, 'LidarScan', None)))
+        scan = scan_cls(self._sensor_info)
 
         try:
             while self._running:
@@ -175,7 +184,9 @@ class OusterSR128(BaseDevice):
                 if ev is None or ev.packet is None:
                     continue
 
-                pkt = ev.packet
+                pkt = ev.packet() if callable(ev.packet) else ev.packet
+                if pkt is None:
+                    continue
                 # 1. Forward raw packet buffer directly to registered packet recorder
                 if self.packet_recorder is not None:
                     try:
@@ -185,13 +196,16 @@ class OusterSR128(BaseDevice):
 
                 # 2. Batch packet into LidarScan for 3D visualization
                 if isinstance(pkt, cl.LidarPacket):
-                    if batcher(pkt, scan):
+                    is_batch_complete = batcher.batch(pkt, scan) if hasattr(batcher, 'batch') else batcher(pkt, scan)
+                    if is_batch_complete:
                         # Complete scan revolution ready -> compute point cloud
                         xyz_arr = self._xyz_lut(scan)
                         points_xyz = xyz_arr.reshape(-1, 3).astype(np.float32)
 
-                        if scan.has_field(cl.FieldClass.REFLECTIVITY):
-                            refl_arr = scan.field(cl.FieldClass.REFLECTIVITY).reshape(-1, 1).astype(np.float32)
+                        field_class = getattr(client_core, 'ChanField', getattr(cl, 'FieldClass', None))
+                        field_refl = getattr(field_class, 'REFLECTIVITY', None) if field_class else None
+                        if field_refl is not None and scan.has_field(field_refl):
+                            refl_arr = scan.field(field_refl).reshape(-1, 1).astype(np.float32)
                         else:
                             refl_arr = np.zeros((len(points_xyz), 1), dtype=np.float32)
 
@@ -208,7 +222,7 @@ class OusterSR128(BaseDevice):
                                 self._publish_points(filtered_points)
 
                         # Reset scan for next revolution
-                        scan = cl.LidarScan(self._sensor_info.format.pixels_per_column, self._sensor_info.format.columns_per_frame, self._sensor_info.format.udp_profile_lidar)
+                        scan = scan_cls(self._sensor_info)
 
         except Exception as e:
             logger.error(f"[{self.name}] Error in ouster-sdk packet worker loop: {e}")

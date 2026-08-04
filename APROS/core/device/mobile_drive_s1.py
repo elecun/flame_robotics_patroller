@@ -339,7 +339,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.ch.write(frame_504)
 
         except canlib.CanError as e:
-            if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
+            if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13 or "overflow" in str(e).lower():
                 pass
             else:
                 logger.error(f"[{self.name}] CAN Error sending frames: {e}")

@@ -16,3 +16,4 @@ pyserial
 yourdfpy
 ouster-sdk
 pypatchworkpp
+pymodbus
