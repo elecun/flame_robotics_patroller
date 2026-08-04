@@ -768,53 +768,39 @@ class ViserServerManager:
     def _format_robot_drive_status_text(self) -> str:
         lines = []
 
-        if hasattr(self.robot, "devices") and self.robot.devices:
-            for dev_name, dev_obj in self.robot.devices.items():
-                is_connected = getattr(dev_obj, "is_connected", False)
-                enable = getattr(dev_obj, "enable", True)
+        drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") and self.robot.devices else None
+        incline_dev = self.robot.devices.get("baumer_incline") if hasattr(self.robot, "devices") and self.robot.devices else None
 
-                if not enable:
-                    status_str = "`DISABLED`"
-                elif is_connected:
-                    status_str = "`ONLINE`"
-                else:
-                    status_str = "`OFFLINE`"
+        drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
+        parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
+        incline_status = incline_dev.get_status() if incline_dev and hasattr(incline_dev, "get_status") else {}
 
-                lines.append(f"- **{dev_name}**: {status_str}")
+        # 1. Msg ID 0x303 & 0x0A0
+        drive_mode_state = parsed_can.get("drive_state_mode", drive_status.get("drive_mode", "N/A"))
+        lines.append(f"- **Drive Mode State**: `{drive_mode_state}`")
 
-                # Display only status_monitor items defined in config if available
-                status_monitor_keys = getattr(dev_obj, "status_monitor", [])
-                if enable and hasattr(dev_obj, "get_status"):
-                    try:
-                        dev_status = dev_obj.get_status()
-                        
-                        # Merge parsed_can_status for mobile_drive_s1 if present
-                        merged_status = dict(dev_status)
-                        if "parsed_can_status" in dev_status and isinstance(dev_status["parsed_can_status"], dict):
-                            merged_status.update(dev_status["parsed_can_status"])
+        vehicle_gear = parsed_can.get("vehicle_gear", drive_status.get("gear", "P"))
+        lines.append(f"- **Vehicle Gear**: `{vehicle_gear}`")
 
-                        if status_monitor_keys:
-                            for key in status_monitor_keys:
-                                if key in merged_status:
-                                    val = merged_status[key]
-                                    lines.append(f"  └ {key}: `{val}`")
-                        else:
-                            # Fallback if no status_monitor is configured for the device
-                            if dev_name == "baumer_incline":
-                                tx = dev_status.get("tilt_x", 0.0)
-                                tz = dev_status.get("tilt_z", 0.0)
-                                lines.append(f"  └ Tilt X: `{tx:.1f}°`, Tilt Z: `{tz:.1f}°`")
-                            elif dev_name == "telescopic_mast":
-                                h_m = dev_status.get("current_height_m", 1.8)
-                                lines.append(f"  └ Mast Height: `{h_m:.2f} m`")
-                            elif dev_name == "basler_gige_camera":
-                                fps = dev_status.get("fps", 15)
-                                cnt = dev_status.get("frame_count", 0)
-                                lines.append(f"  └ Target FPS: `{fps}`, Frames: `{cnt}`")
-                    except Exception:
-                        pass
-        else:
-            lines.append("No configured devices found.")
+        bms_soc = parsed_can.get("bms_battery_soc", parsed_can.get("bms_battery_soc", "N/A"))
+        lines.append(f"- **Battery SOC**: `{bms_soc}`")
+
+        # 2. Msg ID 0x304
+        steer_angle = parsed_can.get("vehicle_steer_angle", f"{drive_status.get('steer_angle', 0.0):.1f} deg")
+        lines.append(f"- **Vehicle Steer Angle**: `{steer_angle}`")
+
+        speed = parsed_can.get("vehicle_velocity", f"{drive_status.get('speed', 0.0):.1f} km/h")
+        lines.append(f"- **Vehicle Speed**: `{speed}`")
+
+        # 3. Msg ID 0x301
+        emerg_button = parsed_can.get("emergency_button", "Not Pressed")
+        lines.append(f"- **Emergency Button**: `{emerg_button}`")
+
+        # 4. Baumer Incline
+        tx = incline_status.get("tilt_x", 0.0)
+        tz = incline_status.get("tilt_z", 0.0)
+        lines.append(f"- **Tilt X**: `{tx:.2f}°`")
+        lines.append(f"- **Tilt Z**: `{tz:.2f}°`")
 
         return "\n".join(lines)
 

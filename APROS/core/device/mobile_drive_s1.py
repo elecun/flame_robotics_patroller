@@ -42,8 +42,8 @@ class CANParser:
                     parsed['vehicle_gear'] = ["P Gear", "D Gear", "N Gear", "R Gear"][vehicle_gear]
                     drive_state_mode = data[1] & 0x03
                     parsed['drive_mode_state_val'] = drive_state_mode
-                    parsed['drive_state_mode'] = ["Remote Control Mode", "Represents the AD Mode",
-                                                  "Indicates parallel Mode", "Indicates semi-autonomous"][drive_state_mode]
+                    parsed['drive_state_mode'] = ["Remote Control Mode", "AD Mode",
+                                                  "Parallel Mode", "Semi-autonomous"][drive_state_mode]
                     vcu_speed_req = int.from_bytes(data[2:4], byteorder='little') * 0.1 - 80
                     parsed['vehicle_speed_request'] = f"{vcu_speed_req:.1f} km/h"
 
@@ -91,8 +91,9 @@ class CANParser:
 
             elif can_id == 0x0A0:
                 if len(data) >= 8:
+                    bms_soc_val = data[4] * 0.4
                     parsed['bms_battery_soh'] = f"{data[7]} %"
-                    parsed['bms_battery_soc'] = f"{data[4] * 0.4:.2f} %"
+                    parsed['bms_battery_soc'] = f"{bms_soc_val:.2f} %"
                     parsed['bms_battery_voltage'] = f"{int.from_bytes(data[2:4], 'little') * 0.1:.2f} V"
         except Exception as e:
             pass
