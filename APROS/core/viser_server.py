@@ -415,15 +415,15 @@ class ViserServerManager:
 
 
 
-                # Control Mode Group Buttons (Manual, Auto)
+                # Control Mode Group Buttons (Remote, Auto)
                 init_is_auto = self.robot.drive_mode.startswith("Auto")
-                options = ("🤖 Auto", "🕹️ Manual") if init_is_auto else ("🕹️ Manual", "🤖 Auto")
+                options = ("🤖 Auto", "🕹️ Remote") if init_is_auto else ("🕹️ Remote", "🤖 Auto")
                 control_mode_group = client.gui.add_button_group(
                     label="Control Mode",
                     options=options
                 )
 
-                self._current_control_mode = "Auto" if init_is_auto else "Manual"
+                self._current_control_mode = "Auto" if init_is_auto else "Remote"
                 _is_processing_mode_change = False
 
                 def set_group_value_silently(val: str):
@@ -439,17 +439,19 @@ class ViserServerManager:
                     mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
                     if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
                         mobile_drive_dev.change_drive_mode(selected_mode)
-                    elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Manual":
+                    elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
+                        self.robot.set_mode_remote()
+                    elif hasattr(self.robot, "set_mode_manual") and selected_mode == "Remote":
                         self.robot.set_mode_manual()
                     elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                         self.robot.set_mode_auto()
 
-                    # Drive mode command is sent to hardware device; actual status is updated via CAN feedback
-                    pass
+                    # On mode transition, reset gear selection UI to P Gear as required
+                    gear_dropdown.value = "P"
                     speed_slider.disabled = False
                     steer_slider.disabled = False
-                    if selected_mode == "Manual":
-                        set_group_value_silently("🕹️ Manual")
+                    if selected_mode == "Remote":
+                        set_group_value_silently("🕹️ Remote")
                     else:
                         set_group_value_silently("🤖 Auto")
 
@@ -460,13 +462,13 @@ class ViserServerManager:
                         return
                     
                     val = control_mode_group.value
-                    selected_mode = "Manual" if "Manual" in val else "Auto"
+                    selected_mode = "Remote" if "Remote" in val or "Manual" in val else "Auto"
                     print(f"[Control Mode Event] Button clicked: {selected_mode} (Value: '{val}')")
 
-                    if selected_mode == "Auto" and self._current_control_mode == "Manual":
+                    if selected_mode == "Auto" and self._current_control_mode == "Remote":
                         _is_processing_mode_change = True
                         # Revert group button visual selection until user confirms
-                        set_group_value_silently("🕹️ Manual")
+                        set_group_value_silently("🕹️ Remote")
                         modal = client.gui.add_modal("Auto 모드 전환 확인")
                         with modal:
                             client.gui.add_markdown("Auto 모드로 전환합니다.")
@@ -503,7 +505,7 @@ class ViserServerManager:
                 )
 
             estop_button = client.gui.add_button(
-                label="🚨 EMERGENCY STOP (P Gear & STOP)",
+                label="🚨 EMERGENCY STOP",
                 color="red"
             )
 
@@ -699,6 +701,9 @@ class ViserServerManager:
         @gear_dropdown.on_update
         def _(_):
             self.robot.gear = gear_dropdown.value
+            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
+            if mobile_drive_dev and hasattr(mobile_drive_dev, "target_gear"):
+                mobile_drive_dev.target_gear = gear_dropdown.value
 
         def execute_emergency_stop():
             self.robot.speed = 0.0
@@ -710,7 +715,7 @@ class ViserServerManager:
             self.robot.drive_mode = "Emergency Stop"
             speed_slider.disabled = True
             steer_slider.disabled = True
-            control_mode_group.value = "🕹️ Manual"
+            control_mode_group.value = "🕹️ Remote"
 
         @estop_button.on_click
         def _(_):
