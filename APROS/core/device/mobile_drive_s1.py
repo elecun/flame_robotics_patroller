@@ -3,8 +3,10 @@ Mobile Drive S1 CAN Hardware Controller Device.
 Provides CAN interface for steering angle (-28 to +28 deg) mapped to CAN command (-2000 to +2000).
 Protocol referenced from PatrolCar_SlideBar.py (CAN ID 0x502).
 """
+import os
 import time
 import threading
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Callable
 import numpy as np
 from core.device.base import BaseDevice
@@ -54,8 +56,11 @@ class CANParser:
             elif can_id == 0x304:
                 if len(data) >= 6:
                     speed = int.from_bytes(data[0:2], byteorder='little') * 0.1 - 80
+                    steer_deg = int.from_bytes(data[4:6], 'little') * 0.1 - 35
+                    parsed['vehicle_velocity_val'] = float(speed)
+                    parsed['vehicle_steer_angle_val'] = float(steer_deg)
                     parsed['vehicle_velocity'] = f"{speed:.1f} km/h"
-                    parsed['vehicle_steer_angle'] = f"{int.from_bytes(data[4:6], 'little') * 0.1 - 35:.1f} deg"
+                    parsed['vehicle_steer_angle'] = f"{steer_deg:.1f} deg"
                     parsed['vehicle_brake_pressure'] = f"{int.from_bytes(data[2:4], 'little') * 0.01:.2f} Mps"
 
             elif can_id == 0x301:
@@ -146,6 +151,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self._rx_running = False
         self._rx_thread = None
 
+        # CAN Message Counters
+        self._ad_flag_msgcntr = 0
+        self._ad_accelerate_msgcntr = 0
+
         # Auto Mode Thread Control
         self._auto_tx_running = False
         self._auto_tx_thread = None
@@ -168,8 +177,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             logger.warning(f"[{self.name}] CANlib is not available on this system. Operating without physical CAN hardware.")
             return False
         try:
-
-            self.ch = canlib.openChannel(self.channel, flags=canlib.Open.ACCEPT_VIRTUAL)
+            self.ch = canlib.openChannel(self.channel)
             self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
             self.ch.busOn()
             self.is_connected = True
@@ -177,19 +185,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self._start_threads()
             return True
         except canlib.CanError as e:
-            try:
-                self.ch = canlib.openChannel(self.channel)
-                self.ch.setBusParams(canlib.Bitrate.BITRATE_500K)
-                self.ch.busOn()
-                self.is_connected = True
-                logger.info(f"[{self.name}] Connected to Kvaser CANlib Channel {self.channel} (Standard CAN, 500k).")
-                self._start_threads()
-                return True
-            except Exception as ex:
-                self.is_connected = False
-                self.ch = None
-                logger.error(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {ex}")
-                return False
+            self.is_connected = False
+            self.ch = None
+            logger.error(f"[{self.name}] Failed to connect to Kvaser CANlib Channel {self.channel}: {e}")
+            return False
         except Exception as e:
             self.is_connected = False
             self.ch = None
@@ -237,23 +236,52 @@ class MobileDriveS1(BaseDevice, MobileS1API):
     def _rx_loop(self):
         """Background thread loop to read and parse incoming CAN 0 messages."""
         logger.info(f"[{self.name}] RX Receiver thread started on CAN Channel {self.channel}...")
+        last_can_msg_time = 0.0
         while self._rx_running:
             if not self.is_connected or self.ch is None:
                 time.sleep(0.1)
                 continue
             try:
                 frame = self.ch.read(timeout=100)
+                last_can_msg_time = time.time()
+                self._has_can_feedback = True
+
+                # Log incoming 0x303 and 0x301 CAN frames to txt log file when Auto mode is active
+                if frame.id in (0x303, 0x301) and self._auto_tx_running:
+                    try:
+                        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "datalog")
+                        os.makedirs(log_dir, exist_ok=True)
+                        log_file_path = os.path.join(log_dir, "can_rx_auto_mode.txt")
+                        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        hex_str = " ".join(f"{b:02X}" for b in frame.data)
+                        log_line = f"[{timestamp_str}] ID: 0x{frame.id:03X} | Data: {hex_str}\n"
+                        with open(log_file_path, "a", encoding="utf-8") as f:
+                            f.write(log_line)
+                    except Exception as le:
+                        logger.error(f"[{self.name}] Error writing CAN RX txt log: {le}")
+
                 parsed = self.parser.parse(frame.id, frame.data)
                 if parsed:
-                    # Update parsed CAN status storage quietly
                     self.parsed_can_status.update(parsed)
                     
-                    # Stop Auto mode periodic TX thread if VCU reports Drive_Mode_State == 1 (Represents the AD Mode)
-                    if frame.id == 0x303 and parsed.get("drive_mode_state_val") == 1:
-                        if self._auto_tx_running:
-                            logger.info(f"[{self.name}] Received VCU_Vehicle_Status_1 (0x303) Drive_Mode_State == 1 (AD Mode Active). Stopping Auto periodic TX thread.")
-                            self.stop_auto_mode_thread()
+                    if frame.id == 0x303:
+                        if "drive_state_mode" in parsed:
+                            self.drive_mode = parsed["drive_state_mode"]
+                        if "vehicle_gear" in parsed:
+                            self.gear = parsed["vehicle_gear"]
+                        if parsed.get("drive_mode_state_val") == 1:
+                            if self._auto_tx_running:
+                                logger.info(f"[{self.name}] Received VCU_Vehicle_Status_1 (0x303) Drive_Mode_State == 1 (AD Mode Active). Stopping Auto periodic TX thread.")
+                                self.stop_auto_mode_thread()
+                    elif frame.id == 0x304:
+                        if "vehicle_velocity_val" in parsed:
+                            self.speed = parsed["vehicle_velocity_val"]
+                        if "vehicle_steer_angle_val" in parsed:
+                            self.steer_angle = parsed["vehicle_steer_angle_val"]
             except canlib.CanNoMsg:
+                if time.time() - last_can_msg_time > 2.0:
+                    self._has_can_feedback = False
+                    self.drive_mode = "Manual (No CAN RX)"
                 continue
             except canlib.CanError:
                 time.sleep(0.1)
@@ -330,10 +358,16 @@ class MobileDriveS1(BaseDevice, MobileS1API):
     def _send_ad_control_flag_frame(self, request_flag: int):
         """
         Send CAN frame 0x501 (AD_Control_Flag).
-        Byte 0 header: 0xF1 for Auto mode request (0x01), 0xF0 for exiting Auto mode (0x00).
+        Passes rolling AD_Flag_MsgCntr (0..15) and AD_Control_Request_Flag (1: valid / Auto request, 0: exit).
         """
-        first_byte = 0xF1 if (request_flag & 0xFF) == 1 else 0xF0
-        payload = self._s1_api_ad_control_flag(ad_control_request_flag=first_byte)
+        cntr = self._ad_flag_msgcntr
+        self._ad_flag_msgcntr = (self._ad_flag_msgcntr + 1) % 16
+
+        req_flag_val = 1 if (request_flag & 0xFF) == 1 else 0
+        payload = self._s1_api_ad_control_flag(
+            ad_flag_msgcntr=cntr,
+            ad_control_request_flag=req_flag_val
+        )
 
         if not self.is_connected or self.ch is None or Frame is None:
             return
@@ -341,6 +375,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         try:
             frame_501 = Frame(id_=0x501, data=payload)
             self.ch.write(frame_501)
+            hex_data = " ".join(f"{b:02X}" for b in payload)
+            logger.info(f"[{self.name}] [TX CAN 0x501 Little Endian] MsgCntr: {cntr:2d} | ReqFlag: {req_flag_val} | Payload: [{hex_data}]")
         except canlib.CanError as e:
             if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
                 pass
@@ -352,10 +388,30 @@ class MobileDriveS1(BaseDevice, MobileS1API):
     def _send_ad_control_accelerate_frame(self, valid_flag: int):
         """
         Send CAN frame 0x504 (AD_Control_Accelerate).
-        Byte 0 header: 0xF1 for AD_Accelerate_Valid = 0x01 (Auto mode), 0xF0 for exiting Auto mode (0x00).
+        Passes rolling AD_Accelerate_MsgCntr (0..15), AD_Accelerate_Valid (1: valid, 0: invalid),
+        AD_Acc_De, AD_Speed_Control, AD_Torque_Control, AD_Accelerate_Gear, AD_Accelerate_Work_Mode.
         """
-        first_byte = 0xF1 if (valid_flag & 0xFF) == 1 else 0xF0
-        payload = self._s1_api_ad_control_accelerate(ad_accelerate_valid=first_byte)
+        cntr = self._ad_accelerate_msgcntr
+        self._ad_accelerate_msgcntr = (self._ad_accelerate_msgcntr + 1) % 16
+
+        is_valid = 1 if (valid_flag & 0xFF) == 1 else 0
+        target_speed_val = abs(float(self.speed))
+
+        if is_valid:
+            payload = self._s1_api_ad_control_accelerate(
+                ad_accelerate_msgcntr=cntr,
+                ad_acc_de=0.0,
+                ad_speed_control=3.0,
+                ad_torque_control=0.0,
+                ad_accelerate_gear=1.0,
+                ad_accelerate_work_mode=1.0,
+                ad_accelerate_valid=is_valid
+            )
+        else:
+            payload = self._s1_api_ad_control_accelerate(
+                ad_accelerate_msgcntr=cntr,
+                ad_accelerate_valid=0
+            )
 
         if not self.is_connected or self.ch is None or Frame is None:
             return
@@ -363,6 +419,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         try:
             frame_504 = Frame(id_=0x504, data=payload)
             self.ch.write(frame_504)
+            hex_data = " ".join(f"{b:02X}" for b in payload)
+            logger.info(f"[{self.name}] [TX CAN 0x504 Little Endian] MsgCntr: {cntr:2d} | Valid: {is_valid} | Speed: {target_speed_val:.1f} km/h | Payload: [{hex_data}]")
         except canlib.CanError as e:
             if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
                 pass
@@ -371,15 +429,41 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         except Exception as e:
             logger.error(f"[{self.name}] Unexpected error sending 0x504 CAN frame: {e}")
 
+    def _send_ad_control_brake_frame(self, valid_flag: int = 0):
+        """
+        Send CAN frame 0x503 (AD_Control_Brake).
+        AD_BrakePressure_Cmd = 0, AD_DBS_Valid = 0 (Byte 0 header 0xF0).
+        """
+        first_byte = 0xF1 if (valid_flag & 0xFF) == 1 else 0xF0
+        payload = self._s1_api_ad_control_brake(
+            ad_brakepressure_cmd=0.0,
+            ad_dbs_valid=first_byte
+        )
+
+        if not self.is_connected or self.ch is None or Frame is None:
+            return
+
+        try:
+            frame_503 = Frame(id_=0x503, data=payload)
+            self.ch.write(frame_503)
+        except canlib.CanError as e:
+            if getattr(e, 'status', None) == canlib.ErrorNumber.TXBUFOVRFL or getattr(e, 'param', None) == -13:
+                pass
+            else:
+                logger.error(f"[{self.name}] CAN Error sending 0x503 frame: {e}")
+        except Exception as e:
+            logger.error(f"[{self.name}] Unexpected error sending 0x503 CAN frame: {e}")
+
     def _auto_mode_tx_loop(self):
         """
         Periodic thread loop for Auto mode.
-        Sends CAN ID 0x501 (AD_Control_Flag) and 0x503 (AD_Control_Accelerate) at configured interval (default 20ms).
+        Sends CAN ID 0x501 (AD_Control_Flag), 0x503 (AD_Control_Brake), and 0x504 (AD_Control_Accelerate) at configured interval (default 20ms).
         """
         logger.info(f"[{self.name}] Auto Mode CAN TX thread started (Interval: {self.auto_mode_interval_ms} ms)")
         while self._auto_tx_running:
             start_time = time.time()
             self._send_ad_control_flag_frame(0x01)
+            # self._send_ad_control_brake_frame(0x00)
             self._send_ad_control_accelerate_frame(0x01)
             elapsed = time.time() - start_time
             interval_sec = max(0.001, self.auto_mode_interval_ms / 1000.0)
@@ -387,6 +471,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         
         # Send 0x00 / 0xF0 flag when exiting Auto Mode
         self._send_ad_control_flag_frame(0x00)
+        self._send_ad_control_brake_frame(0x00)
         self._send_ad_control_accelerate_frame(0x00)
         logger.info(f"[{self.name}] Auto Mode CAN TX thread stopped (Sent exit flags 0xF0)")
 

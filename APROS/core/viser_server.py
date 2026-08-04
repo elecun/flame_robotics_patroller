@@ -10,6 +10,7 @@ import viser
 import viser.transforms as tf
 from typing import Any, Optional
 from resource.tile_server import TileServerManager
+from core.data_logger import DataLogger
 from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
@@ -25,6 +26,9 @@ class ViserServerManager:
 
         # Viser server
         self.server = viser.ViserServer(host=self.host, port=self.port)
+
+        # Data Logger
+        self._data_logger = DataLogger(robot=self.robot)
 
         # Title configuration & Theme setup (control_layout="fixed" docks panel to the right side)
         self.server.gui.configure_theme(
@@ -359,7 +363,7 @@ class ViserServerManager:
         tabs = client.gui.add_tab_group()
 
         # Window 1: APROS Control Tab
-        with tabs.add_tab("APROS Control", viser.Icon.SETTINGS):
+        with tabs.add_tab("APROS Dashboard", viser.Icon.SETTINGS):
             # 1. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
             with client.gui.add_folder("🚘 Robot Drive Status"):
                 robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
@@ -457,14 +461,13 @@ class ViserServerManager:
                     elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                         self.robot.set_mode_auto()
 
-                    self.robot.drive_mode = f"{selected_mode} (Remote)" if selected_mode == "Manual" else f"{selected_mode} (Autonomous)"
+                    # Drive mode command is sent to hardware device; actual status is updated via CAN feedback
+                    pass
+                    speed_slider.disabled = False
+                    steer_slider.disabled = False
                     if selected_mode == "Manual":
-                        speed_slider.disabled = False
-                        steer_slider.disabled = False
                         set_group_value_silently("🕹️ Manual")
                     else:
-                        speed_slider.disabled = True
-                        steer_slider.disabled = True
                         set_group_value_silently("🤖 Auto")
 
                 @control_mode_group.on_click
@@ -505,11 +508,6 @@ class ViserServerManager:
 
             # Basler GigE Camera Folder in APROS Control tab
             with client.gui.add_folder("📷 Basler GigE Camera Stream", expand_by_default=True):
-                client.gui.add_markdown("""
-<div style="font-size: 12px; color: #88C0D0; margin-bottom: 6px;">
-    <b>ZPipe IPC Camera Feed</b> (Click image to open popup window)
-</div>
-""")
                 # Placeholder 320x240 image
                 init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
                 init_cam_img[::20, :] = [30, 30, 45]
@@ -517,33 +515,17 @@ class ViserServerManager:
                 
                 gui_cam_image = client.gui.add_image(
                     image=init_cam_img,
-                    label="Live Camera Stream (Click to Expand)",
+                    label="Live Camera Stream",
                     format="jpeg"
                 )
-
-                cam_popup_btn = client.gui.add_button("🔍 Open Camera Popup Window", color="blue")
-
-                @cam_popup_btn.on_click
-                def _(_):
-                    cam_modal = client.gui.add_modal("📷 Basler Camera Detailed View")
-                    with cam_modal:
-                        modal_cam_img = client.gui.add_image(
-                            image=getattr(self.robot, "last_camera_frame", init_cam_img) or init_cam_img,
-                            label="Basler GigE Live Stream",
-                            format="jpeg"
-                        )
-                        close_modal_btn = client.gui.add_button("닫기", color="red")
-                        @close_modal_btn.on_click
-                        def _(_):
-                            cam_modal.close()
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP (P Gear & STOP)",
                 color="red"
             )
 
-        # Tab 2: Mission Monitor Tab (Native Viser GUI Window)
-        with tabs.add_tab("Mission Monitor", viser.Icon.TARGET):
+        # Tab 2: Mission Control Tab (Native Viser GUI Window)
+        with tabs.add_tab("Mission Control", viser.Icon.TARGET):
             with client.gui.add_folder("📌 Active Mission Overview", expand_by_default=True):
                 mission_overview_md = client.gui.add_markdown("""
 <div style="background: rgba(0, 176, 255, 0.08); padding: 10px; border-radius: 8px; border-left: 4px solid #00B0FF;">
@@ -590,6 +572,27 @@ class ViserServerManager:
 </div>
                 """)
 
+            # Data Logger Folder (bottom of Mission Control tab)
+            with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
+                datalog_status_md = client.gui.add_markdown(
+                    "**Status**: ⏹️ Stopped"
+                )
+
+                datalog_mode_group = client.gui.add_button_group(
+                    "Data Log Control",
+                    options=["⏺️ Record", "⏹️ Stop"]
+                )
+
+                @datalog_mode_group.on_click
+                def _(event: viser.GuiEvent) -> None:
+                    selected = datalog_mode_group.value
+                    if selected == "⏺️ Record":
+                        if not self._data_logger.is_recording:
+                            self._data_logger.start_recording()
+                    elif selected == "⏹️ Stop":
+                        if self._data_logger.is_recording:
+                            self._data_logger.stop_recording()
+
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
         dummy_cam_img[::30, :] = [40, 40, 50]
@@ -600,8 +603,8 @@ class ViserServerManager:
                 position: fixed;
                 bottom: 25px;
                 left: 25px;
-                width: 640px;
-                height: 480px;
+                width: 960px;
+                height: 580px;
                 z-index: 15000;
                 background: rgba(18, 24, 38, 0.96);
                 border: 1px solid rgba(0, 230, 118, 0.6);
@@ -735,22 +738,47 @@ class ViserServerManager:
             last_img_ts = 0.0
             while self._running:
                 try:
-                    dashboard_md.content = self._format_dashboard_text()
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
                     can_status_md.content = self._format_can_status_text()
 
+                    # Update Data Logger status
+                    try:
+                        if self._data_logger.is_recording:
+                            dur = self._data_logger.recording_duration
+                            mins = int(dur // 60)
+                            secs = int(dur % 60)
+                            session = os.path.basename(self._data_logger.session_dir or "")
+                            datalog_status_md.content = (
+                                f"**Status**: 🔴 Recording (`{mins:02d}:{secs:02d}`)\n\n"
+                                f"**Session**: `{session}`"
+                            )
+                        else:
+                            datalog_status_md.content = "**Status**: ⏹️ Stopped"
+                    except Exception:
+                        pass
+
                     # Update live camera stream in GUI folder if frame updated
                     if hasattr(self.robot, "last_camera_frame") and self.robot.last_camera_frame is not None:
-                        frame_bytes = self.robot.last_camera_frame
-                        cam_hdr = getattr(self.robot, "last_camera_header", {}) or {}
-                        ts = cam_hdr.get("timestamp", 0.0)
-                        if ts != last_img_ts:
-                            last_img_ts = ts
-                            gui_cam_image.image = frame_bytes
+                        try:
+                            frame_bytes = self.robot.last_camera_frame
+                            cam_hdr = getattr(self.robot, "last_camera_header", {}) or {}
+                            ts = cam_hdr.get("timestamp", 0.0)
+                            if ts != last_img_ts:
+                                last_img_ts = ts
+                                if isinstance(frame_bytes, bytes) and len(frame_bytes) > 0:
+                                    import cv2
+                                    nparr = np.frombuffer(frame_bytes, np.uint8)
+                                    decoded_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                    if decoded_bgr is not None:
+                                        decoded_rgb = cv2.cvtColor(decoded_bgr, cv2.COLOR_BGR2RGB)
+                                        gui_cam_image.image = decoded_rgb
+                        except Exception as cam_err:
+                            logger.error(f"[ViserUI] Camera image update error: {cam_err}")
 
                     time.sleep(0.1)
-                except Exception:
-                    break
+                except Exception as e:
+                    logger.error(f"[ViserUI] ui_update_loop error: {e}")
+                    time.sleep(0.5)
 
         threading.Thread(target=ui_update_loop, daemon=True).start()
 
@@ -893,30 +921,33 @@ class ViserServerManager:
                         selected_pts = pts[filter_mask]
                         selected_is_ground = is_ground[filter_mask]
 
-                        xyz = selected_pts[:, :3]
-                        colors = np.zeros((len(selected_pts), 3), dtype=np.uint8)
-                        # Ground points: White (255, 255, 255)
-                        colors[selected_is_ground] = [255, 255, 255]
-                        # Non-ground points: Red (255, 0, 0)
-                        colors[~selected_is_ground] = [255, 0, 0]
-                    else:
-                        xyz = pts[:, :3]
-                        colors = np.zeros((len(pts), 3), dtype=np.uint8)
-                        colors[:, 0] = 255  # Red channel
+                    xyz = np.ascontiguousarray(selected_pts[:, :3], dtype=np.float32)
+                    colors = np.zeros((len(selected_pts), 3), dtype=np.uint8)
+                    # Ground points: White (255, 255, 255)
+                    colors[selected_is_ground] = [255, 255, 255]
+                    # Non-ground points: Red (255, 0, 0)
+                    colors[~selected_is_ground] = [255, 0, 0]
+                    colors = np.ascontiguousarray(colors, dtype=np.uint8)
+                else:
+                    xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
+                    colors = np.zeros((len(pts), 3), dtype=np.uint8)
+                    colors[:, 0] = 255  # Red channel
+                    colors = np.ascontiguousarray(colors, dtype=np.uint8)
 
-                    self.vlp16_pc_handle.points = xyz
-                    self.vlp16_pc_handle.colors = colors
+                self.vlp16_pc_handle.points = xyz
+                self.vlp16_pc_handle.colors = colors
 
             # Real-time Ouster-SR-128 point cloud visualization
             if hasattr(self.robot, 'last_ouster_points') and self.robot.last_ouster_points is not None:
                 pts = self.robot.last_ouster_points
                 if len(pts) > 0:
-                    xyz = pts[:, :3]
+                    xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
                     # Bright purple color for Ouster points (200, 80, 255)
                     colors = np.zeros((len(pts), 3), dtype=np.uint8)
                     colors[:, 0] = 200  # Red channel
                     colors[:, 1] = 80   # Green channel
                     colors[:, 2] = 255  # Blue channel
+                    colors = np.ascontiguousarray(colors, dtype=np.uint8)
 
                     self.ouster_pc_handle.points = xyz
                     self.ouster_pc_handle.colors = colors
@@ -933,6 +964,8 @@ class ViserServerManager:
 
     def stop(self):
         self._running = False
+        if self._data_logger and self._data_logger.is_recording:
+            self._data_logger.stop_recording()
         if hasattr(self, 'tile_server') and self.tile_server:
             self.tile_server.stop()
         if self._thread:

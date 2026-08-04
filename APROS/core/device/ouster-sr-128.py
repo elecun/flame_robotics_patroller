@@ -50,8 +50,12 @@ class OusterSR128(BaseDevice):
                 self.vertical_fov = 90.0
 
         self._sensor: Optional[cl.Sensor] = None
+        self._sensor_info = None
+        self._packet_source = None
         self._source: Optional[cl.SensorFrameSetSource] = None
         self._xyz_lut: Optional[cl.XYZLut] = None
+        self._pw: Optional[cl.PacketWriter] = None
+        self._pf: Optional[cl.PacketFormat] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
 
         # AsyncZSocket for publishing IPC
@@ -61,6 +65,8 @@ class OusterSR128(BaseDevice):
         # Worker thread control
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+        self.packet_recorder: Optional[Callable[[Any], None]] = None
 
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish socket."""
@@ -92,13 +98,15 @@ class OusterSR128(BaseDevice):
         try:
             logger.info(f"[{self.name}] Connecting to live Ouster LiDAR at {self.ip} via ouster-sdk...")
             self._sensor = cl.Sensor(self.ip)
-            sensor_info = self._sensor.fetch_metadata(timeout=10)
+            self._sensor_info = self._sensor.fetch_metadata(timeout=10)
             
-            self._source = cl.SensorFrameSetSource([self._sensor], [sensor_info], config_timeout=10.0)
-            self._xyz_lut = cl.XYZLut(sensor_info, use_extrinsics=False)
+            self._pkt_source = cl.SensorPacketSource([self._sensor], 10.0, 2.0)
+            self._xyz_lut = cl.XYZLut(self._sensor_info, use_extrinsics=False)
+            self._pw = getattr(cl, "PacketWriter", None).from_info(self._sensor_info) if hasattr(cl, "PacketWriter") else None
+            self._pf = getattr(cl, "PacketFormat", None).from_info(self._sensor_info) if hasattr(cl, "PacketFormat") else None
             
             self.is_connected = True
-            logger.info(f"[{self.name}] Connected to Ouster LiDAR (SN: {sensor_info.sn}, Mode: {sensor_info.prod_line}) via ouster-sdk")
+            logger.info(f"[{self.name}] Connected to Ouster LiDAR (SN: {self._sensor_info.sn}, Mode: {self._sensor_info.prod_line}) via ouster-sdk")
 
             self._start_thread()
             return True
@@ -112,6 +120,12 @@ class OusterSR128(BaseDevice):
     def disconnect(self) -> bool:
         """Stop worker thread and close ouster-sdk source & ZPipe socket."""
         self._stop_thread()
+        if hasattr(self, "_pkt_source") and self._pkt_source is not None:
+            try:
+                self._pkt_source.close()
+            except Exception:
+                pass
+            self._pkt_source = None
         if self._source is not None:
             try:
                 self._source.close()
@@ -144,55 +158,60 @@ class OusterSR128(BaseDevice):
 
     def _worker_loop(self):
         """
-        Worker thread reading FrameSet / LidarFrame from ouster-sdk source,
-        projecting XYZ coordinates via official XYZLut, applying azimuth filter,
-        and publishing over ZPipe IPC.
+        Worker thread reading raw packets from SensorPacketSource, invoking packet_recorder,
+        batching packets into LidarScan via ScanBatcher, projecting XYZ coordinates,
+        and publishing processed points over ZPipe IPC.
         """
-        logger.info(f"[{self.name}] ouster-sdk worker loop active.")
-        if self._source is None or self._xyz_lut is None:
+        logger.info(f"[{self.name}] ouster-sdk packet worker loop active.")
+        if self._pkt_source is None or self._sensor_info is None or self._xyz_lut is None:
             return
 
+        batcher = cl.ScanBatcher(self._sensor_info)
+        scan = cl.LidarScan(self._sensor_info.format.pixels_per_column, self._sensor_info.format.columns_per_frame, self._sensor_info.format.udp_profile_lidar)
+
         try:
-            for frame_set in self._source:
-                if not self._running:
-                    break
-
-                lidar_frames = frame_set.valid_frames()
-                if not lidar_frames:
+            while self._running:
+                ev = self._pkt_source.get_packet(timeout=0.1)
+                if ev is None or ev.packet is None:
                     continue
 
-                frame = lidar_frames[0]
-                
-                # Compute XYZ Cartesian point cloud array (H, W, 3) using official XYZLut
-                xyz_arr = self._xyz_lut(frame)
-                
-                # Reshape (H, W, 3) -> (N, 3)
-                points_xyz = xyz_arr.reshape(-1, 3).astype(np.float32)
+                pkt = ev.packet
+                # 1. Forward raw packet buffer directly to registered packet recorder
+                if self.packet_recorder is not None:
+                    try:
+                        self.packet_recorder(pkt)
+                    except Exception as pe:
+                        pass
 
-                # Extract REFLECTIVITY field if available
-                if frame.has_field("REFLECTIVITY"):
-                    refl_arr = frame.field("REFLECTIVITY").reshape(-1, 1).astype(np.float32)
-                else:
-                    refl_arr = np.zeros((len(points_xyz), 1), dtype=np.float32)
+                # 2. Batch packet into LidarScan for 3D visualization
+                if isinstance(pkt, cl.LidarPacket):
+                    if batcher(pkt, scan):
+                        # Complete scan revolution ready -> compute point cloud
+                        xyz_arr = self._xyz_lut(scan)
+                        points_xyz = xyz_arr.reshape(-1, 3).astype(np.float32)
 
-                # Filter out zero / invalid range points where (x, y, z) == (0, 0, 0)
-                norm_sq = np.sum(points_xyz ** 2, axis=1)
-                valid_mask = norm_sq > 0.04  # Filter out points closer than 0.2m (0.2^2 = 0.04)
+                        if scan.has_field(cl.FieldClass.REFLECTIVITY):
+                            refl_arr = scan.field(cl.FieldClass.REFLECTIVITY).reshape(-1, 1).astype(np.float32)
+                        else:
+                            refl_arr = np.zeros((len(points_xyz), 1), dtype=np.float32)
 
-                valid_xyz = points_xyz[valid_mask]
-                valid_refl = refl_arr[valid_mask]
+                        norm_sq = np.sum(points_xyz ** 2, axis=1)
+                        valid_mask = norm_sq > 0.04
 
-                if len(valid_xyz) == 0:
-                    continue
+                        valid_xyz = points_xyz[valid_mask]
+                        valid_refl = refl_arr[valid_mask]
 
-                points_4d = np.hstack((valid_xyz, valid_refl))
-                filtered_points = self.filter_points(points_4d)
+                        if len(valid_xyz) > 0:
+                            points_4d = np.hstack((valid_xyz, valid_refl))
+                            filtered_points = self.filter_points(points_4d)
+                            if len(filtered_points) > 0:
+                                self._publish_points(filtered_points)
 
-                if len(filtered_points) > 0:
-                    self._publish_points(filtered_points)
+                        # Reset scan for next revolution
+                        scan = cl.LidarScan(self._sensor_info.format.pixels_per_column, self._sensor_info.format.columns_per_frame, self._sensor_info.format.udp_profile_lidar)
 
         except Exception as e:
-            logger.error(f"[{self.name}] Error in ouster-sdk worker loop: {e}")
+            logger.error(f"[{self.name}] Error in ouster-sdk packet worker loop: {e}")
 
     def _publish_points(self, points: np.ndarray):
         """Publish sensor-relative points over ZPipe IPC socket."""

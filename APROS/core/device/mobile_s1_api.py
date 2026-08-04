@@ -225,19 +225,22 @@ class MobileS1API:
         payload = bytearray(8)
         raw_ad_accelerate_msgcntr = int(ad_accelerate_msgcntr)
         payload[0] |= ((raw_ad_accelerate_msgcntr & 0xF) << 4) & 0xFF
-        raw_ad_acc_de = int(round((ad_acc_de - (-5.0)) / 0.1))
+        raw_ad_accelerate_valid = int(ad_accelerate_valid)
+        payload[0] |= ((raw_ad_accelerate_valid & 0xF) << 0) & 0xFF
+        raw_ad_accelerate_work_mode = int(ad_accelerate_work_mode)
+        payload[2] = raw_ad_accelerate_work_mode & 0xFF
+        raw_ad_accelerate_gear = int(ad_accelerate_gear)
+        payload[3] = raw_ad_accelerate_gear & 0xFF
+        raw_ad_acc_de = 0 #int(round((ad_acc_de - (-5.0)) / 0.1))
         payload[4] = raw_ad_acc_de & 0xFF
+        raw_ad_torque_control = int(ad_torque_control)
+        payload[5] = raw_ad_torque_control & 0xFF
         raw_ad_speed_control = int(round((ad_speed_control - (0.0)) / 0.1))
         payload[6] = raw_ad_speed_control & 0xFF
         payload[7] = (raw_ad_speed_control >> 8) & 0xFF
-        raw_ad_torque_control = int(ad_torque_control)
-        payload[5] = raw_ad_torque_control & 0xFF
-        raw_ad_accelerate_gear = int(ad_accelerate_gear)
-        payload[3] = raw_ad_accelerate_gear & 0xFF
-        raw_ad_accelerate_work_mode = int(ad_accelerate_work_mode)
-        payload[2] = raw_ad_accelerate_work_mode & 0xFF
-        raw_ad_accelerate_valid = int(ad_accelerate_valid)
-        payload[0] |= ((raw_ad_accelerate_valid & 0xF) << 0) & 0xFF
+        
+        
+        
         return payload
 
     def _s1_api_ad_control_brake(
