@@ -37,10 +37,10 @@ class OusterSR128(BaseDevice):
         min_angle: float = -90.0,
         max_angle: float = 90.0,
         vertical_fov: Optional[float] = None,
-        status_monitor: Optional[Any] = None,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
-        super().__init__(name, enable=enable, status_monitor=status_monitor)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.model = model.upper() if isinstance(model, str) else "OS0"
         self.ip = ip

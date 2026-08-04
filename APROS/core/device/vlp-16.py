@@ -50,10 +50,10 @@ class VLP16(BaseDevice):
         roll_deg: float = 0.0,
         pitch_deg: float = 15.0,
         yaw_deg: float = 0.0,
-        status_monitor: Optional[Any] = None,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
-        super().__init__(name, enable=enable, status_monitor=status_monitor)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.ip = ip
         self.port = int(port)

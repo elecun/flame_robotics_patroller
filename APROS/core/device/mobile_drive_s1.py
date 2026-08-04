@@ -109,11 +109,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
         auto_mode_interval_ms: float = 20.0,
-        status_monitor: Optional[Any] = None,
         enable: bool = True,
         **kwargs
     ):
-        super().__init__(name, enable=enable, status_monitor=status_monitor)
+        super().__init__(name, enable=enable)
         self.channel = int(can_channel) if isinstance(can_channel, int) or (isinstance(can_channel, str) and str(can_channel).isdigit()) else 0
         self.ch = None
         self.parser = CANParser()

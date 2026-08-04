@@ -42,10 +42,10 @@ class BaumerIncline(BaseDevice):
         can_channel: int = 1,
         can_bitrate: int = 500000,
         node_id: int = 1,
-        status_monitor: Optional[Any] = None,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
-        super().__init__(name, enable=enable, status_monitor=status_monitor)
+        super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.channel = int(can_channel)
         self.bitrate = int(can_bitrate)
