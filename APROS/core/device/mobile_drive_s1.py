@@ -358,7 +358,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             # raw = round((angle + 30.0) / 0.1)
             cntr_502 = self._next_cntr(0x502)
             byte0_502 = (cntr_502 << 4) | 0x1
-            clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(self.steer_angle)))
+            clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(self.cmd_steering_angle)))
             raw_angle = int(round((clamped_angle + 30.0) / 0.1))
             raw_angle = max(0, min(0xFFFF, raw_angle))
             data_502 = [byte0_502, 0, 0, 0, raw_angle & 0xFF, (raw_angle >> 8) & 0xFF, 0, 0]
@@ -391,7 +391,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
                 gear_code = 0  # P Gear
 
             raw_accde = 50  # 0.0 m/s2 (5.0 / 0.1)
-            raw_speed = int(round(abs(float(self.speed)) / 0.1))
+            raw_speed = int(round(abs(float(self.cmd_speed)) / 0.1))
             raw_speed = max(0, min(0xFFFF, raw_speed))
             data_504 = [byte0_504, 0, work_mode, gear_code, raw_accde, 0, raw_speed & 0xFF, (raw_speed >> 8) & 0xFF]
             msg_504 = Frame(id_=0x504, data=bytes(data_504))

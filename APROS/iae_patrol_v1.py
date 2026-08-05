@@ -376,8 +376,11 @@ class IAEPatrolV1:
 
     @gear.setter
     def gear(self, val: str):
-        if self.drive_base and hasattr(self.drive_base, 'gear'):
-            self.drive_base.gear = val
+        if self.drive_base:
+            if hasattr(self.drive_base, 'target_gear'):
+                self.drive_base.target_gear = val
+            if hasattr(self.drive_base, 'gear'):
+                self.drive_base.gear = val
 
     @property
     def drive_mode(self) -> str:

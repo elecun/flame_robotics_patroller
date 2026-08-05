@@ -370,51 +370,6 @@ class ViserServerManager:
 
             # 2. Remote Control & Mast GUI Folder (Integrated Remote Control & Mast)
             with client.gui.add_folder("🎮 Robot Remote Control"):
-                # CAN Connection Status Display
-                can_status_md = client.gui.add_markdown(self._format_can_status_text())
-
-                speed_slider = client.gui.add_slider(
-                    label="Target Speed (km/h)",
-                    min=0.0,
-                    max=20.0,
-                    step=0.5,
-                    initial_value=self.robot.speed
-                )
-                
-                # Steering Angle Slider: -28 deg ~ +28 deg (Step 0.5 deg)
-                steer_slider = client.gui.add_slider(
-                    label="Steering Angle (deg)",
-                    min=-28.0,
-                    max=28.0,
-                    step=0.5,
-                    initial_value=self.robot.steer_angle
-                )
-
-                gear_dropdown = client.gui.add_dropdown(
-                    label="Gear",
-                    options=["P", "D", "N", "R"],
-                    initial_value=self.robot.gear
-                )
-
-                # Telescopic Mast Control (Integrated: 1800mm ~ 8000mm)
-                mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") else None
-                init_mast_height = mast_dev.current_height_mm if mast_dev else 1800.0
-
-                mast_slider = client.gui.add_slider(
-                    label="Mast Height (mm)",
-                    min=1800.0,
-                    max=8000.0,
-                    step=50.0,
-                    initial_value=init_mast_height
-                )
-
-                @mast_slider.on_update
-                def _(_):
-                    if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
-                        self.robot.devices["telescopic_mast"].target_height_mm = mast_slider.value
-
-
-
                 # Control Mode Group Buttons (Remote, Auto)
                 init_is_auto = self.robot.drive_mode.startswith("Auto")
                 options = ("🤖 Auto", "🕹️ Remote") if init_is_auto else ("🕹️ Remote", "🤖 Auto")
@@ -444,10 +399,7 @@ class ViserServerManager:
                     elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                         self.robot.set_mode_auto()
 
-                    # On mode transition, reset gear selection UI to P Gear as required
-                    gear_dropdown.value = "P"
-                    speed_slider.disabled = False
-                    steer_slider.disabled = False
+                    update_estop_button_state(selected_mode)
                     if selected_mode == "Remote":
                         set_group_value_silently("🕹️ Remote")
                     else:
@@ -504,8 +456,12 @@ class ViserServerManager:
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP",
-                color="red"
+                color="red",
+                disabled=not init_is_auto
             )
+
+            def update_estop_button_state(selected_mode: str):
+                estop_button.disabled = (selected_mode != "Auto")
 
         # Tab 2: Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission Control", viser.Icon.TARGET):
@@ -684,36 +640,11 @@ class ViserServerManager:
 
 
 
-        # Control Callbacks
-        @speed_slider.on_update
-        def _(_):
-            if not speed_slider.disabled:
-                self.robot.speed = speed_slider.value
-
-        # Real-time CAN Steering Angle Control (-28 ~ +28 deg)
-        @steer_slider.on_update
-        def _(_):
-            if not steer_slider.disabled:
-                self.robot.set_steering_angle(steer_slider.value)
-
-        @gear_dropdown.on_update
-        def _(_):
-            self.robot.gear = gear_dropdown.value
-            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
-            if mobile_drive_dev and hasattr(mobile_drive_dev, "target_gear"):
-                mobile_drive_dev.target_gear = gear_dropdown.value
-
         def execute_emergency_stop():
-            self.robot.speed = 0.0
-            speed_slider.value = 0.0
-            self.robot.set_steering_angle(0.0)
-            steer_slider.value = 0.0
-            self.robot.gear = "P"
-            gear_dropdown.value = "P"
-            self.robot.drive_mode = "Emergency Stop"
-            speed_slider.disabled = True
-            steer_slider.disabled = True
-            control_mode_group.value = "🕹️ Remote"
+            self.robot.speed = 1.0
+            # self.robot.set_steering_angle(0.0)
+            self.robot.gear = "D"
+            # self.robot.drive_mode = "Emergency Stop"
 
         @estop_button.on_click
         def _(_):
@@ -725,7 +656,6 @@ class ViserServerManager:
             while self._running:
                 try:
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
-                    can_status_md.content = self._format_can_status_text()
 
                     # Update Data Logger status
                     try:
