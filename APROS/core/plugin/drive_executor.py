@@ -136,17 +136,37 @@ class DriveExecutor(BasePlugin):
             logger.error(f"[{self.name}] Route file '{route_file_name}' not found.")
             return False
 
+        # Retrieve default corridor_boundary from apros.cfg [mobile_drive_s1] section or device if available
+        default_cb = 2.5
+        if self.robot:
+            if hasattr(self.robot, "config") and self.robot.config and self.robot.config.has_section("mobile_drive_s1"):
+                default_cb = float(self.robot.config.get("mobile_drive_s1", "corridor_boundary", fallback=2.5))
+            elif hasattr(self.robot, "devices") and "mobile_drive_s1" in self.robot.devices:
+                drive_dev = self.robot.devices["mobile_drive_s1"]
+                if hasattr(drive_dev, "corridor_boundary"):
+                    default_cb = float(drive_dev.corridor_boundary)
+
         waypoints = []
+        corridor_boundaries = []
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
                 header = next(reader, None)
+                cb_idx = -1
+                if header:
+                    for i, col in enumerate(header):
+                        if col.strip().lower() == "corridor_boundary":
+                            cb_idx = i
+                            break
+
                 for row in reader:
                     if len(row) >= 3:
                         try:
                             lat = float(row[1])
                             lon = float(row[2])
+                            cb_val = float(row[cb_idx]) if cb_idx != -1 and len(row) > cb_idx else default_cb
                             waypoints.append((lat, lon))
+                            corridor_boundaries.append(cb_val)
                         except ValueError:
                             continue
         except Exception as e:
@@ -160,8 +180,10 @@ class DriveExecutor(BasePlugin):
         # Convert latitude/longitude to relative meter coordinates
         # Frame Requirement: +X North, -X South, -Y East, +Y West
         lat0, lon0 = waypoints[0]
+        self.origin_lat = lat0
+        self.origin_lon = lon0
         points_meter = []
-        for lat, lon in waypoints:
+        for i, (lat, lon) in enumerate(waypoints):
             dlat = lat - lat0
             dlon = lon - lon0
             dx = dlat * 111000.0
@@ -174,11 +196,22 @@ class DriveExecutor(BasePlugin):
         # Run Global Planner to create smooth sub-path
         if self.global_planner is not None:
             self.global_path = self.global_planner.plan(points_meter)
-            logger.info(f"[{self.name}] Global path planned for '{route_file_name}': {len(self.global_path)} path points.")
+            # Attach corridor_boundary to global_path points
+            for pt in self.global_path:
+                # Find nearest raw waypoint corridor boundary
+                nearest_cb = 2.5
+                min_d = float("inf")
+                for raw_pt, cb in zip(points_meter, corridor_boundaries):
+                    d = math.hypot(pt["x"] - raw_pt[0], pt["y"] - raw_pt[1])
+                    if d < min_d:
+                        min_d = d
+                        nearest_cb = cb
+                pt["corridor_boundary"] = nearest_cb
+            logger.info(f"[{self.name}] Global path planned for '{route_file_name}': {len(self.global_path)} path points (Corridor boundary={corridor_boundaries[0]}m).")
         else:
             self.global_path = [
-                {"x": pt[0], "y": pt[1], "heading": 0.0, "curvature": 0.0, "v_ref": 1.0}
-                for pt in points_meter
+                {"x": pt[0], "y": pt[1], "heading": 0.0, "curvature": 0.0, "v_ref": 1.0, "corridor_boundary": cb}
+                for pt, cb in zip(points_meter, corridor_boundaries)
             ]
 
         # Load POI Tasks relative to route origin (lat0, lon0)
@@ -209,6 +242,16 @@ class DriveExecutor(BasePlugin):
             self.is_active = True
             self.is_paused = False
 
+            # Explicitly release brake and DBS Valid when starting mission
+            if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                drive_dev = self.robot.drive_base
+                if hasattr(drive_dev, "ad_dbs_valid"):
+                    drive_dev.ad_dbs_valid = 0
+                if hasattr(drive_dev, "set_brake"):
+                    drive_dev.set_brake(0.0)
+                if hasattr(drive_dev, "brake_light"):
+                    drive_dev.brake_light = False
+
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._control_loop, daemon=True)
                 self._thread.start()
@@ -231,15 +274,46 @@ class DriveExecutor(BasePlugin):
                 logger.info(f"[{self.name}] Mission resumed.")
 
     def abort_mission(self):
-        """Abort mission route execution and stop vehicle."""
+        """
+        Abort mission route execution:
+        1. Set target input speed to 0.
+        2. Wait until vehicle speed decelerates to <= 0.01 km/h (within tolerance).
+        3. Set active brake (ad_dbs_valid=1, brake_stop), which automatically turns on brake light (0x506).
+        """
         with self._lock:
             self.is_active = False
             self.is_paused = False
-            logger.info(f"[{self.name}] Mission aborted.")
-            self._apply_stop_command()
+            logger.info(f"[{self.name}] Mission abort requested.")
+            if self.local_planner and hasattr(self.local_planner, "best_local_path"):
+                self.local_planner.best_local_path = []
+
+        def _decelerate_and_brake_thread():
+            if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                drive_dev = self.robot.drive_base
+                if hasattr(drive_dev, "set_speed"):
+                    drive_dev.set_speed(0.0)
+                if hasattr(drive_dev, "set_steering_angle"):
+                    drive_dev.set_steering_angle(0.0)
+
+                # Poll current speed until decelerated to <= 0.01 km/h (timeout 3.0s)
+                start_t = time.time()
+                while time.time() - start_t < 3.0:
+                    curr_speed = abs(getattr(drive_dev, "speed", 0.0))
+                    if curr_speed <= 0.01:
+                        break
+                    time.sleep(0.05)
+
+                # Set Brake Stop (ad_dbs_valid=1, brake_val=10) & brake light
+                if hasattr(drive_dev, "brake_stop"):
+                    drive_dev.brake_stop()
+                elif hasattr(drive_dev, "set_brake"):
+                    drive_dev.set_brake(10.0)
+                logger.info(f"[{self.name}] Vehicle speed decelerated to <= 0.01 km/h. Active Brake & Brake Light set.")
+
+        threading.Thread(target=_decelerate_and_brake_thread, daemon=True).start()
 
     def _apply_stop_command(self):
-        """Send speed=0 and steer=0 command to drive base."""
+        """Send speed=0 and steer=0 command to drive base without changing gear or applying sudden brake."""
         if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
             drive_dev = self.robot.drive_base
             if hasattr(drive_dev, "set_speed"):
@@ -248,22 +322,48 @@ class DriveExecutor(BasePlugin):
                 drive_dev.set_steering_angle(0.0)
 
     def _get_current_robot_pose(self) -> Dict[str, float]:
-        """Get current robot pose {'x', 'y', 'heading'} and velocity."""
+        """
+        Get current robot pose {'x', 'y', 'heading'} and velocity.
+        - If hil_simulation is True: estimated based on velocity & kinematics (simulated_x, simulated_y).
+        - If hil_simulation is False: converted from SynerexRTK lat/lon relative to route origin (lat0, lon0).
+        """
         rx, ry, rheading = 0.0, 0.0, 0.0
         rvel = 0.0
 
         if self.robot:
-            if hasattr(self.robot, "simulated_x"):
-                rx = float(self.robot.simulated_x)
-            if hasattr(self.robot, "simulated_y"):
-                ry = float(self.robot.simulated_y)
-            if hasattr(self.robot, "simulated_heading"):
-                rheading = float(self.robot.simulated_heading)
+            if self.hil_simulation:
+                if hasattr(self.robot, "simulated_x"):
+                    rx = float(self.robot.simulated_x)
+                if hasattr(self.robot, "simulated_y"):
+                    ry = float(self.robot.simulated_y)
+                if hasattr(self.robot, "simulated_heading"):
+                    rheading = float(self.robot.simulated_heading)
+            else:
+                # Use SynerexRTK GNSS position converted to relative meters
+                rtk_dev = None
+                if hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
+                    rtk_dev = self.robot.devices["synerex_rtk"]
+
+                if rtk_dev and hasattr(rtk_dev, "latitude") and hasattr(self, "origin_lat") and self.origin_lat is not None:
+                    dlat = rtk_dev.latitude - self.origin_lat
+                    dlon = rtk_dev.longitude - self.origin_lon
+                    rx = dlat * 111000.0
+                    ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
+                    rheading = np.radians(getattr(rtk_dev, "heading", 0.0))
+                    # Also update simulated pose so Viser robot visualization tracks RTK position
+                    if hasattr(self.robot, "simulated_x"):
+                        self.robot.simulated_x = rx
+                        self.robot.simulated_y = ry
+                        self.robot.simulated_heading = rheading
+                else:
+                    # Fallback to simulated pose
+                    rx = getattr(self.robot, "simulated_x", 0.0)
+                    ry = getattr(self.robot, "simulated_y", 0.0)
+                    rheading = getattr(self.robot, "simulated_heading", 0.0)
 
             if hasattr(self.robot, "drive_base") and self.robot.drive_base:
                 drive_dev = self.robot.drive_base
                 if hasattr(drive_dev, "speed"):
-                    # Convert km/h to m/s
                     rvel = float(drive_dev.speed) / 3.6
 
         return {"x": rx, "y": ry, "heading": rheading}, rvel
@@ -350,6 +450,7 @@ class DriveExecutor(BasePlugin):
                 continue
 
             pose, vel_ms = self._get_current_robot_pose()
+            print(pose, vel_ms)
 
             # 1. Check POI Arrival
             for poi in self.poi_tasks:
@@ -389,6 +490,8 @@ class DriveExecutor(BasePlugin):
 
             target_v_kmh = target_v_ms * 3.6
             target_delta_deg = math.degrees(target_delta_rad)
+
+            logger.info(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {target_delta_deg:.2f}°")
 
             # 4. Dispatch control command to mobile drive base
             if drive_dev:

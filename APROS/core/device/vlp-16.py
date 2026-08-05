@@ -252,8 +252,8 @@ class VLP16(BaseDevice):
                     # Check first block azimuth (0.01 deg units) for revolution wrap-around detection
                     azimuth_raw = struct.unpack_from("<H", packet, 2)[0]
                     
-                    if last_azimuth >= 0 and azimuth_raw < last_azimuth:
-                        # Revolution boundary detected: process complete revolution scan
+                    if last_azimuth >= 0 and (last_azimuth - azimuth_raw) > 18000:
+                        # Revolution boundary detected (wrap-around from ~360° to ~0°): process complete revolution scan
                         if cycle_blocks:
                             points = self._parse_cycle_blocks(cycle_blocks)
                             if points is not None and len(points) > 0:

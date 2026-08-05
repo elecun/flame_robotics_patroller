@@ -112,6 +112,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         min_velocity: float = -1.0,
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
+        corridor_boundary: float = 2.5,
         auto_mode_interval_ms: float = 20.0,
         enable: bool = True,
         **kwargs
@@ -132,8 +133,9 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.MIN_VELOCITY_KMH = float(min_velocity)
         self.MAX_VELOCITY_KMH = float(max_velocity)
 
-        # Lookahead distance for local path planning (meters)
+        # Lookahead distance & corridor boundary for local path planning (meters)
         self.lookahead_distance = float(lookahead_distance)
+        self.corridor_boundary = float(corridor_boundary)
 
         # Auto Mode transmission interval (ms)
         self.auto_mode_interval_ms = float(auto_mode_interval_ms)
@@ -159,7 +161,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
 
         # Control states for AD Control
         self.cmd_brake = 0.0          # 0.0 ~ 100.0 %
-        self.ad_dbs_valid = 1         # 1: Valid, 0: Invalid
+        self.ad_dbs_valid = 0         # 0: Normal Drive, 1: Active Brake Control
         self.left_turn_light = False  # True / False
         self.right_turn_light = False # True / False
         self.head_light = False       # True / False
@@ -366,10 +368,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.ch.write(msg_501)
 
             # 2. 0x502 AD_Control_Steering
-            # Byte0: cntr<<4 | 1(valid)
+            # Byte0: cntr<<4 | (ad_steer_valid & 0x1) -- Start Byte 0, Start Bit 0 (1 when Auto, 0 when Remote)
             # Invert sign (+ is Right turn, - is Left turn for CAN command)
             cntr_502 = self._next_cntr(0x502)
-            byte0_502 = (cntr_502 << 4) | 0x1
+            byte0_502 = (cntr_502 << 4) | (self.ad_control_req_flag & 0x1)
             clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(-self.cmd_steering_angle)))
             raw_angle = int(round((clamped_angle + 30.0) / 0.1))
             raw_angle = max(0, min(0xFFFF, raw_angle))
@@ -378,46 +380,54 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.ch.write(msg_502)
 
             # 3. 0x503 AD_Control_Brake
-            # Byte0: (cntr<<4) | (ad_dbs_valid & 0x1)
+            # Byte0: cntr<<4 | (ad_dbs_valid & 0x1) -- Start Byte 0, Start Bit 0 (1 when Auto or active brake, 0 when Remote/normal)
             # Byte1: AD_brakePressure_cmd (0~100)
             cntr_503 = self._next_cntr(0x503)
-            byte0_503 = (cntr_503 << 4) | (self.ad_dbs_valid & 0x1)
+            byte0_503 = (cntr_503 << 4) | (self.ad_control_req_flag & 0x1)
             brake_val = int(round(max(0.0, min(100.0, float(self.cmd_brake)))))
             data_503 = [byte0_503, brake_val, 0, 0, 0, 0, 0, 0]
             msg_503 = Frame(id_=0x503, data=bytes(data_503))
             self.ch.write(msg_503)
 
             # 4. 0x504 AD_Control_Accelerate
-            # Byte0: (cntr<<4) | 0x1 (valid=1)
-            # Byte2: ad_accelerate_work_mode = 1 (if Auto) else 0
+            # Byte0: (cntr<<4) | (ad_accelerate_valid & 0x1)  -- Start Byte 0, Start Bit 0 (1 when Auto, 0 when Remote)
+            # Byte2: ad_accelerate_work_mode = 1 (Speed Mode) if Auto else 0
             # Byte3: gear (0: P, 1: D, 2: N, 3: R)
-            # Byte4: ad_acc_de = 0 m/s2 (raw=50)
+            # Byte4: ad_acc_de = 0
             # Byte5: ad_torque_control = 0
             # Byte6-7: raw_speed
             cntr_504 = self._next_cntr(0x504)
-            byte0_504 = (cntr_504 << 4) | 0x1
-            work_mode = 1 if self.ad_control_req_flag == 1 else 0
+            byte0_504 = (cntr_504 << 4) | (self.ad_control_req_flag & 0x1)
+            work_mode = 1 if self.ad_control_req_flag == 1 else 0  # 1: Speed Control Mode
             gear_code = 0  # 0: P Gear, 1: D Gear, 2: N Gear, 3: R Gear
             gear_str = str(self.target_gear).strip().upper()
-            if gear_str == "R" or self.cmd_speed < -0.01:
+            if gear_str == "R":
                 gear_code = 3
-            elif gear_str == "D" or self.cmd_speed > 0.01:
+            elif gear_str == "D":
                 gear_code = 1
             elif gear_str == "N":
                 gear_code = 2
+            elif gear_str == "P":
+                gear_code = 0
             else:
-                gear_code = 0  # P Gear
+                if self.cmd_speed < -0.01:
+                    gear_code = 3
+                elif self.cmd_speed > 0.01:
+                    gear_code = 1
+                else:
+                    gear_code = 0
 
-            raw_accde = 50  # 0.0 m/s2 (ad_acc_de default = 0, raw = (0 + 5.0)/0.1 = 50)
+            raw_accde = 0  # ad_acc_de = 0
+            raw_torque = 0 # ad_torque_control = 0
             raw_speed = int(round(abs(float(self.cmd_speed)) / 0.1))
             raw_speed = max(0, min(0xFFFF, raw_speed))
-            data_504 = [byte0_504, 0, work_mode, gear_code, raw_accde, 0, raw_speed & 0xFF, (raw_speed >> 8) & 0xFF]
+            data_504 = [byte0_504, 0, work_mode, gear_code, raw_accde, raw_torque, raw_speed & 0xFF, (raw_speed >> 8) & 0xFF]
             msg_504 = Frame(id_=0x504, data=bytes(data_504))
             self.ch.write(msg_504)
 
             # 5. 0x506 AD_Control_Body
             # Byte0: cntr<<4 | (head_light<<3 | right_turn<<1 | left_turn<<0)
-            # Byte1: brake_light (1 or 0)
+            # Byte1: brake_light (1 if P gear (gear_code==0) or ad_dbs_valid==1 or manual brake light else 0)
             cntr_506 = self._next_cntr(0x506)
             light_flags = 0
             if self.head_light:
@@ -427,8 +437,9 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             if self.left_turn_light:
                 light_flags |= 0x01  # Bit 0 (0b0001)
 
+            is_brake_light_on = (gear_code == 0) or (self.ad_dbs_valid == 1) or self.brake_light
             byte0_506 = (cntr_506 << 4) | (light_flags & 0x0F)
-            byte1_506 = 1 if self.brake_light else 0
+            byte1_506 = 1 if is_brake_light_on else 0
             data_506 = [byte0_506, byte1_506, 0, 0, 0, 0, 0, 0]
             msg_506 = Frame(id_=0x506, data=bytes(data_506))
             self.ch.write(msg_506)
@@ -446,10 +457,12 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.cmd_brake = max(0.0, min(100.0, float(brake_pct)))
 
     def slow_stop(self):
-        """Slow Stop: Set target speed to 0 without applying active mechanical brake."""
+        """Slow Stop: Set target speed to 0 and explicitly release mechanical brake & brake light."""
+        self.ad_dbs_valid = 0
+        self.cmd_brake = 0.0
+        self.brake_light = False
         self.set_speed(0.0)
-        self.set_brake(0.0)
-        logger.info(f"[{self.name}] Slow stop executed (Speed set to 0.0, Brake 0%).")
+        logger.info(f"[{self.name}] Slow stop executed (Speed set to 0.0, Brake & DBS Valid released/OFF).")
 
     def brake_stop(self):
         """Brake Stop: Set AD_brakePressure_cmd to 10 and ad_dbs_valid to 1."""
@@ -478,8 +491,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         is_auto = clean_mode.lower().startswith("auto")
         self.ad_control_req_flag = 1 if is_auto else 0
         self.drive_mode = "Auto Mode" if is_auto else "Remote Control Mode"
-        self.target_gear = "P"  # Reset commanded gear to P on mode transition
-        self.gear = "P"
+        self.target_gear = "D"  # Reset commanded gear to P on mode transition
+        self.gear = "D"
         logger.info(f"[{self.name}] Drive mode changed to '{self.drive_mode}' (AD_Control_Request_Flag={self.ad_control_req_flag}, Target Gear=P)")
 
         if is_auto:
@@ -495,9 +508,11 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         if clamped_speed < -0.01:
             self.target_gear = "R"
             self.gear = "R"
+            self.ad_dbs_valid = 0  # Release active brake flag when moving
         elif clamped_speed > 0.01:
             self.target_gear = "D"
             self.gear = "D"
+            self.ad_dbs_valid = 0  # Release active brake flag when moving
 
     def set_steering_angle(self, angle_deg: float):
         """Set control target steering angle with soft limit applied (must stay within [-max_steering_angle, +max_steering_angle])."""

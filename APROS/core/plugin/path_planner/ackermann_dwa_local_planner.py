@@ -37,6 +37,7 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
 
         best_v = 0.0
         best_delta = 0.0
+        best_traj = None
         min_cost = float("inf")
 
         # Discretize control space search grid
@@ -50,6 +51,11 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
             for delta in delta_samples:
                 # 1. Predict trajectory over prediction horizon
                 trajectory = self._predict_trajectory(current_pose, v, delta)
+
+                # 1.5. Evaluate Corridor Boundary Constraint (Disallow crossing specified corridor boundary)
+                corridor_cost = self._calc_corridor_boundary_cost(trajectory, local_path)
+                if math.isinf(corridor_cost):
+                    continue  # Trajectory violates corridor boundary
 
                 # 2. Evaluate Collision & Obstacle Cost
                 obs_cost, min_dist = self._calc_obstacle_cost(trajectory, obstacle_points)
@@ -71,12 +77,19 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
                     + self.config.obstacle_weight * obs_cost
                     + self.config.velocity_weight * vel_cost
                     + self.config.steer_smoothness_weight * steer_smooth_cost
+                    + 5.0 * corridor_cost
                 )
 
                 if cost < min_cost:
                     min_cost = cost
                     best_v = v
                     best_delta = delta
+                    best_traj = trajectory
+
+        if best_traj is not None:
+            self.best_local_path = [{"x": p[0], "y": p[1], "heading": p[2]} for p in best_traj]
+        else:
+            self.best_local_path = []
 
         # Update last steering angle state
         self.last_delta = best_delta
@@ -167,6 +180,58 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
         # Inverse distance obstacle cost
         obs_cost = 1.0 / (min_dist + 1e-6)
         return obs_cost, min_dist
+
+    def _calc_corridor_boundary_cost(
+        self,
+        trajectory: List[Tuple[float, float, float]],
+        local_path: List[Dict[str, float]]
+    ) -> float:
+        """
+        Evaluate corridor boundary constraint:
+        Distance from trajectory points to local path center line must not exceed corridor_boundary / 2.0.
+        Returns float("inf") if trajectory crosses corridor boundary limit.
+        """
+        if not local_path or len(local_path) < 2:
+            return 0.0
+
+        max_lateral_dev = 0.0
+        for tx, ty, _ in trajectory:
+            # Find closest line segment in local_path to (tx, ty)
+            min_dist_to_segment = float("inf")
+            allowed_half_w = 1.25  # default 2.5m / 2
+
+            for i in range(len(local_path) - 1):
+                p1 = local_path[i]
+                p2 = local_path[i + 1]
+                half_w = p1.get("corridor_boundary", 2.5) / 2.0
+
+                # Perpendicular distance from point (tx, ty) to segment p1-p2
+                x1, y1 = p1["x"], p1["y"]
+                x2, y2 = p2["x"], p2["y"]
+                dx = x2 - x1
+                dy = y2 - y1
+                l2 = dx * dx + dy * dy
+                if l2 == 0:
+                    dist = math.hypot(tx - x1, ty - y1)
+                else:
+                    t = max(0.0, min(1.0, ((tx - x1) * dx + (ty - y1) * dy) / l2))
+                    proj_x = x1 + t * dx
+                    proj_y = y1 + t * dy
+                    dist = math.hypot(tx - proj_x, ty - proj_y)
+
+                if dist < min_dist_to_segment:
+                    min_dist_to_segment = dist
+                    allowed_half_w = half_w
+
+            # Strict Boundary Check (Robot body width buffer included: 0.5m half-width)
+            robot_half_width = self.config.width / 2.0
+            if (min_dist_to_segment + robot_half_width) > allowed_half_w:
+                return float("inf")  # Disallowed: crosses corridor boundary
+
+            if min_dist_to_segment > max_lateral_dev:
+                max_lateral_dev = min_dist_to_segment
+
+        return max_lateral_dev
 
     def _calc_path_distance_cost(
         self,

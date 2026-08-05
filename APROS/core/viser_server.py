@@ -375,11 +375,29 @@ class ViserServerManager:
             point_shape="circle"
         )
 
+        # 9. DWA Local Planner Path Handle (Bright Cyan line segments on ground plane)
+        self.local_path_handle = self.server.scene.add_line_segments(
+            name="/world/local_planner_path",
+            points=np.zeros((1, 2, 3), dtype=np.float32),
+            colors=np.zeros((1, 2, 3), dtype=np.uint8),
+            line_width=4.0,
+            visible=True
+        )
+
+        # 10. Corridor Boundary Handle (Orange boundary lines on ground plane)
+        self.corridor_boundary_handle = self.server.scene.add_line_segments(
+            name="/world/corridor_boundary",
+            points=np.zeros((1, 2, 3), dtype=np.float32),
+            colors=np.zeros((1, 2, 3), dtype=np.uint8),
+            line_width=2.0,
+            visible=True
+        )
+
     def _update_mission_preview(self, route_file_name: str, poi_file_name: str):
         """Load selected .route and .poi CSV files, convert lat/lon to relative meters from origin, and update scene."""
         import csv
         
-        # 0. Clear previous scene handles to remove old route & POI visualization
+        # 0. Clear previous scene handles to remove old route, POI & Corridor visualization
         self.route_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
         self.route_pc_handle.colors = np.zeros((0, 3), dtype=np.uint8)
         self.route_line_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
@@ -387,26 +405,48 @@ class ViserServerManager:
         self.route_line_handle.visible = False
         self.poi_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
         self.poi_pc_handle.colors = np.zeros((0, 3), dtype=np.uint8)
+        self.corridor_boundary_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
+        self.corridor_boundary_handle.colors = np.zeros((0, 2, 3), dtype=np.uint8)
+        self.corridor_boundary_handle.visible = False
 
         route_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
         
+        # Read default corridor boundary from config/device if not specified per row
+        default_cb = 2.5
+        if self.robot:
+            if hasattr(self.robot, "config") and self.robot.config and self.robot.config.has_section("mobile_drive_s1"):
+                default_cb = float(self.robot.config.get("mobile_drive_s1", "corridor_boundary", fallback=2.5))
+            elif hasattr(self.robot, "devices") and "mobile_drive_s1" in self.robot.devices:
+                drive_dev = self.robot.devices["mobile_drive_s1"]
+                if hasattr(drive_dev, "corridor_boundary"):
+                    default_cb = float(drive_dev.corridor_boundary)
+
         origin_lat = None
         origin_lon = None
 
-        # 1. Load Route Waypoints
+        # 1. Load Route Waypoints & Corridor Boundaries
         route_waypoints = []
+        route_corridors = []
         if route_file_name and route_file_name != "None":
             route_path = os.path.join(route_dir, route_file_name)
             if os.path.exists(route_path):
                 try:
                     with open(route_path, "r", encoding="utf-8") as f:
                         reader = csv.reader(f)
-                        next(reader, None)
+                        header = next(reader, None)
+                        cb_idx = -1
+                        if header:
+                            for i, col in enumerate(header):
+                                if col.strip().lower() == "corridor_boundary":
+                                    cb_idx = i
+                                    break
                         for row in reader:
                             if len(row) >= 3:
                                 try:
                                     lat, lon = float(row[1]), float(row[2])
+                                    cb_val = float(row[cb_idx]) if cb_idx != -1 and len(row) > cb_idx else default_cb
                                     route_waypoints.append((lat, lon))
+                                    route_corridors.append(cb_val)
                                 except ValueError:
                                     continue
                 except Exception as e:
@@ -439,7 +479,7 @@ class ViserServerManager:
         if origin_lat is None and poi_waypoints:
             origin_lat, origin_lon = poi_waypoints[0][0], poi_waypoints[0][1]
 
-        # Update Route Visualization
+        # Update Route & Corridor Boundary Visualization
         if route_waypoints and origin_lat is not None:
             points_3d = []
             for lat, lon in route_waypoints:
@@ -467,11 +507,52 @@ class ViserServerManager:
                 seg_colors[:, :, 2] = 118
                 self.route_line_handle.colors = seg_colors
                 self.route_line_handle.visible = True
+
+                # Compute Left & Right Corridor Boundary Lines (perpendicular offset by half_width = corridor_boundary / 2)
+                cb_segments = []
+                for i in range(len(pts_arr) - 1):
+                    p1 = pts_arr[i]
+                    p2 = pts_arr[i + 1]
+                    half_w = route_corridors[i] / 2.0 if i < len(route_corridors) else default_cb / 2.0
+
+                    dx = p2[0] - p1[0]
+                    dy = p2[1] - p1[1]
+                    length = np.hypot(dx, dy)
+                    if length < 1e-6:
+                        continue
+
+                    # Normal vector (nx, ny) perpendicular to segment direction (dx, dy)
+                    nx = -dy / length
+                    ny = dx / length
+
+                    # Left boundary segment
+                    l_p1 = [p1[0] + nx * half_w, p1[1] + ny * half_w, 0.003]
+                    l_p2 = [p2[0] + nx * half_w, p2[1] + ny * half_w, 0.003]
+                    cb_segments.append([l_p1, l_p2])
+
+                    # Right boundary segment
+                    r_p1 = [p1[0] - nx * half_w, p1[1] - ny * half_w, 0.003]
+                    r_p2 = [p2[0] - nx * half_w, p2[1] - ny * half_w, 0.003]
+                    cb_segments.append([r_p1, r_p2])
+
+                if cb_segments:
+                    cb_arr = np.array(cb_segments, dtype=np.float32)
+                    self.corridor_boundary_handle.points = cb_arr
+                    cb_colors = np.zeros((len(cb_arr), 2, 3), dtype=np.uint8)
+                    cb_colors[:, :, 0] = 255  # Red
+                    cb_colors[:, :, 1] = 165  # Green (Orange: 255, 165, 0)
+                    cb_colors[:, :, 2] = 0    # Blue
+                    self.corridor_boundary_handle.colors = cb_colors
+                    self.corridor_boundary_handle.visible = True
+                else:
+                    self.corridor_boundary_handle.visible = False
             else:
                 self.route_line_handle.visible = False
+                self.corridor_boundary_handle.visible = False
         else:
             self.route_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
             self.route_line_handle.visible = False
+            self.corridor_boundary_handle.visible = False
 
         # Update POI Visualization (Sky Blue Points in 3D Space, mast_height converted from mm to meters Z)
         if poi_waypoints and origin_lat is not None:
@@ -1154,6 +1235,25 @@ class ViserServerManager:
 
                     self.ouster_pc_handle.points = xyz
                     self.ouster_pc_handle.colors = colors
+
+            # Real-time Local Planner Planned Trajectory visualization on ground plane
+            local_planner = getattr(self.robot, "local_planner", None)
+            if local_planner and hasattr(local_planner, "best_local_path") and local_planner.best_local_path:
+                lpath = local_planner.best_local_path
+                if len(lpath) >= 2:
+                    lpts = np.array([[pt["x"], pt["y"], 0.015] for pt in lpath], dtype=np.float32)
+                    lsegments = np.stack((lpts[:-1], lpts[1:]), axis=1)  # (N, 2, 3)
+                    lcolors = np.zeros((len(lsegments), 2, 3), dtype=np.uint8)
+                    lcolors[:, :, 0] = 0     # Red
+                    lcolors[:, :, 1] = 229   # Green
+                    lcolors[:, :, 2] = 255   # Blue (Bright Cyan: 0, 229, 255)
+                    self.local_path_handle.points = lsegments
+                    self.local_path_handle.colors = lcolors
+                    self.local_path_handle.visible = True
+                else:
+                    self.local_path_handle.visible = False
+            else:
+                self.local_path_handle.visible = False
 
             elapsed = time.time() - start_time
             time.sleep(max(0.0, dt - elapsed))
