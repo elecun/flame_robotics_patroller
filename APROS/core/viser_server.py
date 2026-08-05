@@ -606,8 +606,12 @@ class ViserServerManager:
                 disabled=not init_is_auto
             )
 
+            update_ad_control_gui_state_fn = None
+
             def update_estop_button_state(selected_mode: str):
                 estop_button.disabled = (selected_mode != "Auto")
+                if update_ad_control_gui_state_fn:
+                    update_ad_control_gui_state_fn(selected_mode)
 
         # Helper function to list route files from APROS/route directory
         def get_route_files() -> list:
@@ -627,8 +631,127 @@ class ViserServerManager:
                     return sorted(files)
             return ["None"]
 
-        # Tab 2: Mission Control Tab (Native Viser GUI Window)
-        with tabs.add_tab("Mission Control", viser.Icon.TARGET):
+        # Helper getter for mobile_drive_s1 device from current platform
+        def get_mobile_drive_dev():
+            if hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                return self.robot.drive_base
+            if hasattr(self.robot, "devices") and "mobile_drive_s1" in self.robot.devices:
+                return self.robot.devices["mobile_drive_s1"]
+            return None
+
+        # Tab 2: AD Control Tab (Autonomous Drive Control & Lighting GUI Window)
+        with tabs.add_tab("AD Control", viser.Icon.ADJUSTMENTS):
+            with client.gui.add_folder("⚡ AD Motion & Vehicle Control", expand_by_default=True):
+                drive_dev = get_mobile_drive_dev()
+                min_vel = getattr(drive_dev, "MIN_VELOCITY_KMH", -1.0) if drive_dev else -1.0
+                max_vel = getattr(drive_dev, "MAX_VELOCITY_KMH", 3.0) if drive_dev else 3.0
+                max_steer = getattr(drive_dev, "MAX_STEERING_ANGLE_DEG", 30.0) if drive_dev else 30.0
+
+                vel_slider = client.gui.add_slider(
+                    label="Velocity (km/h)",
+                    min=float(min_vel),
+                    max=float(max_vel),
+                    step=0.1,
+                    initial_value=0.0
+                )
+                steer_slider = client.gui.add_slider(
+                    label="Steer Angle (deg)",
+                    min=-float(max_steer),
+                    max=float(max_steer),
+                    step=0.5,
+                    initial_value=0.0
+                )
+                brake_slider = client.gui.add_slider(
+                    label="Brake Pressure (%)",
+                    min=0.0,
+                    max=100.0,
+                    step=1.0,
+                    initial_value=0.0
+                )
+
+                @vel_slider.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_speed"):
+                        dev.set_speed(vel_slider.value)
+
+                @steer_slider.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_steering_angle"):
+                        dev.set_steering_angle(steer_slider.value)
+
+                @brake_slider.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_brake"):
+                        dev.set_brake(brake_slider.value)
+
+                stop_button_group = client.gui.add_button_group(
+                    label="Vehicle Stop Mode",
+                    options=["🐌 Slow Stop", "🛑 Brake Stop"]
+                )
+
+                @stop_button_group.on_click
+                def _(_):
+                    if self._current_control_mode != "Auto":
+                        logger.warning("[ViserUI] Vehicle Stop Mode clicked but vehicle is not in Auto mode.")
+                        return
+                    selected = stop_button_group.value
+                    dev = get_mobile_drive_dev()
+                    if dev:
+                        if "Slow" in selected and hasattr(dev, "slow_stop"):
+                            dev.slow_stop()
+                            vel_slider.value = 0.0
+                            brake_slider.value = 0.0
+                        elif "Brake" in selected and hasattr(dev, "brake_stop"):
+                            dev.brake_stop()
+                            brake_slider.value = 10.0
+
+            with client.gui.add_folder("💡 Vehicle Lighting & Signal Control", expand_by_default=True):
+                left_turn_cb = client.gui.add_checkbox("Left Turn Light", initial_value=False)
+                right_turn_cb = client.gui.add_checkbox("Right Turn Light", initial_value=False)
+                head_light_cb = client.gui.add_checkbox("Head Light", initial_value=False)
+                brake_light_cb = client.gui.add_checkbox("Brake Light", initial_value=False)
+
+                @left_turn_cb.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_lights"):
+                        dev.set_lights(left_turn=left_turn_cb.value)
+
+                @right_turn_cb.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_lights"):
+                        dev.set_lights(right_turn=right_turn_cb.value)
+
+                @head_light_cb.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_lights"):
+                        dev.set_lights(head=head_light_cb.value)
+
+                @brake_light_cb.on_update
+                def _(_):
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "set_lights"):
+                        dev.set_lights(brake=brake_light_cb.value)
+
+            # Set initial disabled state for AD Control controls if not in Auto mode (excluding button groups which Viser does not allow disabling)
+            ad_controls = [vel_slider, steer_slider, brake_slider, left_turn_cb, right_turn_cb, head_light_cb, brake_light_cb]
+            for ctrl in ad_controls:
+                ctrl.disabled = not init_is_auto
+
+            def update_ad_control_gui_state(selected_mode: str):
+                is_disabled = (selected_mode != "Auto")
+                for ctrl in ad_controls:
+                    ctrl.disabled = is_disabled
+
+            update_ad_control_gui_state_fn = update_ad_control_gui_state
+
+        # Tab 3: Mission Control Tab (Native Viser GUI Window)
+        with tabs.add_tab("Mission", viser.Icon.TARGET):
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
                 route_files = get_route_files()
                 mission_route_dropdown = client.gui.add_dropdown(
@@ -641,6 +764,10 @@ class ViserServerManager:
                     label="Mission POI",
                     options=poi_files,
                     initial_value=poi_files[0]
+                )
+                hil_sim_checkbox = client.gui.add_checkbox(
+                    label="HIL Simulation",
+                    initial_value=False
                 )
 
                 @mission_route_dropdown.on_update
@@ -670,9 +797,32 @@ class ViserServerManager:
                 @start_mission_btn.on_click
                 def _(_):
                     route_file = mission_route_dropdown.value
-                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        self.robot.drive_executor.start_mission(route_file)
-                        logger.info(f"[ViserUI] Start Mission clicked -> Started DriveExecutor with route '{route_file}'")
+                    poi_file = mission_poi_dropdown.value
+                    is_hil_enabled = hil_sim_checkbox.value
+
+                    def execute_start():
+                        if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                            self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file, hil_simulation=is_hil_enabled)
+                            logger.info(f"[ViserUI] Start Mission clicked (HIL={is_hil_enabled}) -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
+
+                    if is_hil_enabled:
+                        modal = client.gui.add_modal("HIL Simulation 모드 확인")
+                        with modal:
+                            client.gui.add_markdown("가상 공간에서 하드웨어를 시뮬레이션 합니다.")
+                            confirm_btn = client.gui.add_button("확인", color="green")
+                            cancel_btn = client.gui.add_button("취소", color="red")
+
+                            @confirm_btn.on_click
+                            def _(_):
+                                modal.close()
+                                execute_start()
+
+                            @cancel_btn.on_click
+                            def _(_):
+                                modal.close()
+                                logger.info("[ViserUI] HIL Simulation start cancelled by user.")
+                    else:
+                        execute_start()
 
                 @pause_mission_btn.on_click
                 def _(_):
@@ -874,6 +1024,9 @@ class ViserServerManager:
 
         vehicle_gear = parsed_can.get("vehicle_gear", drive_status.get("gear", "P"))
         lines.append(f"- **Vehicle Gear**: `{vehicle_gear}`")
+
+        clamping_brake = parsed_can.get("clamping_brake_status", "Released")
+        lines.append(f"- **Clamping Brake**: `{clamping_brake}`")
 
         bms_soc = parsed_can.get("bms_battery_soc", parsed_can.get("bms_battery_soc", "N/A"))
         lines.append(f"- **Battery SOC**: `{bms_soc}`")
