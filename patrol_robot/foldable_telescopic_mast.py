@@ -2,6 +2,7 @@ from __future__ import annotations
 import threading
 import queue
 import time
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Optional
@@ -9,7 +10,13 @@ import argparse
 import signal
 import atexit
 import sys
-import logging 
+import logging
+
+try:
+    import zmq
+    ZMQ_AVAILABLE = True
+except ImportError:
+    ZMQ_AVAILABLE = False
 
 logger = logging.getLogger("ftm")
 logger.setLevel(logging.DEBUG)
@@ -107,6 +114,13 @@ class FoldableTelescopicMast:
         self._q: queue.Queue[Command] = queue.Queue(maxsize=128)  # backpressure 가능
         self._stop_evt = threading.Event()
         self._worker: Optional[threading.Thread] = None
+
+        # ===== Proxy SUB 소켓 (TelescopicMast → 마스트 제어 명령 수신) =====
+        self._proxy_ipc_address = "/tmp/iae_patrol_v1_telescopic_mast_proxy.ipc"
+        self._proxy_zmq_ctx: Optional[Any] = None
+        self._proxy_sub_socket: Optional[Any] = None
+        self._proxy_sub_thread: Optional[threading.Thread] = None
+        self._proxy_sub_running = False
 
         # 폴링 주기(초): 상황에 맞게 조정
         self._sensor_poll_interval = 0.05   # 20Hz
@@ -294,10 +308,16 @@ class FoldableTelescopicMast:
         self._worker = threading.Thread(target=self._routine, name="FTM-routine", daemon=True)
         self._worker.start()
 
+        # Proxy SUB 시작 (TelescopicMast로부터 마스트 제어 명령 수신)
+        self._start_proxy_subscriber()
+
     def stop(self, join: bool = True, timeout: Optional[float] = 2.0) -> None:
         """워커 스레드를 종료한다."""
         logger.info("Call routine stop...")
         self._stop_evt.set()
+
+        # Proxy SUB 종료
+        self._stop_proxy_subscriber()
 
         # 큐가 꽉 차 있어도 멈추지 않게 비블로킹으로 깨우기
         try:
@@ -400,6 +420,91 @@ class FoldableTelescopicMast:
             # 정책: 조용히 드랍하거나, 경고 로그를 찍거나, 기존 STOP 중복 방지 등
             # logger.warn(f"[queue] drop {cmd.kind.name}")
             pass
+
+    # ======== Proxy SUB 소켓 (TelescopicMast IPC 명령 수신) ========
+
+    def _start_proxy_subscriber(self) -> None:
+        """ZMQ SUB 소켓을 생성하여 TelescopicMast proxy IPC에서 마스트 제어 명령을 수신한다."""
+        if not ZMQ_AVAILABLE:
+            logger.warning("[proxy-sub] zmq not available, proxy subscriber disabled")
+            return
+        if self._proxy_sub_running:
+            return
+
+        self._proxy_sub_running = True
+        self._proxy_sub_thread = threading.Thread(
+            target=self._proxy_sub_worker, name="FTM-proxy-sub", daemon=True
+        )
+        self._proxy_sub_thread.start()
+        logger.info(f"[proxy-sub] Proxy subscriber started on ipc://{self._proxy_ipc_address}")
+
+    def _stop_proxy_subscriber(self) -> None:
+        """Proxy SUB 소켓 및 수신 스레드를 종료한다."""
+        self._proxy_sub_running = False
+        if self._proxy_sub_thread and self._proxy_sub_thread.is_alive():
+            self._proxy_sub_thread.join(timeout=2.0)
+        self._proxy_sub_thread = None
+
+        if self._proxy_sub_socket:
+            try:
+                self._proxy_sub_socket.close(linger=0)
+            except Exception:
+                pass
+            self._proxy_sub_socket = None
+
+        if self._proxy_zmq_ctx:
+            try:
+                self._proxy_zmq_ctx.term()
+            except Exception:
+                pass
+            self._proxy_zmq_ctx = None
+
+    def _proxy_sub_worker(self) -> None:
+        """ZMQ SUB 수신 워커: mast_command 토픽의 JSON 메시지를 파싱하여 대응 함수를 호출한다."""
+        try:
+            self._proxy_zmq_ctx = zmq.Context()
+            self._proxy_sub_socket = self._proxy_zmq_ctx.socket(zmq.SUB)
+            self._proxy_sub_socket.setsockopt(zmq.LINGER, 0)
+            self._proxy_sub_socket.setsockopt(zmq.RCVTIMEO, 500)  # 500ms timeout for clean shutdown
+            self._proxy_sub_socket.setsockopt(zmq.RECONNECT_IVL, 500)
+            self._proxy_sub_socket.connect(f"ipc://{self._proxy_ipc_address}")
+            self._proxy_sub_socket.subscribe(b"mast_command")
+            logger.info(f"[proxy-sub] Connected to ipc://{self._proxy_ipc_address}")
+        except Exception as e:
+            logger.error(f"[proxy-sub] Failed to create SUB socket: {e}")
+            self._proxy_sub_running = False
+            return
+
+        command_dispatch = {
+            "raise_mast": self.raise_mast,
+            "lower_mast": self.lower_mast,
+            "stop_mast_action": self.stop_mast_action,
+        }
+
+        while self._proxy_sub_running and not self._stop_evt.is_set():
+            try:
+                multipart = self._proxy_sub_socket.recv_multipart()
+                if len(multipart) >= 2:
+                    topic = multipart[0]
+                    payload_bytes = multipart[1]
+                    if topic == b"mast_command" and payload_bytes:
+                        data = json.loads(payload_bytes.decode('utf-8'))
+                        cmd_name = data.get("command", "")
+                        handler = command_dispatch.get(cmd_name)
+                        if handler:
+                            logger.info(f"[proxy-sub] Received command: {cmd_name}")
+                            handler()
+                        else:
+                            logger.warning(f"[proxy-sub] Unknown command: {cmd_name}")
+            except zmq.Again:
+                continue  # recv timeout, check stop condition
+            except (zmq.ContextTerminated, zmq.ZMQError) as e:
+                logger.debug(f"[proxy-sub] ZMQ error ({e}), stopping")
+                break
+            except Exception as e:
+                logger.error(f"[proxy-sub] Error processing command: {e}")
+
+        logger.info("[proxy-sub] Proxy subscriber worker exited")
     
     def _send_servo_command(self, cmd: Command) -> bool:
         """
