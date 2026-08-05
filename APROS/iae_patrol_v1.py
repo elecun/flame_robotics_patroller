@@ -3,6 +3,7 @@ IAE Patrol Robot Platform Configuration (iae_patrol_v1.py)
 Dynamically loads configured device and plugin modules from apros.cfg and injects ZPipe context.
 """
 
+import os
 import importlib
 from typing import Dict, Any, Optional
 from core.device.base import BaseDevice
@@ -72,10 +73,85 @@ class IAEPatrolV1:
                     self.drive_base = device_obj
             else:
                 logger.error(f"[IAEPatrolV1] Failed to dynamically load device module '{dev_name}'.")
+        # Parse path planner modules & drive_executor plugin configuration
+        self.global_planner = None
+        self.local_planner = None
+        self.drive_executor = None
+
+        self._init_path_planners_and_executor()
 
         # Inject ZPipe context if provided
         if self.zpipe_ctx:
             self.set_zpipe_context(self.zpipe_ctx)
+
+    def _init_path_planners_and_executor(self):
+        """Dynamically load RobotConfig, Global Planner, Local Planner, and Drive Executor."""
+        urdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "urdf", "iae_patrol_v1.urdf")
+        try:
+            mod_cfg = importlib.import_module("APROS.core.plugin.path_planner.robot_config" if __name__.startswith("APROS") else "core.plugin.path_planner.robot_config")
+            RobotConfig = getattr(mod_cfg, "RobotConfig")
+            self.robot_config = RobotConfig.from_urdf(urdf_path)
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Error loading RobotConfig: {e}")
+            return
+
+        gp_mod_name = "cubic_spline_global_planner"
+        lp_mod_name = "ackermann_dwa_local_planner"
+
+        if self.config and self.config.has_section("iae_patrol_v1"):
+            gp_mod_name = self.config.get("iae_patrol_v1", "global_planner", fallback="cubic_spline_global_planner").strip()
+            lp_mod_name = self.config.get("iae_patrol_v1", "local_planner", fallback="ackermann_dwa_local_planner").strip()
+
+        # 1. Dynamically load Global Planner
+        try:
+            gp_module_path = f"APROS.core.plugin.path_planner.{gp_mod_name}" if __name__.startswith("APROS") else f"core.plugin.path_planner.{gp_mod_name}"
+            mod_gp = importlib.import_module(gp_module_path)
+            # Find Planner Class in module
+            gp_cls = None
+            for attr_name in dir(mod_gp):
+                if attr_name.lower().endswith("globalplanner") and attr_name != "BaseGlobalPlanner":
+                    gp_cls = getattr(mod_gp, attr_name)
+                    break
+            if gp_cls:
+                self.global_planner = gp_cls(self.robot_config)
+                logger.info(f"[IAEPatrolV1] Dynamically loaded Global Planner '{gp_mod_name}' ({gp_cls.__name__}).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Failed to load Global Planner '{gp_mod_name}': {e}")
+
+        # 2. Dynamically load Local Planner
+        try:
+            lp_module_path = f"APROS.core.plugin.path_planner.{lp_mod_name}" if __name__.startswith("APROS") else f"core.plugin.path_planner.{lp_mod_name}"
+            mod_lp = importlib.import_module(lp_module_path)
+            lp_cls = None
+            for attr_name in dir(mod_lp):
+                if attr_name.lower().endswith("localplanner") and attr_name != "BaseLocalPlanner":
+                    lp_cls = getattr(mod_lp, attr_name)
+                    break
+            if lp_cls:
+                self.local_planner = lp_cls(self.robot_config)
+                logger.info(f"[IAEPatrolV1] Dynamically loaded Local Planner '{lp_mod_name}' ({lp_cls.__name__}).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Failed to load Local Planner '{lp_mod_name}': {e}")
+
+        # 3. Read control_freq from mobile_drive_s1 section if specified
+        control_freq = 10.0
+        if self.config and self.config.has_section("mobile_drive_s1"):
+            control_freq = float(self.config.get("mobile_drive_s1", "control_freq", fallback=10.0))
+
+        # 4. Instantiate Drive Executor Plugin
+        try:
+            mod_executor = importlib.import_module("APROS.core.plugin.drive_executor" if __name__.startswith("APROS") else "core.plugin.drive_executor")
+            DriveExecutor = getattr(mod_executor, "DriveExecutor")
+            self.drive_executor = DriveExecutor(
+                robot=self,
+                global_planner=self.global_planner,
+                local_planner=self.local_planner,
+                control_freq=control_freq
+            )
+            self.plugins["drive_executor"] = self.drive_executor
+            logger.info(f"[IAEPatrolV1] Drive Executor plugin initialized (control_freq={control_freq}Hz).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Error initializing Drive Executor: {e}")
 
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""

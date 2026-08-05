@@ -178,15 +178,20 @@ class OusterSR128(BaseDevice):
         scan_cls = getattr(cl, 'LidarFrame', getattr(client_core, 'LidarFrame', getattr(client_core, 'LidarScan', None)))
         scan = scan_cls(self._sensor_info)
 
-        try:
-            while self._running:
+        while self._running:
+            try:
                 ev = self._pkt_source.get_packet(timeout=0.1)
                 if ev is None or ev.packet is None:
                     continue
 
-                pkt = ev.packet() if callable(ev.packet) else ev.packet
+                try:
+                    pkt = ev.packet() if callable(ev.packet) else ev.packet
+                except (RuntimeError, ValueError, Exception):
+                    continue
+
                 if pkt is None:
                     continue
+
                 # 1. Forward raw packet buffer directly to registered packet recorder
                 if self.packet_recorder is not None:
                     try:
@@ -224,8 +229,9 @@ class OusterSR128(BaseDevice):
                         # Reset scan for next revolution
                         scan = scan_cls(self._sensor_info)
 
-        except Exception as e:
-            logger.error(f"[{self.name}] Error in ouster-sdk packet worker loop: {e}")
+            except Exception as e:
+                logger.warning(f"[{self.name}] Transient error in packet iteration: {e}")
+                time.sleep(0.01)
 
     def _publish_points(self, points: np.ndarray):
         """Publish sensor-relative points over ZPipe IPC socket."""

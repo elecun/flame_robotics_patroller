@@ -340,7 +340,6 @@ class ViserServerManager:
         )
 
         # 6. Ouster-SR-128 Point Cloud visualization attached to Mission Module ouster_link frame (URDF Link Frame)
-        # Tree path: base_link -> mast_stage1_link -> mast_stage2_link -> ... -> mast_stage6_link -> mission_pan_link -> mission_module_link -> ouster_link
         ouster_frame_path = "/robot/visual/base_link/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
         self.ouster_pc_handle = self.server.scene.add_point_cloud(
             name=ouster_frame_path,
@@ -349,6 +348,153 @@ class ViserServerManager:
             point_size=0.015,
             point_shape="circle"
         )
+
+        # 7. Route Visualization Scene Handles (Circles for waypoints, Spline for route path)
+        self.route_pc_handle = self.server.scene.add_point_cloud(
+            name="/world/route_waypoints",
+            points=np.zeros((1, 3), dtype=np.float32),
+            colors=np.array([[0, 230, 118]], dtype=np.uint8),
+            point_size=0.1,  # Diameter 100mm = 0.1m
+            point_shape="circle"
+        )
+
+        self.route_line_handle = self.server.scene.add_line_segments(
+            name="/world/route_path",
+            points=np.zeros((1, 2, 3), dtype=np.float32),
+            colors=np.zeros((1, 2, 3), dtype=np.uint8),
+            line_width=1.5,
+            visible=True
+        )
+
+        # 8. POI Visualization Scene Handle (Sky Blue circles for POI points)
+        self.poi_pc_handle = self.server.scene.add_point_cloud(
+            name="/world/poi_points",
+            points=np.zeros((1, 3), dtype=np.float32),
+            colors=np.array([[0, 191, 255]], dtype=np.uint8),  # Sky Blue color
+            point_size=0.15,  # Diameter 150mm = 0.15m
+            point_shape="circle"
+        )
+
+    def _update_mission_preview(self, route_file_name: str, poi_file_name: str):
+        """Load selected .route and .poi CSV files, convert lat/lon to relative meters from origin, and update scene."""
+        import csv
+        
+        # 0. Clear previous scene handles to remove old route & POI visualization
+        self.route_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
+        self.route_pc_handle.colors = np.zeros((0, 3), dtype=np.uint8)
+        self.route_line_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
+        self.route_line_handle.colors = np.zeros((0, 2, 3), dtype=np.uint8)
+        self.route_line_handle.visible = False
+        self.poi_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
+        self.poi_pc_handle.colors = np.zeros((0, 3), dtype=np.uint8)
+
+        route_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
+        
+        origin_lat = None
+        origin_lon = None
+
+        # 1. Load Route Waypoints
+        route_waypoints = []
+        if route_file_name and route_file_name != "None":
+            route_path = os.path.join(route_dir, route_file_name)
+            if os.path.exists(route_path):
+                try:
+                    with open(route_path, "r", encoding="utf-8") as f:
+                        reader = csv.reader(f)
+                        next(reader, None)
+                        for row in reader:
+                            if len(row) >= 3:
+                                try:
+                                    lat, lon = float(row[1]), float(row[2])
+                                    route_waypoints.append((lat, lon))
+                                except ValueError:
+                                    continue
+                except Exception as e:
+                    logger.error(f"[ViserServerManager] Error loading route '{route_file_name}': {e}")
+
+        if route_waypoints:
+            origin_lat, origin_lon = route_waypoints[0]
+
+        # 2. Load POI Waypoints: (lat, lon, mast_height_mm)
+        poi_waypoints = []
+        if poi_file_name and poi_file_name != "None":
+            poi_path = os.path.join(route_dir, poi_file_name)
+            if os.path.exists(poi_path):
+                try:
+                    with open(poi_path, "r", encoding="utf-8") as f:
+                        reader = csv.reader(f)
+                        header = next(reader, None)
+                        for row in reader:
+                            if len(row) >= 3:
+                                try:
+                                    lat = float(row[1])
+                                    lon = float(row[2])
+                                    mast_height = float(row[3]) if len(row) >= 4 else 0.0
+                                    poi_waypoints.append((lat, lon, mast_height))
+                                except ValueError:
+                                    continue
+                except Exception as e:
+                    logger.error(f"[ViserServerManager] Error loading POI '{poi_file_name}': {e}")
+
+        if origin_lat is None and poi_waypoints:
+            origin_lat, origin_lon = poi_waypoints[0][0], poi_waypoints[0][1]
+
+        # Update Route Visualization
+        if route_waypoints and origin_lat is not None:
+            points_3d = []
+            for lat, lon in route_waypoints:
+                dlat = lat - origin_lat
+                dlon = lon - origin_lon
+                dx = dlat * 111000.0
+                dy = -dlon * 111000.0 * np.cos(np.radians(origin_lat))
+                dz = 0.002
+                points_3d.append([dx, dy, dz])
+
+            pts_arr = np.array(points_3d, dtype=np.float32)
+            self.route_pc_handle.points = pts_arr
+            colors = np.zeros((len(pts_arr), 3), dtype=np.uint8)
+            colors[:, 0] = 0     # Red
+            colors[:, 1] = 230   # Green
+            colors[:, 2] = 118   # Blue
+            self.route_pc_handle.colors = colors
+
+            if len(pts_arr) >= 2:
+                segments = np.stack((pts_arr[:-1], pts_arr[1:]), axis=1)
+                self.route_line_handle.points = segments
+                seg_colors = np.zeros((len(segments), 2, 3), dtype=np.uint8)
+                seg_colors[:, :, 0] = 0
+                seg_colors[:, :, 1] = 230
+                seg_colors[:, :, 2] = 118
+                self.route_line_handle.colors = seg_colors
+                self.route_line_handle.visible = True
+            else:
+                self.route_line_handle.visible = False
+        else:
+            self.route_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
+            self.route_line_handle.visible = False
+
+        # Update POI Visualization (Sky Blue Points in 3D Space, mast_height converted from mm to meters Z)
+        if poi_waypoints and origin_lat is not None:
+            poi_points_3d = []
+            for lat, lon, mast_h_mm in poi_waypoints:
+                dlat = lat - origin_lat
+                dlon = lon - origin_lon
+                dx = dlat * 111000.0
+                dy = -dlon * 111000.0 * np.cos(np.radians(origin_lat))
+                dz = mast_h_mm / 1000.0  # Convert mm to meters for Z-axis
+                poi_points_3d.append([dx, dy, dz])
+
+            poi_pts_arr = np.array(poi_points_3d, dtype=np.float32)
+            self.poi_pc_handle.points = poi_pts_arr
+            poi_colors = np.zeros((len(poi_pts_arr), 3), dtype=np.uint8)
+            poi_colors[:, 0] = 0     # Red
+            poi_colors[:, 1] = 191   # Green
+            poi_colors[:, 2] = 255   # Blue (Sky Blue: 0, 191, 255)
+            self.poi_pc_handle.colors = poi_colors
+        else:
+            self.poi_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
+
+        logger.info(f"[ViserServerManager] Preview updated for Route '{route_file_name}' ({len(route_waypoints)} pts) & POI '{poi_file_name}' ({len(poi_waypoints)} pts)")
 
 
 
@@ -463,53 +609,82 @@ class ViserServerManager:
             def update_estop_button_state(selected_mode: str):
                 estop_button.disabled = (selected_mode != "Auto")
 
+        # Helper function to list route files from APROS/route directory
+        def get_route_files() -> list:
+            route_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
+            if os.path.exists(route_dir) and os.path.isdir(route_dir):
+                files = [f for f in os.listdir(route_dir) if f.endswith(".route")]
+                if files:
+                    return sorted(files)
+            return ["None"]
+
+        # Helper function to list POI files from APROS/route directory
+        def get_poi_files() -> list:
+            route_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
+            if os.path.exists(route_dir) and os.path.isdir(route_dir):
+                files = [f for f in os.listdir(route_dir) if f.endswith(".poi")]
+                if files:
+                    return sorted(files)
+            return ["None"]
+
         # Tab 2: Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission Control", viser.Icon.TARGET):
-            with client.gui.add_folder("📌 Active Mission Overview", expand_by_default=True):
-                mission_overview_md = client.gui.add_markdown("""
-<div style="background: rgba(0, 176, 255, 0.08); padding: 10px; border-radius: 8px; border-left: 4px solid #00B0FF;">
-    <div style="font-size: 11px; text-transform: uppercase; color: #88C0D0; letter-spacing: 0.5px; margin-bottom: 4px;">Active Mission</div>
-    <div style="font-size: 14px; font-weight: 700; color: #FFFFFF;">Autonomous Patrol Path A</div>
-    <div style="font-size: 12px; color: #FFD700; margin-top: 4px; font-weight: 600;">STATUS: RUNNING</div>
-</div>
-                """)
-
-            with client.gui.add_folder("📊 Patrol Progress"):
-                mission_progress_md = client.gui.add_markdown("""
-<div style="background: rgba(255, 255, 255, 0.03); padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
-    <div style="font-size: 12px; font-weight: 600; color: #E0E0E0; margin-bottom: 6px;">Patrol Progress</div>
-    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 6px;">
-        <div style="width: 35%; height: 100%; background: #00E676; border-radius: 4px;"></div>
-    </div>
-    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #AAA;">
-        <span>Waypoints: 4 / 12</span>
-        <span>35% Completed</span>
-    </div>
-</div>
-                """)
-
-            with client.gui.add_folder("⚙️ Controls & Camera", expand_by_default=True):
-                camera_btn = client.gui.add_button("📹 Camera Toggle")
-
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
-                mission_select = client.gui.add_dropdown(
-                    label="Mission Select",
-                    options=["Autonomous Patrol Path A", "Perimeter Security Loop", "Waypoint Inspection B", "Return to Home Base"],
-                    initial_value="Autonomous Patrol Path A"
+                route_files = get_route_files()
+                mission_route_dropdown = client.gui.add_dropdown(
+                    label="Mission Route",
+                    options=route_files,
+                    initial_value=route_files[0]
                 )
+                poi_files = get_poi_files()
+                mission_poi_dropdown = client.gui.add_dropdown(
+                    label="Mission POI",
+                    options=poi_files,
+                    initial_value=poi_files[0]
+                )
+
+                @mission_route_dropdown.on_update
+                def _(_):
+                    val = mission_route_dropdown.value
+                    if val not in route_files:
+                        mission_route_dropdown.value = route_files[0]
+
+                @mission_poi_dropdown.on_update
+                def _(_):
+                    val = mission_poi_dropdown.value
+                    if val not in poi_files:
+                        mission_poi_dropdown.value = poi_files[0]
+
+                preview_btn = client.gui.add_button("👁️ Preview Mission", color="blue")
                 start_mission_btn = client.gui.add_button("▶️ Start Mission", color="green")
                 pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
                 abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
 
-            with client.gui.add_folder("📜 Real-time Mission Log", expand_by_default=True):
-                mission_log_md = client.gui.add_markdown("""
-<div style="font-size: 11px; font-family: monospace; color: #B0BEC5; line-height: 1.6; max-height: 180px; overflow-y: auto;">
-    <div><span style="color: #666;">[09:00:12]</span> <span style="color: #00E676;">[INFO]</span> Mission 'Path A' started</div>
-    <div><span style="color: #666;">[09:01:05]</span> <span style="color: #00B0FF;">[NAV]</span> Reached Waypoint #1</div>
-    <div><span style="color: #666;">[09:01:42]</span> <span style="color: #00B0FF;">[NAV]</span> Reached Waypoint #2</div>
-    <div><span style="color: #666;">[09:02:15]</span> <span style="color: #FFD700;">[WARN]</span> Minor obstacle detected; rerouting</div>
-</div>
-                """)
+                @preview_btn.on_click
+                def _(_):
+                    route_file = mission_route_dropdown.value
+                    poi_file = mission_poi_dropdown.value
+                    self._update_mission_preview(route_file, poi_file)
+                    logger.info(f"[ViserUI] Preview Mission clicked -> Visualized route '{route_file}' & POI '{poi_file}'")
+
+                @start_mission_btn.on_click
+                def _(_):
+                    route_file = mission_route_dropdown.value
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.start_mission(route_file)
+                        logger.info(f"[ViserUI] Start Mission clicked -> Started DriveExecutor with route '{route_file}'")
+
+                @pause_mission_btn.on_click
+                def _(_):
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.pause_mission()
+                        logger.info("[ViserUI] Pause Mission clicked -> Paused DriveExecutor")
+
+                @abort_mission_btn.on_click
+                def _(_):
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.abort_mission()
+                        logger.info("[ViserUI] Abort Mission clicked -> Aborted DriveExecutor")
 
             # Data Logger Folder (bottom of Mission Control tab)
             with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
@@ -621,22 +796,7 @@ class ViserServerManager:
             client.gui.add_markdown("<div style='text-align: center; color: #00E676;'><b>📷 Live Camera Stream (Width: 640px)</b></div>")
             client.gui.add_image(dummy_cam_img, label="Front Camera Stream")
 
-        # Camera Toggle Button Callback
-        @camera_btn.on_click
-        def _(_):
-            camera_folder.visible = not camera_folder.visible
-            # Also toggle floating panel DOM display
-            toggle_js = """
-            <script>
-            (function() {
-                var el = document.getElementById('camera-floating-panel');
-                if (el) {
-                    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
-                }
-            })();
-            </script>
-            """
-            client.gui.add_html(toggle_js)
+
 
 
 
