@@ -106,8 +106,6 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self,
         name: str = "MobileDriveS1",
         can_channel: int = 0,
-        min_steer_angle: float = -28.0,
-        max_steer_angle: float = 28.0,
         max_steering_angle: float = 30.0,
         min_velocity: float = -1.0,
         max_velocity: float = 5.0,
@@ -122,12 +120,11 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.ch = None
         self.parser = CANParser()
 
-        # Steering angle bounds (degrees)
-        self.MIN_ANGLE_DEG = float(min_steer_angle)
-        self.MAX_ANGLE_DEG = float(max_steer_angle)
-
-        # Soft limit steering angle bound (degrees)
-        self.MAX_STEERING_ANGLE_DEG = abs(float(max_steering_angle))
+        # Steering angle bounds (degrees) - Default: 30.0 deg (min_steering_angle = -1 * max_steering_angle)
+        if "max_steer_angle" in kwargs:
+            max_steering_angle = kwargs["max_steer_angle"]
+        self.max_steering_angle = abs(float(max_steering_angle))
+        self.min_steering_angle = -self.max_steering_angle
 
         # Velocity bounds (km/h) - soft limit bounds for input velocity control
         self.MIN_VELOCITY_KMH = float(min_velocity)
@@ -372,12 +369,13 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             # Invert sign (+ is Right turn, - is Left turn for CAN command)
             cntr_502 = self._next_cntr(0x502)
             byte0_502 = (cntr_502 << 4) | (self.ad_control_req_flag & 0x1)
-            clamped_angle = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(-self.cmd_steering_angle)))
+            clamped_angle = max(self.min_steering_angle, min(self.max_steering_angle, float(-self.cmd_steering_angle)))
             raw_angle = int(round((clamped_angle + 30.0) / 0.1))
             raw_angle = max(0, min(0xFFFF, raw_angle))
             data_502 = [byte0_502, 0, 0, 0, raw_angle & 0xFF, (raw_angle >> 8) & 0xFF, 0, 0]
             msg_502 = Frame(id_=0x502, data=bytes(data_502))
             self.ch.write(msg_502)
+            logger.info(f"[{self.name}][CAN 0x502 Transmit] target_angle: {self.cmd_steering_angle:.2f} deg, CAN_clamped_angle: {clamped_angle:.2f} deg, CAN_raw_angle_0.1deg: {raw_angle} (0x{raw_angle:04X}), CAN_data_bytes: {list(data_502)}")
 
             # 3. 0x503 AD_Control_Brake
             # Byte0: cntr<<4 | (ad_dbs_valid & 0x1) -- Start Byte 0, Start Bit 0 (1 when Auto or active brake, 0 when Remote/normal)
@@ -515,9 +513,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.ad_dbs_valid = 0  # Release active brake flag when moving
 
     def set_steering_angle(self, angle_deg: float):
-        """Set control target steering angle with soft limit applied (must stay within [-max_steering_angle, +max_steering_angle])."""
-        max_angle = self.MAX_STEERING_ANGLE_DEG
-        clamped_angle = max(-max_angle, min(float(angle_deg), max_angle))
+        """Set control target steering angle with soft limit applied (must stay within [min_steering_angle, max_steering_angle])."""
+        clamped_angle = max(self.min_steering_angle, min(float(angle_deg), self.max_steering_angle))
         self.cmd_steering_angle = clamped_angle
         self.steer_angle = clamped_angle
 
@@ -531,17 +528,17 @@ class MobileDriveS1(BaseDevice, MobileS1API):
 
     def degree_to_can_cmd(self, angle_deg: float) -> int:
         """
-        Map degree (-28.0 to +28.0) to raw CAN command (-2000 to +2000).
-        Left: -2000 (at -28 deg), Right: +2000 (at +28 deg)
+        Map degree (min_steering_angle to max_steering_angle) to raw CAN command (-2000 to +2000).
+        Left: -2000 (at min deg), Right: +2000 (at max deg)
         """
-        clamped_deg = max(self.MIN_ANGLE_DEG, min(self.MAX_ANGLE_DEG, float(angle_deg)))
-        cmd_val = int(round((clamped_deg / self.MAX_ANGLE_DEG) * self.MAX_CMD_VAL))
+        clamped_deg = max(self.min_steering_angle, min(self.max_steering_angle, float(angle_deg)))
+        cmd_val = int(round((clamped_deg / self.max_steering_angle) * self.MAX_CMD_VAL))
         return max(self.MIN_CMD_VAL, min(self.MAX_CMD_VAL, cmd_val))
 
     def can_cmd_to_degree(self, cmd_val: int) -> float:
-        """Map raw CAN command (-2000 to +2000) back to degree (-28.0 to +28.0)."""
+        """Map raw CAN command (-2000 to +2000) back to degree (min_steering_angle to max_steering_angle)."""
         clamped_cmd = max(self.MIN_CMD_VAL, min(self.MAX_CMD_VAL, int(cmd_val)))
-        return (clamped_cmd / float(self.MAX_CMD_VAL)) * self.MAX_ANGLE_DEG
+        return (clamped_cmd / float(self.MAX_CMD_VAL)) * self.max_steering_angle
 
     def update_simulation_step(self, dt: float = 0.05):
         """Kinematics update step for 3D visualization positioning (+ is Right turn, - is Left turn)."""

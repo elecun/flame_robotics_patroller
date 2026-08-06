@@ -722,11 +722,11 @@ class ViserServerManager:
 
         # Tab 2: AD Control Tab (Autonomous Drive Control & Lighting GUI Window)
         with tabs.add_tab("AD Control", viser.Icon.ADJUSTMENTS):
-            with client.gui.add_folder("⚡ AD Motion & Vehicle Control", expand_by_default=True):
+            with client.gui.add_folder("⚡ Vehicle Control", expand_by_default=True):
                 drive_dev = get_mobile_drive_dev()
                 min_vel = getattr(drive_dev, "MIN_VELOCITY_KMH", -1.0) if drive_dev else -1.0
                 max_vel = getattr(drive_dev, "MAX_VELOCITY_KMH", 3.0) if drive_dev else 3.0
-                max_steer = getattr(drive_dev, "MAX_STEERING_ANGLE_DEG", 30.0) if drive_dev else 30.0
+                max_steer = getattr(drive_dev, "max_steering_angle", 30.0) if drive_dev else 30.0
 
                 vel_slider = client.gui.add_slider(
                     label="Velocity (km/h)",
@@ -1301,6 +1301,7 @@ class ViserServerManager:
                     "mast_joint": mast_extension,
                     "front_steer_joint": steer_angle_rad,
                 })
+                logger.info(f"[ViserUI][3D Model Update] front_steer_joint: {steer_angle_rad:.4f} rad ({np.degrees(steer_angle_rad):.2f} deg)")
 
             # Real-time VLP-16 point cloud visualization centered at robot frame
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
