@@ -51,8 +51,8 @@ class TelescopicMast(BaseDevice):
     and logs height (mm) to console for debugging.
     """
 
-    MIN_HEIGHT_MM = 1800.0  # 1.8m
-    MAX_HEIGHT_MM = 8000.0  # 8.0m
+    MIN_HEIGHT_MM = 2900.0  # 2.9m (1.8m mast + 1.1m ground offset)
+    MAX_HEIGHT_MM = 9100.0  # 9.1m (8.0m mast + 1.1m ground offset)
     DIAMETER_MM = 100.0     # 100mm fixed diameter (0.1m)
 
     def __init__(
@@ -64,9 +64,9 @@ class TelescopicMast(BaseDevice):
         parity: str = "N",
         stopbits: int = 2,
         bus_address: int = 1,
-        min_height: float = 1800.0,
-        max_height: float = 8000.0,
-        initial_height: float = 1800.0,
+        min_height: float = 2900.0,
+        max_height: float = 9100.0,
+        initial_height: float = 2900.0,
         offset_x: float = 0.0,
         offset_y: float = 0.0,
         offset_z: float = 0.78,
@@ -173,11 +173,11 @@ class TelescopicMast(BaseDevice):
         self.target_height_mm = height_mm
 
     def extend_fully(self):
-        """Command mast to extend to maximum height (8000 mm)."""
+        """Command mast to extend to maximum height (9100 mm)."""
         self.set_height(self.max_height)
 
     def retract_fully(self):
-        """Command mast to retract to minimum height (1800 mm)."""
+        """Command mast to retract to minimum height (2900 mm)."""
         self.set_height(self.min_height)
 
     # ── Mast control commands (published via proxy IPC) ─────────────────

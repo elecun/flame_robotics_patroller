@@ -1365,7 +1365,7 @@ class ViserServerManager:
             self.robot.update_simulation_step(dt=dt)
 
             # Update URDF Joint States (Mast height & Steering angle)
-            mast_height_m = 1.8
+            mast_height_m = 2.9  # Ground-relative height in meters (default 2.9m = 2900mm)
             if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                 mast = self.robot.devices["telescopic_mast"]
                 mast_height_m = mast.current_height_m
@@ -1373,8 +1373,10 @@ class ViserServerManager:
             steer_angle_rad = np.radians(getattr(self.robot, "steer_angle", 0.0))
 
             if self.urdf_model is not None:
-                # Master mast_joint (0.0m ~ 6.2m) & master front_steer_joint update
-                mast_extension = max(0.0, mast_height_m - 1.8)
+                # Deduct 1.1m robot ground height to get pure mast height (1.8m ~ 8.0m)
+                pure_mast_height_m = max(1.8, mast_height_m - 1.1)
+                # Master mast_joint extension stroke (0.0m ~ 6.2m)
+                mast_extension = max(0.0, pure_mast_height_m - 1.8)
                 self.urdf_model.update_cfg({
                     "mast_joint": mast_extension,
                     "front_steer_joint": steer_angle_rad,

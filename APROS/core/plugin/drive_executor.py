@@ -98,7 +98,7 @@ class DriveExecutor(BasePlugin):
                         try:
                             lat = float(row[1])
                             lon = float(row[2])
-                            mast_h = float(row[3]) if len(row) >= 4 else 1800.0
+                            mast_h = float(row[3]) if len(row) >= 4 else 2900.0
                             dlat = lat - origin_lat
                             dlon = lon - origin_lon
                             dx = dlat * 111000.0
@@ -390,7 +390,7 @@ class DriveExecutor(BasePlugin):
         Execute POI Inspection Task Sequence:
         1. Pause robot movement (speed = 0).
         2. Extend mast_joint up to target mast_height_mm.
-        3. Retract mast_joint back to 1800 mm.
+        3. Retract mast_joint back to 2900 mm.
         4. Resume route tracking to next POI.
         """
         target_height_mm = poi_task["mast_height_mm"]
@@ -412,7 +412,7 @@ class DriveExecutor(BasePlugin):
                 return
             time.sleep(0.1)
 
-        # Step 2: Retract Mast back to min height (1800 mm)
+        # Step 2: Retract Mast back to min height (2900 mm)
         if mast_dev and hasattr(mast_dev, "retract_fully"):
             mast_dev.retract_fully()
 
