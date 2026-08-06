@@ -96,8 +96,8 @@ class DWAPlanner(BaseLocalPlanner):
         max_yaw_rate: float = 0.4886,  # max steering/yaw rate [rad/s] (~28 deg)
         max_accel: float = 0.5,       # max linear acceleration [m/s^2]
         max_delta_yaw_rate: float = 1.0, # max angular acceleration [rad/s^2]
-        v_resolution: float = 0.05,   # velocity sampling resolution [m/s]
-        w_resolution: float = 0.02,   # yaw rate sampling resolution [rad/s]
+        v_resolution: float = 0.1,    # velocity sampling resolution [m/s]
+        w_resolution: float = 0.05,   # yaw rate sampling resolution [rad/s]
         dt: float = 0.1,              # simulation time step [s]
         predict_time: float = 2.0,    # trajectory prediction time [s]
         to_goal_cost_gain: float = 0.15,
@@ -245,24 +245,19 @@ class DWAPlanner(BaseLocalPlanner):
         return best_v, best_w, best_traj
 
     def _predict_trajectory(self, x_init: np.ndarray, v: float, w: float) -> np.ndarray:
-        """Predict robot trajectory over predict_time duration."""
-        x = np.array(x_init)
-        traj = np.array(x)
-        time = 0.0
-        while time <= self.predict_time:
-            x = self._motion_step(x, v, w, self.dt)
-            traj = np.vstack((traj, x))
-            time += self.dt
+        """Predict robot trajectory over predict_time duration (pre-allocated array)."""
+        n_steps = int(self.predict_time / self.dt) + 1
+        traj = np.empty((n_steps + 1, 5))
+        traj[0] = x_init
+        x = x_init.copy()
+        for i in range(1, n_steps + 1):
+            x[2] += w * self.dt
+            x[0] += v * math.cos(x[2]) * self.dt
+            x[1] += v * math.sin(x[2]) * self.dt
+            x[3] = v
+            x[4] = w
+            traj[i] = x
         return traj
-
-    def _motion_step(self, x: np.ndarray, v: float, w: float, dt: float) -> np.ndarray:
-        """Unicycle/Ackermann motion model step update."""
-        x[2] += w * dt
-        x[0] += v * math.cos(x[2]) * dt
-        x[1] += v * math.sin(x[2]) * dt
-        x[3] = v
-        x[4] = w
-        return x
 
     def _calc_to_goal_cost(self, traj: np.ndarray, gx: float, gy: float) -> float:
         """Calculate heading/distance cost to target goal waypoint."""

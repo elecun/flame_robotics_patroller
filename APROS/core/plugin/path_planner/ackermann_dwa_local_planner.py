@@ -150,36 +150,44 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
     ) -> Tuple[float, float]:
         """
         Evaluate Oriented Bounding Box (OBB) footprint collision and obstacle clearance cost.
+        Vectorized with NumPy for performance.
         """
         if not obstacle_points:
             return 0.0, float("inf")
 
-        min_dist = float("inf")
         half_l = self.config.length / 2.0 + self.config.inflation_radius
         half_w = self.config.width / 2.0 + self.config.inflation_radius
 
-        for tx, ty, ttheta in trajectory:
-            cos_t = math.cos(ttheta)
-            sin_t = math.sin(ttheta)
+        # Convert to numpy arrays
+        traj_arr = np.array(trajectory)  # (T, 3) -> x, y, theta
+        obs_arr = np.array(obstacle_points)  # (N, 2) -> ox, oy
 
-            for ox, oy in obstacle_points:
-                # Transform obstacle into robot local OBB frame
-                dx = ox - tx
-                dy = oy - ty
-                local_x = dx * cos_t + dy * sin_t
-                local_y = -dx * sin_t + dy * cos_t
+        tx = traj_arr[:, 0]  # (T,)
+        ty = traj_arr[:, 1]  # (T,)
+        ttheta = traj_arr[:, 2]  # (T,)
+        ox = obs_arr[:, 0]  # (N,)
+        oy = obs_arr[:, 1]  # (N,)
 
-                # Check inside inflated oriented bounding box
-                if abs(local_x) <= half_l and abs(local_y) <= half_w:
-                    return float("inf"), 0.0  # Collision detected
+        # Broadcast: dx[t, n], dy[t, n]
+        dx = ox[None, :] - tx[:, None]  # (T, N)
+        dy = oy[None, :] - ty[:, None]  # (T, N)
 
-                dist = math.hypot(dx, dy)
-                if dist < min_dist:
-                    min_dist = dist
+        # Transform to local OBB frame for each trajectory point
+        cos_t = np.cos(ttheta)[:, None]  # (T, 1)
+        sin_t = np.sin(ttheta)[:, None]  # (T, 1)
+        local_x = dx * cos_t + dy * sin_t   # (T, N)
+        local_y = -dx * sin_t + dy * cos_t  # (T, N)
 
-        # Inverse distance obstacle cost
-        obs_cost = 1.0 / (min_dist + 1e-6)
-        return obs_cost, min_dist
+        # Check collision: inside inflated OBB
+        inside = (np.abs(local_x) <= half_l) & (np.abs(local_y) <= half_w)
+        if inside.any():
+            return float("inf"), 0.0
+
+        # Min distance
+        r = np.hypot(dx, dy)
+        min_r = float(np.min(r))
+        obs_cost = 1.0 / (min_r + 1e-6)
+        return obs_cost, min_r
 
     def _calc_corridor_boundary_cost(
         self,
@@ -187,49 +195,49 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
         local_path: List[Dict[str, float]]
     ) -> float:
         """
-        Evaluate corridor boundary constraint:
+        Evaluate corridor boundary constraint (vectorized with NumPy).
         Distance from trajectory points to local path center line must not exceed corridor_boundary / 2.0.
         Returns float("inf") if trajectory crosses corridor boundary limit.
         """
         if not local_path or len(local_path) < 2:
             return 0.0
 
+        n_seg = len(local_path) - 1
+        traj_arr = np.array([(t[0], t[1]) for t in trajectory])  # (T, 2)
+        T = len(traj_arr)
+
+        # Build segment arrays
+        seg_x1 = np.array([local_path[i]["x"] for i in range(n_seg)])
+        seg_y1 = np.array([local_path[i]["y"] for i in range(n_seg)])
+        seg_x2 = np.array([local_path[i + 1]["x"] for i in range(n_seg)])
+        seg_y2 = np.array([local_path[i + 1]["y"] for i in range(n_seg)])
+        seg_half_w = np.array([local_path[i].get("corridor_boundary", 2.5) / 2.0 for i in range(n_seg)])
+
+        seg_dx = seg_x2 - seg_x1  # (S,)
+        seg_dy = seg_y2 - seg_y1  # (S,)
+        seg_l2 = seg_dx * seg_dx + seg_dy * seg_dy  # (S,)
+        seg_l2 = np.maximum(seg_l2, 1e-12)  # avoid division by zero
+
+        robot_half_width = self.config.width / 2.0
         max_lateral_dev = 0.0
-        for tx, ty, _ in trajectory:
-            # Find closest line segment in local_path to (tx, ty)
-            min_dist_to_segment = float("inf")
-            allowed_half_w = 1.25  # default 2.5m / 2
 
-            for i in range(len(local_path) - 1):
-                p1 = local_path[i]
-                p2 = local_path[i + 1]
-                half_w = p1.get("corridor_boundary", 2.5) / 2.0
+        for ti in range(T):
+            px, py = traj_arr[ti, 0], traj_arr[ti, 1]
+            # Vectorized point-to-segment distance for all segments
+            t_param = np.clip(((px - seg_x1) * seg_dx + (py - seg_y1) * seg_dy) / seg_l2, 0.0, 1.0)
+            proj_x = seg_x1 + t_param * seg_dx
+            proj_y = seg_y1 + t_param * seg_dy
+            dists = np.hypot(px - proj_x, py - proj_y)  # (S,)
 
-                # Perpendicular distance from point (tx, ty) to segment p1-p2
-                x1, y1 = p1["x"], p1["y"]
-                x2, y2 = p2["x"], p2["y"]
-                dx = x2 - x1
-                dy = y2 - y1
-                l2 = dx * dx + dy * dy
-                if l2 == 0:
-                    dist = math.hypot(tx - x1, ty - y1)
-                else:
-                    t = max(0.0, min(1.0, ((tx - x1) * dx + (ty - y1) * dy) / l2))
-                    proj_x = x1 + t * dx
-                    proj_y = y1 + t * dy
-                    dist = math.hypot(tx - proj_x, ty - proj_y)
+            nearest_seg_idx = np.argmin(dists)
+            min_dist = dists[nearest_seg_idx]
+            allowed_half_w = seg_half_w[nearest_seg_idx]
 
-                if dist < min_dist_to_segment:
-                    min_dist_to_segment = dist
-                    allowed_half_w = half_w
+            if (min_dist + robot_half_width) > allowed_half_w:
+                return float("inf")
 
-            # Strict Boundary Check (Robot body width buffer included: 0.5m half-width)
-            robot_half_width = self.config.width / 2.0
-            if (min_dist_to_segment + robot_half_width) > allowed_half_w:
-                return float("inf")  # Disallowed: crosses corridor boundary
-
-            if min_dist_to_segment > max_lateral_dev:
-                max_lateral_dev = min_dist_to_segment
+            if min_dist > max_lateral_dev:
+                max_lateral_dev = min_dist
 
         return max_lateral_dev
 

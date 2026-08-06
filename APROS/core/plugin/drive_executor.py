@@ -353,11 +353,34 @@ class DriveExecutor(BasePlugin):
                 if pts.shape[1] >= 5:
                     non_ground = pts[pts[:, 4] < 0.5]
                     if len(non_ground) > 0:
-                        obstacles.extend([(float(p[0]), float(p[1])) for p in non_ground[::5]])
+                        obstacles.extend([(float(p[0]), float(p[1])) for p in non_ground[::10]])
                 else:
-                    obstacles.extend([(float(p[0]), float(p[1])) for p in pts[::10]])
+                    obstacles.extend([(float(p[0]), float(p[1])) for p in pts[::20]])
 
         return obstacles
+
+    def _get_local_path_window(self, pose: Dict[str, float], global_path: List[Dict[str, float]], lookahead: float = 5.0, max_points: int = 50) -> List[Dict[str, float]]:
+        """Extract a local window of the global path around the robot's current position.
+        Returns at most max_points path points within lookahead distance ahead of the nearest point."""
+        if not global_path:
+            return global_path
+
+        rx, ry = pose["x"], pose["y"]
+
+        # Find nearest path point index
+        min_dist = float("inf")
+        nearest_idx = 0
+        for i, pt in enumerate(global_path):
+            d = math.hypot(pt["x"] - rx, pt["y"] - ry)
+            if d < min_dist:
+                min_dist = d
+                nearest_idx = i
+
+        # Extract window: from nearest_idx to nearest_idx + max_points (or until lookahead distance exceeded)
+        start_idx = max(0, nearest_idx - 2)  # Include 2 points behind for corridor boundary context
+        end_idx = min(len(global_path), start_idx + max_points)
+
+        return global_path[start_idx:end_idx]
 
     def _execute_poi_inspection_sequence(self, poi_task: Dict[str, Any]):
         """
@@ -408,7 +431,6 @@ class DriveExecutor(BasePlugin):
 
             drive_dev = getattr(self.robot, "drive_base", None) if self.robot else None
             pose, vel_ms = self._get_current_robot_pose()
-            print(pose, vel_ms)
 
             # 1. Check POI Arrival
             for poi in self.poi_tasks:
@@ -436,10 +458,12 @@ class DriveExecutor(BasePlugin):
             # 3. Compute Local Planner (Ackermann DWA) controls to track route
             obstacles = self._get_obstacle_points()
             if self.local_planner is not None:
+                # Extract local path window (nearby segment only, not full global path)
+                local_window = self._get_local_path_window(pose, self.global_path, lookahead=5.0, max_points=50)
                 target_v_ms, target_delta_rad = self.local_planner.compute_velocity_commands(
                     current_pose=pose,
                     current_vel=vel_ms,
-                    local_path=self.global_path,
+                    local_path=local_window,
                     obstacle_points=obstacles
                 )
             else:
@@ -449,7 +473,7 @@ class DriveExecutor(BasePlugin):
             target_v_kmh = target_v_ms * 3.6
             target_delta_deg = math.degrees(target_delta_rad)
 
-            logger.info(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {target_delta_deg:.2f}°")
+            logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {target_delta_deg:.2f}°")
 
             # 4. Dispatch control command to mobile drive base
             if drive_dev:
@@ -463,7 +487,7 @@ class DriveExecutor(BasePlugin):
                     drive_dev.set_steering_angle(target_delta_deg)
 
             elapsed = time.time() - start_time
-            logger.info(f"[{self.name}][_control_loop] Iteration elapsed: {elapsed * 1000.0:.2f} ms ({elapsed:.4f} s) / Target period: {self.control_period * 1000.0:.2f} ms")
+            logger.debug(f"[{self.name}][_control_loop] Iteration elapsed: {elapsed * 1000.0:.2f} ms ({elapsed:.4f} s) / Target period: {self.control_period * 1000.0:.2f} ms")
             time.sleep(max(0.0, self.control_period - elapsed))
 
         logger.info(f"[{self.name}] Control loop thread terminated.")
