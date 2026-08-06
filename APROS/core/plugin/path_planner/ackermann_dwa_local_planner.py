@@ -27,7 +27,8 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
         obstacle_points: List[Tuple[float, float]]
     ) -> Tuple[float, float]:
         """
-        Compute optimal (v, delta) control command pair using Ackermann DWA evaluation.
+        Compute optimal (v, delta) control command pair using Batch-Vectorized Ackermann DWA evaluation.
+        Evaluates all trajectory candidates in parallel using NumPy SIMD matrix operations.
         """
         if not local_path:
             return 0.0, 0.0
@@ -35,65 +36,156 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
         # Calculate Dynamic Window boundaries for Control Space (v, delta)
         dw = self._calc_dynamic_window(current_vel, self.last_delta)
 
-        best_v = 0.0
-        best_delta = 0.0
-        best_traj = None
-        min_cost = float("inf")
-
         # Discretize control space search grid
         v_samples = np.linspace(dw[0], dw[1], self.config.v_samples)
         delta_samples = np.linspace(dw[2], dw[3], self.config.steer_samples)
+        V_grid, D_grid = np.meshgrid(v_samples, delta_samples, indexing='ij')
+        V_flat = V_grid.ravel()      # Shape (K,) where K = v_samples * steer_samples
+        D_flat = D_grid.ravel()      # Shape (K,)
+        K = len(V_flat)
 
-        # Extract target reference point from global local_path
+        # 1. Batch Predict Trajectories for ALL candidates simultaneously
+        # Trajectories shape: (K, T, 3) where columns are (x, y, theta)
+        dt = self.config.dt
+        L = self.config.wheelbase
+        time_steps = int(self.config.predict_time / dt)
+
+        x0, y0, th0 = current_pose["x"], current_pose["y"], current_pose["heading"]
+        
+        trajs = np.zeros((K, time_steps, 3), dtype=np.float64)
+        x_curr = np.full(K, x0, dtype=np.float64)
+        y_curr = np.full(K, y0, dtype=np.float64)
+        th_curr = np.full(K, th0, dtype=np.float64)
+
+        tan_D = np.tan(D_flat)
+        v_L = V_flat / L
+
+        for t in range(time_steps):
+            x_curr += V_flat * np.cos(th_curr) * dt
+            y_curr += V_flat * np.sin(th_curr) * dt
+            th_curr += v_L * tan_D * dt
+            # Normalize theta to [-pi, pi]
+            th_curr = np.arctan2(np.sin(th_curr), np.cos(th_curr))
+            trajs[:, t, 0] = x_curr
+            trajs[:, t, 1] = y_curr
+            trajs[:, t, 2] = th_curr
+
+        # 2. Batch Corridor Boundary Cost Evaluation
+        n_seg = len(local_path) - 1
+        corridor_costs = np.zeros(K, dtype=np.float64)
+
+        if n_seg >= 1:
+            seg_x1 = np.array([local_path[i]["x"] for i in range(n_seg)])
+            seg_y1 = np.array([local_path[i]["y"] for i in range(n_seg)])
+            seg_x2 = np.array([local_path[i + 1]["x"] for i in range(n_seg)])
+            seg_y2 = np.array([local_path[i + 1]["y"] for i in range(n_seg)])
+            seg_half_w = np.array([local_path[i].get("corridor_boundary", 2.5) / 2.0 for i in range(n_seg)])
+
+            seg_dx = seg_x2 - seg_x1  # (S,)
+            seg_dy = seg_y2 - seg_y1  # (S,)
+            seg_l2 = np.maximum(seg_dx * seg_dx + seg_dy * seg_dy, 1e-12)  # (S,)
+            robot_half_w = self.config.width / 2.0
+
+            # Batch compute point-to-segment distance for all K trajectories across T time steps
+            # Traj points shape: (K*T, 2)
+            all_pts_x = trajs[:, :, 0].ravel()  # (K*T,)
+            all_pts_y = trajs[:, :, 1].ravel()  # (K*T,)
+
+            # (K*T, S)
+            t_params = np.clip(((all_pts_x[:, None] - seg_x1[None, :]) * seg_dx[None, :] +
+                                (all_pts_y[:, None] - seg_y1[None, :]) * seg_dy[None, :]) / seg_l2[None, :], 0.0, 1.0)
+            proj_x = seg_x1[None, :] + t_params * seg_dx[None, :]
+            proj_y = seg_y1[None, :] + t_params * seg_dy[None, :]
+            dists = np.hypot(all_pts_x[:, None] - proj_x, all_pts_y[:, None] - proj_y)  # (K*T, S)
+
+            nearest_seg = np.argmin(dists, axis=1)  # (K*T,)
+            min_dists = dists[np.arange(len(all_pts_x)), nearest_seg]  # (K*T,)
+            allowed_w = seg_half_w[nearest_seg]  # (K*T,)
+
+            # Reshape back to (K, T)
+            min_dists_kt = min_dists.reshape(K, time_steps)
+            allowed_w_kt = allowed_w.reshape(K, time_steps)
+
+            violates_corridor = (min_dists_kt + robot_half_w) > allowed_w_kt  # (K, T)
+            invalid_corridor = violates_corridor.any(axis=1)  # (K,)
+            corridor_costs = np.max(min_dists_kt, axis=1)      # (K,)
+            corridor_costs[invalid_corridor] = float("inf")
+
+        # 3. Batch Obstacle Clearance & OBB Footprint Collision Evaluation
+        obs_costs = np.zeros(K, dtype=np.float64)
+        if obstacle_points:
+            obs_arr = np.asarray(obstacle_points)  # (N, 2)
+            half_l = self.config.length / 2.0 + self.config.inflation_radius
+            half_w = self.config.width / 2.0 + self.config.inflation_radius
+
+            # Broadcast trajs (K, T, 2) vs obstacles (N, 2)
+            # Flatten trajs to (K*T, 3)
+            flat_trajs = trajs.reshape(-1, 3)  # (K*T, 3)
+            tx = flat_trajs[:, 0, None]        # (K*T, 1)
+            ty = flat_trajs[:, 1, None]        # (K*T, 1)
+            th = flat_trajs[:, 2, None]        # (K*T, 1)
+
+            ox = obs_arr[None, :, 0]           # (1, N)
+            oy = obs_arr[None, :, 1]           # (1, N)
+
+            dx = ox - tx                       # (K*T, N)
+            dy = oy - ty                       # (K*T, N)
+
+            cos_th = np.cos(th)                # (K*T, 1)
+            sin_th = np.sin(th)                # (K*T, 1)
+            local_x = dx * cos_th + dy * sin_th   # (K*T, N)
+            local_y = -dx * sin_th + dy * cos_th  # (K*T, N)
+
+            inside = (np.abs(local_x) <= half_l) & (np.abs(local_y) <= half_w)  # (K*T, N)
+            collides_kt = inside.any(axis=1).reshape(K, time_steps)             # (K, T)
+            collides_k = collides_kt.any(axis=1)                                # (K,)
+
+            r_all = np.hypot(dx, dy).reshape(K, time_steps, -1)                 # (K, T, N)
+            min_r_per_k = np.min(r_all, axis=(1, 2))                            # (K,)
+
+            obs_costs = 1.0 / (min_r_per_k + 1e-6)
+            obs_costs[collides_k] = float("inf")
+
+        # 4. Target Reference & Velocity & Smoothness Cost Evaluation
         target_point = self._get_target_reference_point(current_pose, local_path)
+        last_pts = trajs[:, -1, :]  # (K, 3) -> last (x, y, theta)
 
-        for v in v_samples:
-            for delta in delta_samples:
-                # 1. Predict trajectory over prediction horizon
-                trajectory = self._predict_trajectory(current_pose, v, delta)
+        dx_g = target_point["x"] - last_pts[:, 0]
+        dy_g = target_point["y"] - last_pts[:, 1]
+        dist_costs = np.hypot(dx_g, dy_g)
 
-                # 1.5. Evaluate Corridor Boundary Constraint (Disallow crossing specified corridor boundary)
-                corridor_cost = self._calc_corridor_boundary_cost(trajectory, local_path)
-                if math.isinf(corridor_cost):
-                    continue  # Trajectory violates corridor boundary
+        angle_diffs = np.abs(np.arctan2(np.sin(target_point["heading"] - last_pts[:, 2]),
+                                         np.cos(target_point["heading"] - last_pts[:, 2])))
+        path_dist_costs = dist_costs + 0.5 * angle_diffs
 
-                # 2. Evaluate Collision & Obstacle Cost
-                obs_cost, min_dist = self._calc_obstacle_cost(trajectory, obstacle_points)
-                if math.isinf(obs_cost):
-                    continue  # Trajectory collides with footprint
+        vel_costs = np.abs(target_point["v_ref"] - V_flat)
+        steer_smooth_costs = np.abs(D_flat - self.last_delta)
 
-                # 3. Evaluate Path Distance Cost (Heading alignment / Goal tracking)
-                path_dist_cost = self._calc_path_distance_cost(trajectory, target_point)
+        # Total Cost Calculation for all K candidates simultaneously
+        total_costs = (
+            self.config.path_distance_weight * path_dist_costs
+            + self.config.obstacle_weight * obs_costs
+            + self.config.velocity_weight * vel_costs
+            + self.config.steer_smoothness_weight * steer_smooth_costs
+            + 5.0 * corridor_costs
+        )
 
-                # 4. Evaluate Velocity Tracking Cost
-                vel_cost = abs(target_point["v_ref"] - v)
+        min_idx = np.argmin(total_costs)
+        min_cost = total_costs[min_idx]
 
-                # 5. Evaluate Steering Smoothness Cost
-                steer_smooth_cost = abs(delta - self.last_delta)
-
-                # Total Cost Sum
-                cost = (
-                    self.config.path_distance_weight * path_dist_cost
-                    + self.config.obstacle_weight * obs_cost
-                    + self.config.velocity_weight * vel_cost
-                    + self.config.steer_smoothness_weight * steer_smooth_cost
-                    + 5.0 * corridor_cost
-                )
-
-                if cost < min_cost:
-                    min_cost = cost
-                    best_v = v
-                    best_delta = delta
-                    best_traj = trajectory
-
-        if best_traj is not None:
-            self.best_local_path = [{"x": p[0], "y": p[1], "heading": p[2]} for p in best_traj]
-        else:
+        if math.isinf(min_cost):
             self.best_local_path = []
+            self.last_delta = 0.0
+            return 0.0, 0.0
 
-        # Update last steering angle state
+        best_v = float(V_flat[min_idx])
+        best_delta = float(D_flat[min_idx])
+        best_traj = trajs[min_idx]
+
+        self.best_local_path = [{"x": float(p[0]), "y": float(p[1]), "heading": float(p[2])} for p in best_traj]
         self.last_delta = best_delta
-        return float(best_v), float(best_delta)
+
+        return best_v, best_delta
 
     def _calc_dynamic_window(self, current_v: float, current_delta: float) -> Tuple[float, float, float, float]:
         """

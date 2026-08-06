@@ -20,12 +20,12 @@ class RobotConfig:
     width: float = 1.000       # 1000 mm
     length: float = 2.055      # 2055 mm
     wheelbase: float = 1.150   # 1150 mm (Distance between front and rear axles)
-    tread: float = 0.760       # 760 mm (Track width: 2 * 0.38m)
+    tread: float = 0.834       # 834 mm (Track width: 2 * 0.417m)
     
     # Steering and Velocity Limits
-    max_steer_angle: float = math.radians(28.0)  # 28 deg = 0.4886 rad
-    min_steer_angle: float = math.radians(-28.0)
-    max_velocity: float = 3.0                    # 3.0 m/s (approx 10.8 km/h)
+    max_steer_angle: float = math.radians(30.0)  # 28 deg = 0.4886 rad
+    min_steer_angle: float = math.radians(-30.0)
+    max_velocity: float = 3.0 / 3.6              # 3.0 km/h = 0.833 m/s
     min_velocity: float = 0.0                    # Forward only (or negative if reverse allowed)
     max_accel: float = 1.0                       # m/s^2
     max_steer_rate: float = math.radians(45.0)   # rad/s
@@ -36,7 +36,7 @@ class RobotConfig:
 
     # Local Planner DWA Constraints & Weights
     dt: float = 0.1                              # DWA simulation time step (seconds)
-    predict_time: float = 2.0                    # DWA forward prediction horizon (seconds)
+    predict_time: float = 4.0                    # DWA forward prediction horizon (seconds, extended to 4.0s)
     v_samples: int = 10                          # Linear velocity sample grid size
     steer_samples: int = 20                      # Steering angle sample grid size
 
@@ -47,7 +47,7 @@ class RobotConfig:
     steer_smoothness_weight: float = 0.5         # Steering angle change penalty weight
     
     # Safety margins
-    inflation_radius: float = 0.2                # Footprint inflation margin (meters)
+    inflation_radius: float = 0.15                # Footprint inflation margin (meters)
 
     # Oriented Bounding Box Footprint relative to rear-axle center or robot base_link
     # Default: base_link is center of robot (x in [-length/2, length/2], y in [-width/2, width/2])

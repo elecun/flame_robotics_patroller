@@ -91,6 +91,13 @@ class IAEPatrolV1:
             mod_cfg = importlib.import_module("APROS.core.plugin.path_planner.robot_config" if __name__.startswith("APROS") else "core.plugin.path_planner.robot_config")
             RobotConfig = getattr(mod_cfg, "RobotConfig")
             self.robot_config = RobotConfig.from_urdf(urdf_path)
+            # Override max_velocity and min_velocity from apros.cfg [mobile_drive_s1] section (convert km/h to m/s)
+            if self.config and self.config.has_section("mobile_drive_s1"):
+                max_v_kmh = float(self.config.get("mobile_drive_s1", "max_velocity", fallback=3.0))
+                min_v_kmh = float(self.config.get("mobile_drive_s1", "min_velocity", fallback=0.0))
+                self.robot_config.max_velocity = max_v_kmh / 3.6
+                self.robot_config.min_velocity = min_v_kmh / 3.6
+                logger.info(f"[IAEPatrolV1] Overrode RobotConfig max_velocity: {max_v_kmh:.1f} km/h ({self.robot_config.max_velocity:.3f} m/s)")
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Error loading RobotConfig: {e}")
             return
