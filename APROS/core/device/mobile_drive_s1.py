@@ -369,7 +369,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             # Invert sign (+ is Right turn, - is Left turn for CAN command)
             cntr_502 = self._next_cntr(0x502)
             byte0_502 = (cntr_502 << 4) | (self.ad_control_req_flag & 0x1)
-            clamped_angle = max(self.min_steering_angle, min(self.max_steering_angle, float(-self.cmd_steering_angle)))
+            clamped_angle = max(self.min_steering_angle, min(self.max_steering_angle, float(self.cmd_steering_angle)))
             raw_angle = int(round((clamped_angle + 30.0) / 0.1))
             raw_angle = max(0, min(0xFFFF, raw_angle))
             data_502 = [byte0_502, 0, 0, 0, raw_angle & 0xFF, (raw_angle >> 8) & 0xFF, 0, 0]
@@ -545,7 +545,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         speed_m_s = (self.speed * 1000.0) / 3600.0
         wheelbase = 1.5
         
-        effective_steer = -self.steer_angle
+        effective_steer = self.steer_angle
         if abs(effective_steer) > 0.01:
             turning_radius = wheelbase / float(np.tan(np.radians(effective_steer)))
             angular_velocity = speed_m_s / turning_radius

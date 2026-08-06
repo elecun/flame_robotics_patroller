@@ -739,7 +739,7 @@ class ViserServerManager:
                     label="Steer Angle (deg)",
                     min=-float(max_steer),
                     max=float(max_steer),
-                    step=0.5,
+                    step=0.1,
                     initial_value=0.0
                 )
                 brake_slider = client.gui.add_slider(
