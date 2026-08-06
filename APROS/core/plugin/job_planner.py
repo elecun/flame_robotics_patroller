@@ -46,19 +46,13 @@ class JobPlanner(BasePlugin):
         logger.info(f"[{self.name}] Set new mission with {len(waypoints)} waypoints.")
 
     def start_mission(self) -> bool:
-        """Start or resume mission execution."""
+        """Start mission execution."""
         if not self.waypoints:
             logger.warning(f"[{self.name}] Cannot start mission: Waypoint queue is empty.")
             return False
         self.state = MissionState.RUNNING
         logger.info(f"[{self.name}] Mission started.")
         return True
-
-    def pause_mission(self):
-        """Pause running mission."""
-        if self.state == MissionState.RUNNING:
-            self.state = MissionState.PAUSED
-            logger.info(f"[{self.name}] Mission paused.")
 
     def stop_mission(self):
         """Stop and reset current mission."""

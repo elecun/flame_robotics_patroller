@@ -45,8 +45,6 @@ class DriveExecutor(BasePlugin):
 
         # Mission & POI state variables
         self.is_active = False
-        self.is_paused = False
-        self.hil_simulation = False
         self.current_route_file: Optional[str] = None
         self.current_poi_file: Optional[str] = None
         self.raw_waypoints: List[Tuple[float, float]] = []
@@ -220,13 +218,12 @@ class DriveExecutor(BasePlugin):
 
         return True
 
-    def start_mission(self, route_file_name: Optional[str] = None, poi_file_name: Optional[str] = None, hil_simulation: bool = False) -> bool:
+    def start_mission(self, route_file_name: Optional[str] = None, poi_file_name: Optional[str] = None) -> bool:
         """
         Start mission route execution thread.
         Triggered when user clicks 'Start Mission' button in Mission Control tab.
         """
         with self._lock:
-            self.hil_simulation = hil_simulation
             if route_file_name:
                 success = self.load_mission_route(route_file_name, poi_file_name)
                 if not success:
@@ -235,12 +232,11 @@ class DriveExecutor(BasePlugin):
                 logger.warning(f"[{self.name}] Cannot start mission: No route loaded.")
                 return False
 
-            if self.is_active and not self.is_paused:
+            if self.is_active:
                 logger.info(f"[{self.name}] Mission is already running.")
                 return True
 
             self.is_active = True
-            self.is_paused = False
 
             # Explicitly release brake and DBS Valid when starting mission
             if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
@@ -255,23 +251,9 @@ class DriveExecutor(BasePlugin):
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._control_loop, daemon=True)
                 self._thread.start()
-                logger.info(f"[{self.name}] Started autonomous Drive Executor control loop ({self.control_freq} Hz, HIL={self.hil_simulation}).")
+                logger.info(f"[{self.name}] Started autonomous Drive Executor control loop ({self.control_freq} Hz).")
 
             return True
-
-    def pause_mission(self):
-        """Pause mission route execution."""
-        with self._lock:
-            self.is_paused = True
-            logger.info(f"[{self.name}] Mission paused.")
-            self._apply_stop_command()
-
-    def resume_mission(self):
-        """Resume paused mission route execution."""
-        with self._lock:
-            if self.is_active:
-                self.is_paused = False
-                logger.info(f"[{self.name}] Mission resumed.")
 
     def abort_mission(self):
         """
@@ -282,7 +264,6 @@ class DriveExecutor(BasePlugin):
         """
         with self._lock:
             self.is_active = False
-            self.is_paused = False
             logger.info(f"[{self.name}] Mission abort requested.")
             if self.local_planner and hasattr(self.local_planner, "best_local_path"):
                 self.local_planner.best_local_path = []
@@ -324,42 +305,33 @@ class DriveExecutor(BasePlugin):
     def _get_current_robot_pose(self) -> Dict[str, float]:
         """
         Get current robot pose {'x', 'y', 'heading'} and velocity.
-        - If hil_simulation is True: estimated based on velocity & kinematics (simulated_x, simulated_y).
-        - If hil_simulation is False: converted from SynerexRTK lat/lon relative to route origin (lat0, lon0).
+        - Converted from SynerexRTK lat/lon relative to route origin (lat0, lon0), or fallback to simulated pose.
         """
         rx, ry, rheading = 0.0, 0.0, 0.0
         rvel = 0.0
 
         if self.robot:
-            if self.hil_simulation:
-                if hasattr(self.robot, "simulated_x"):
-                    rx = float(self.robot.simulated_x)
-                if hasattr(self.robot, "simulated_y"):
-                    ry = float(self.robot.simulated_y)
-                if hasattr(self.robot, "simulated_heading"):
-                    rheading = float(self.robot.simulated_heading)
-            else:
-                # Use SynerexRTK GNSS position converted to relative meters
-                rtk_dev = None
-                if hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
-                    rtk_dev = self.robot.devices["synerex_rtk"]
+            # Use SynerexRTK GNSS position converted to relative meters
+            rtk_dev = None
+            if hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
+                rtk_dev = self.robot.devices["synerex_rtk"]
 
-                if rtk_dev and hasattr(rtk_dev, "latitude") and hasattr(self, "origin_lat") and self.origin_lat is not None:
-                    dlat = rtk_dev.latitude - self.origin_lat
-                    dlon = rtk_dev.longitude - self.origin_lon
-                    rx = dlat * 111000.0
-                    ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
-                    rheading = np.radians(getattr(rtk_dev, "heading", 0.0))
-                    # Also update simulated pose so Viser robot visualization tracks RTK position
-                    if hasattr(self.robot, "simulated_x"):
-                        self.robot.simulated_x = rx
-                        self.robot.simulated_y = ry
-                        self.robot.simulated_heading = rheading
-                else:
-                    # Fallback to simulated pose
-                    rx = getattr(self.robot, "simulated_x", 0.0)
-                    ry = getattr(self.robot, "simulated_y", 0.0)
-                    rheading = getattr(self.robot, "simulated_heading", 0.0)
+            if rtk_dev and hasattr(rtk_dev, "latitude") and rtk_dev.latitude is not None and hasattr(self, "origin_lat") and self.origin_lat is not None:
+                dlat = rtk_dev.latitude - self.origin_lat
+                dlon = rtk_dev.longitude - self.origin_lon
+                rx = dlat * 111000.0
+                ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
+                rheading = np.radians(getattr(rtk_dev, "heading", 0.0))
+                # Also update simulated pose so Viser robot visualization tracks RTK position
+                if hasattr(self.robot, "simulated_x"):
+                    self.robot.simulated_x = rx
+                    self.robot.simulated_y = ry
+                    self.robot.simulated_heading = rheading
+            else:
+                # Fallback to simulated pose
+                rx = getattr(self.robot, "simulated_x", 0.0)
+                ry = getattr(self.robot, "simulated_y", 0.0)
+                rheading = getattr(self.robot, "simulated_heading", 0.0)
 
             if hasattr(self.robot, "drive_base") and self.robot.drive_base:
                 drive_dev = self.robot.drive_base
@@ -434,21 +406,7 @@ class DriveExecutor(BasePlugin):
         while self.is_active:
             start_time = time.time()
 
-            if self.is_paused:
-                time.sleep(self.control_period)
-                continue
-
-            # Check if vehicle is in Auto Mode (or HIL simulation mode)
             drive_dev = getattr(self.robot, "drive_base", None) if self.robot else None
-            is_auto = False
-            if drive_dev:
-                ad_flag = getattr(drive_dev, "ad_control_req_flag", 0)
-                is_auto = (ad_flag == 1) or self.hil_simulation
-
-            if not is_auto:
-                time.sleep(self.control_period)
-                continue
-
             pose, vel_ms = self._get_current_robot_pose()
             print(pose, vel_ms)
 
@@ -505,6 +463,7 @@ class DriveExecutor(BasePlugin):
                     drive_dev.set_steering_angle(target_delta_deg)
 
             elapsed = time.time() - start_time
+            logger.info(f"[{self.name}][_control_loop] Iteration elapsed: {elapsed * 1000.0:.2f} ms ({elapsed:.4f} s) / Target period: {self.control_period * 1000.0:.2f} ms")
             time.sleep(max(0.0, self.control_period - elapsed))
 
         logger.info(f"[{self.name}] Control loop thread terminated.")

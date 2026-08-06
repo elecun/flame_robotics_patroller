@@ -626,7 +626,6 @@ class ViserServerManager:
                     elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
                         self.robot.set_mode_auto()
 
-                    update_estop_button_state(selected_mode)
                     if selected_mode == "Remote":
                         set_group_value_silently("🕹️ Remote")
                     else:
@@ -687,12 +686,7 @@ class ViserServerManager:
                 disabled=not init_is_auto
             )
 
-            update_ad_control_gui_state_fn = None
-
-            def update_estop_button_state(selected_mode: str):
-                estop_button.disabled = (selected_mode != "Auto")
-                if update_ad_control_gui_state_fn:
-                    update_ad_control_gui_state_fn(selected_mode)
+            # estop_button disabled state updated dynamically in ui_update_loop
 
         # Helper function to list route files from APROS/route directory
         def get_route_files() -> list:
@@ -819,17 +813,8 @@ class ViserServerManager:
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(brake=brake_light_cb.value)
 
-            # Set initial disabled state for AD Control controls if not in Auto mode (excluding button groups which Viser does not allow disabling)
+            # AD Control UI enablement state is dynamically updated in background ui_update_loop
             ad_controls = [vel_slider, steer_slider, brake_slider, left_turn_cb, right_turn_cb, head_light_cb, brake_light_cb]
-            for ctrl in ad_controls:
-                ctrl.disabled = not init_is_auto
-
-            def update_ad_control_gui_state(selected_mode: str):
-                is_disabled = (selected_mode != "Auto")
-                for ctrl in ad_controls:
-                    ctrl.disabled = is_disabled
-
-            update_ad_control_gui_state_fn = update_ad_control_gui_state
 
         # Tab 3: Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission", viser.Icon.TARGET):
@@ -846,11 +831,6 @@ class ViserServerManager:
                     options=poi_files,
                     initial_value=poi_files[0]
                 )
-                hil_sim_checkbox = client.gui.add_checkbox(
-                    label="HIL Simulation",
-                    initial_value=False
-                )
-
                 @mission_route_dropdown.on_update
                 def _(_):
                     val = mission_route_dropdown.value
@@ -866,7 +846,6 @@ class ViserServerManager:
                 preview_btn = client.gui.add_button("👁️ Preview Mission", color="blue")
                 refresh_missions_btn = client.gui.add_button("🔄 Refresh Missions", color="gray")
                 start_mission_btn = client.gui.add_button("▶️ Start Mission", color="green")
-                pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
                 abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
 
                 @refresh_missions_btn.on_click
@@ -891,37 +870,9 @@ class ViserServerManager:
                 def _(_):
                     route_file = mission_route_dropdown.value
                     poi_file = mission_poi_dropdown.value
-                    is_hil_enabled = hil_sim_checkbox.value
-
-                    def execute_start():
-                        if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                            self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file, hil_simulation=is_hil_enabled)
-                            logger.info(f"[ViserUI] Start Mission clicked (HIL={is_hil_enabled}) -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
-
-                    if is_hil_enabled:
-                        modal = client.gui.add_modal("HIL Simulation 모드 확인")
-                        with modal:
-                            client.gui.add_markdown("가상 공간에서 하드웨어를 시뮬레이션 합니다.")
-                            confirm_btn = client.gui.add_button("확인", color="green")
-                            cancel_btn = client.gui.add_button("취소", color="red")
-
-                            @confirm_btn.on_click
-                            def _(_):
-                                modal.close()
-                                execute_start()
-
-                            @cancel_btn.on_click
-                            def _(_):
-                                modal.close()
-                                logger.info("[ViserUI] HIL Simulation start cancelled by user.")
-                    else:
-                        execute_start()
-
-                @pause_mission_btn.on_click
-                def _(_):
                     if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        self.robot.drive_executor.pause_mission()
-                        logger.info("[ViserUI] Pause Mission clicked -> Paused DriveExecutor")
+                        self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file)
+                        logger.info(f"[ViserUI] Start Mission clicked -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
 
                 @abort_mission_btn.on_click
                 def _(_):
@@ -1109,6 +1060,22 @@ class ViserServerManager:
                 try:
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
 
+                    # Dynamically enable/disable AD Control, Mission Start/Abort & ESTOP UI based on system Drive Mode State (Auto/AD)
+                    try:
+                        drive_dev = get_mobile_drive_dev()
+                        drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
+                        parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
+                        drive_mode_state = str(parsed_can.get("drive_state_mode", drive_status.get("drive_mode", getattr(self.robot, "drive_mode", "Remote")))).strip()
+                        is_ad_active = drive_mode_state.startswith("Auto") or drive_mode_state.startswith("AD") or drive_mode_state == "1"
+
+                        estop_button.disabled = not is_ad_active
+                        start_mission_btn.disabled = not is_ad_active
+                        abort_mission_btn.disabled = not is_ad_active
+                        for ctrl in ad_controls:
+                            ctrl.disabled = not is_ad_active
+                    except Exception as gui_err:
+                        pass
+
                     # Update Data Logger status
                     try:
                         if self._data_logger.is_recording:
@@ -1217,21 +1184,25 @@ class ViserServerManager:
         is_rtk_conn = rtk_data.get("connected", False) if rtk_data else False
         lat_val = rtk_data.get("latitude") if rtk_data else getattr(rtk_dev, "latitude", None)
         lon_val = rtk_data.get("longitude") if rtk_data else getattr(rtk_dev, "longitude", None)
+        heading_val = rtk_data.get("heading") if rtk_data else getattr(rtk_dev, "heading", None)
         fq = rtk_data.get("fix_quality") if rtk_data else getattr(rtk_dev, "fix_quality", 0)
 
         # Fallback / Disconnected / Invalid status formatting
         if not is_rtk_conn or lat_val is None or lon_val is None or fq == 0:
             lat_str = "-"
             lon_str = "-"
+            heading_str = "-"
             quality_str = "-"
         else:
             lat_str = f"{lat_val} deg"
             lon_str = f"{lon_val} deg"
+            heading_str = f"{heading_val:.1f}°" if heading_val is not None else "-"
             from core.device.synerex_rtk import SynerexRTK
             quality_str = SynerexRTK.quality2str(fq)
 
         lines.append(f"- **GPS(Lat)**: `{lat_str}`")
         lines.append(f"- **GPS(Lon)**: `{lon_str}`")
+        lines.append(f"- **GPS(Heading)**: `{heading_str}`")
         lines.append(f"- **GPS(Quality)**: `{quality_str}`")
 
         return "\n".join(lines)
@@ -1301,7 +1272,6 @@ class ViserServerManager:
                     "mast_joint": mast_extension,
                     "front_steer_joint": steer_angle_rad,
                 })
-                logger.info(f"[ViserUI][3D Model Update] front_steer_joint: {steer_angle_rad:.4f} rad ({np.degrees(steer_angle_rad):.2f} deg)")
 
             # Real-time VLP-16 point cloud visualization centered at robot frame
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:

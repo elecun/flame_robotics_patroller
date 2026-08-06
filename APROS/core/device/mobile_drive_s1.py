@@ -375,7 +375,6 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             data_502 = [byte0_502, 0, 0, 0, raw_angle & 0xFF, (raw_angle >> 8) & 0xFF, 0, 0]
             msg_502 = Frame(id_=0x502, data=bytes(data_502))
             self.ch.write(msg_502)
-            logger.info(f"[{self.name}][CAN 0x502 Transmit] target_angle: {self.cmd_steering_angle:.2f} deg, CAN_clamped_angle: {clamped_angle:.2f} deg, CAN_raw_angle_0.1deg: {raw_angle} (0x{raw_angle:04X}), CAN_data_bytes: {list(data_502)}")
 
             # 3. 0x503 AD_Control_Brake
             # Byte0: cntr<<4 | (ad_dbs_valid & 0x1) -- Start Byte 0, Start Bit 0 (1 when Auto or active brake, 0 when Remote/normal)

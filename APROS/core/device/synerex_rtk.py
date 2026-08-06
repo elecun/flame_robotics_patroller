@@ -243,16 +243,55 @@ class SynerexRTK(BaseDevice):
         except (ValueError, IndexError):
             pass
 
+    def parse_hdt(self, parts: list):
+        if len(parts) < 2:
+            return
+        try:
+            if parts[1]:
+                self.heading = float(parts[1])
+        except (ValueError, IndexError):
+            pass
+
+    def parse_rmc(self, parts: list):
+        if len(parts) < 9:
+            return
+        try:
+            lat_raw, lat_dir = parts[3], parts[4]
+            lon_raw, lon_dir = parts[5], parts[6]
+            if lat_raw and lat_dir:
+                self.latitude = self._convert_to_decimal_degrees(lat_raw, lat_dir)
+            if lon_raw and lon_dir:
+                self.longitude = self._convert_to_decimal_degrees(lon_raw, lon_dir)
+            if parts[8]:  # Track angle / course over ground (heading in deg)
+                self.heading = float(parts[8])
+        except (ValueError, IndexError):
+            pass
+
+    def parse_vtg(self, parts: list):
+        if len(parts) < 2:
+            return
+        try:
+            if parts[1]:  # True track made good (heading in deg)
+                self.heading = float(parts[1])
+        except (ValueError, IndexError):
+            pass
+
     def parse_nmea_line(self, line: str):
         line = line.strip()
         if not line.startswith('$'):
             return
         parts = line.split(',')
-        if len(parts) < 3:
+        if len(parts) < 2:
             return
         sentence_id = parts[0][1:]
         if sentence_id.endswith('GGA'):
             self.parse_gga(parts)
+        elif sentence_id.endswith('HDT'):
+            self.parse_hdt(parts)
+        elif sentence_id.endswith('RMC'):
+            self.parse_rmc(parts)
+        elif sentence_id.endswith('VTG'):
+            self.parse_vtg(parts)
 
     def _worker_loop(self):
         """Background thread loop: read serial or simulate movement, periodically publish ZPipe & WebSocket."""
