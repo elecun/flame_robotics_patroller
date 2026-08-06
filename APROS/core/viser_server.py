@@ -1142,6 +1142,7 @@ class ViserServerManager:
 
         drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") and self.robot.devices else None
         incline_dev = self.robot.devices.get("baumer_incline") if hasattr(self.robot, "devices") and self.robot.devices else None
+        mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
 
         drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
         parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
@@ -1176,6 +1177,35 @@ class ViserServerManager:
         tz = incline_status.get("tilt_z", 0.0)
         lines.append(f"- **Tilt X**: `{tx:.2f}°`")
         lines.append(f"- **Tilt Z**: `{tz:.2f}°`")
+
+        # 5. Telescopic Mast Height
+        mast_height_val = None
+        if mast_dev:
+            if hasattr(mast_dev, "get_status"):
+                m_status = mast_dev.get_status()
+                if isinstance(m_status, dict):
+                    mast_height_val = m_status.get("current_height_m")
+                    if mast_height_val is None and "current_height_mm" in m_status:
+                        mast_height_val = m_status["current_height_mm"] / 1000.0
+            if mast_height_val is None and hasattr(mast_dev, "current_height_m"):
+                mast_height_val = mast_dev.current_height_m
+
+        if mast_height_val is None and hasattr(self.robot, "telescopic_mast_connector") and self.robot.telescopic_mast_connector:
+            last_mast = getattr(self.robot.telescopic_mast_connector, "last_mast_data", None)
+            if isinstance(last_mast, dict):
+                mast_height_val = last_mast.get("current_height_m")
+                if mast_height_val is None and "current_height_mm" in last_mast:
+                    mast_height_val = last_mast["current_height_mm"] / 1000.0
+
+        if mast_height_val is not None:
+            mast_height_str = f"{mast_height_val:.2f} m"
+            if not hasattr(self, "_last_logged_dash_mast_height") or self._last_logged_dash_mast_height != mast_height_str:
+                self._last_logged_dash_mast_height = mast_height_str
+                logger.info(f"[Viser UI Dashboard] Robot Drive Status -> Mast Height displayed: {mast_height_str} (raw: {mast_height_val:.3f} m)")
+        else:
+            mast_height_str = "N/A"
+
+        lines.append(f"- **Mast Height**: `{mast_height_str}`")
 
         # 5. Synerex RTK GNSS
         rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None

@@ -62,7 +62,7 @@ class TelescopicMast(BaseDevice):
         self,
         name: str = "telescopic_mast",
         robot_model: str = "iae_patrol_v1",
-        port: str = "/dev/ttyUSB1",
+        port: str = "/dev/ttyUSB0",
         baudrate: int = 9600,
         parity: str = "N",
         stopbits: int = 2,
@@ -335,7 +335,7 @@ class TelescopicMast(BaseDevice):
                     bytesize=serial.EIGHTBITS,
                     parity=parity_val,
                     stopbits=stopbits_val,
-                    timeout=0.2
+                    timeout=0.05
                 )
                 self.is_connected = True
                 logger.info(f"[{self.name}] RS485 Serial connected on {self.port_name} ({self.baudrate}bps, N, {self.stopbits})")
@@ -348,6 +348,10 @@ class TelescopicMast(BaseDevice):
         self._thread.start()
         logger.info(f"[{self.name}] Connected. Telemetry IPC: ipc://{self.ipc_address}")
         return True
+
+    def start(self) -> bool:
+        """Start device communication worker thread."""
+        return self.connect()
 
     def disconnect(self) -> bool:
         """Disconnect device interface and stop thread."""
@@ -385,22 +389,26 @@ class TelescopicMast(BaseDevice):
         logger.info(f"[{self.name}] Disconnected.")
         return True
 
+    def stop(self) -> bool:
+        """Stop device communication worker thread."""
+        return self.disconnect()
+
     def _worker_loop(self):
         """
-        Background worker loop running at 500ms (0.5s) intervals:
+        Background worker loop running at 100ms (0.1s) intervals:
         1. Queries RS485 Modbus device with 01 04 03 ea 00 02 50 7b (or updates simulated pose towards target).
         2. Parses response bytes (e.g. 01 04 04 00 00 07 08 f8 72 -> 0x00000708 = 1800 mm).
         3. Publishes mast telemetry over ZPipe IPC.
-        4. Logs current mast position (extended) in mm to console for debugging.
+        4. Logs current mast position (extended) in mm & m to console for debugging.
         """
         speed_mm_per_sec = 300.0  # Smooth motion speed 300mm/s for simulation
-        dt = 0.5  # 500ms interval as requested
+        dt = 0.1  # 100ms interval as requested
 
         while self._running:
             start_time = time.time()
             read_height_mm: Optional[float] = None
             raw_rx_hex = "N/A (SIM Mode)"
-            raw_tx_hex = self.READ_POSITION_CMD.hex(' ')
+            # raw_tx_hex = self.READ_POSITION_CMD.hex(' ')
 
             # 1. Try RS485 Modbus hardware read if serial is connected
             if self.serial_conn and self.serial_conn.is_open:
@@ -418,6 +426,7 @@ class TelescopicMast(BaseDevice):
                         # Extract 4-byte 32-bit unsigned integer (bytes 3..6)
                         raw_val = struct.unpack('>I', rx_bytes[3:7])[0]
                         read_height_mm = float(raw_val)
+                        logger.info(f"[{self.name}] [RS485 Modbus Rx] Communication height received: raw_val={raw_val} -> {read_height_mm:.1f} mm ({read_height_mm / 1000.0:.3f} m)")
                     else:
                         logger.warning(f"[{self.name}] Invalid Modbus RX packet ({len(rx_bytes)} bytes): {raw_rx_hex}")
                 except Exception as e:
@@ -440,6 +449,7 @@ class TelescopicMast(BaseDevice):
 
             # 4. Publish telemetry data over ZPipe IPC (JSON format)
             data = self.get_status()
+            logger.info(f"[{self.name}] [Telemetry Tx] Height: {data['current_height_mm']} mm ({data['current_height_m']} m) [HW_read: {is_hw}]")
             if self.pub_socket and self.pub_socket.is_joined:
                 try:
                     payload = json.dumps(data, ensure_ascii=False).encode('utf-8')
@@ -532,6 +542,7 @@ class TelescopicMast_Connector:
                     json_str = payload_bytes.decode('utf-8')
                     data = json.loads(json_str)
                     self.last_mast_data = data
+                    logger.info(f"[TelescopicMast_Connector] [IPC Rx] Received mast data: height_mm={data.get('current_height_mm')} mm ({data.get('current_height_m')} m)")
                     if self.on_data_received:
                         self.on_data_received(data)
                 except Exception as e:
