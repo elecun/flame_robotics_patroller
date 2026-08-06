@@ -1289,6 +1289,9 @@ class ViserServerManager:
         rtk_data = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else (getattr(self.robot, "last_rtk_data", {}) or {})
         
         is_rtk_conn = rtk_data.get("connected", False) if rtk_data else False
+        is_updated = rtk_data.get("new_updated", False) if rtk_data else False
+        update_icon = "🟢" if is_updated else "🔴"
+
         lat_val = rtk_data.get("latitude") if rtk_data else getattr(rtk_dev, "latitude", None)
         lon_val = rtk_data.get("longitude") if rtk_data else getattr(rtk_dev, "longitude", None)
         heading_val = rtk_data.get("heading") if rtk_data else getattr(rtk_dev, "heading", None)
@@ -1299,13 +1302,13 @@ class ViserServerManager:
             lat_str = "-"
             lon_str = "-"
             heading_str = "-"
-            quality_str = "-"
+            quality_str = f"{update_icon} -"
         else:
             lat_str = f"{lat_val} deg"
             lon_str = f"{lon_val} deg"
             heading_str = f"{heading_val:.1f}°" if heading_val is not None else "-"
             from core.device.synerex_rtk import SynerexRTK
-            quality_str = SynerexRTK.quality2str(fq)
+            quality_str = f"{update_icon} {SynerexRTK.quality2str(fq)}"
 
         lines.append(f"- **GPS(Lat)**: `{lat_str}`")
         lines.append(f"- **GPS(Lon)**: `{lon_str}`")

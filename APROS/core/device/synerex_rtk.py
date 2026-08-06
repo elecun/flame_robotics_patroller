@@ -66,6 +66,9 @@ class SynerexRTK(BaseDevice):
         self.ws_host = str(ws_host)
         self.ws_port = int(ws_port)
 
+        # Lock for thread-safe telemetry state access
+        self._lock = threading.Lock()
+
         # Telemetry state
         self.latitude: Optional[float] = None
         self.longitude: Optional[float] = None
@@ -74,6 +77,7 @@ class SynerexRTK(BaseDevice):
         self.fix_quality: int = 0  # 0 = Invalid
         self.status_str: str = self.quality2str(self.fix_quality)
         self.satellites: int = 0
+        self.new_updated: bool = False  # True when new NMEA packet is parsed
 
         self.serial_connection: Optional[Any] = None
 
@@ -81,9 +85,10 @@ class SynerexRTK(BaseDevice):
         self.pub_socket: Optional[AsyncZSocket] = None
         self.ipc_address = f"/tmp/{self.robot_model}_synerex_rtk.ipc"
 
-        # Worker & WebSocket Server Thread control
+        # Dedicated Thread control (Serial Reader + Periodic Publisher + WebSocket Server)
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._serial_thread: Optional[threading.Thread] = None
+        self._publisher_thread: Optional[threading.Thread] = None
         self._ws_thread: Optional[threading.Thread] = None
 
         # Connected WebSocket clients
@@ -115,13 +120,15 @@ class SynerexRTK(BaseDevice):
                 logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
 
     def update_pose(self, lat: float, lon: float, alt: float = 45.0, heading: float = 0.0, fix_quality: int = 4):
-        """Update current RTK position, heading and fix quality coordinates."""
-        self.latitude = float(lat)
-        self.longitude = float(lon)
-        self.altitude = float(alt)
-        self.heading = float(heading)
-        self.fix_quality = int(fix_quality)
-        self.status_str = self.quality2str(self.fix_quality)
+        """Update current RTK position, heading and fix quality coordinates in a thread-safe manner."""
+        with self._lock:
+            self.latitude = float(lat)
+            self.longitude = float(lon)
+            self.altitude = float(alt)
+            self.heading = float(heading)
+            self.fix_quality = int(fix_quality)
+            self.status_str = self.quality2str(self.fix_quality)
+            self.new_updated = True
 
     def connect_serial(self) -> bool:
         if not SERIAL_AVAILABLE or serial is None:
@@ -133,7 +140,7 @@ class SynerexRTK(BaseDevice):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=1.0
+                timeout=0.5
             )
             return self.serial_connection.is_open
         except Exception as e:
@@ -149,7 +156,7 @@ class SynerexRTK(BaseDevice):
         self.serial_connection = None
 
     def connect(self) -> bool:
-        """Start worker thread and WebSocket server if enabled."""
+        """Start serial reader thread, periodic publisher thread, and WebSocket server if enabled."""
         if not self.enable:
             self.is_connected = False
             logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
@@ -158,24 +165,32 @@ class SynerexRTK(BaseDevice):
         self.is_connected = True
         self._running = True
 
-        # Start worker thread
-        self._thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self._thread.start()
+        # 1. Start asynchronous Serial NMEA reader thread
+        self._serial_thread = threading.Thread(target=self._serial_reader_loop, daemon=True, name=f"{self.name}_serial")
+        self._serial_thread.start()
 
-        # Start WebSocket server thread if websockets library is available
+        # 2. Start periodic ZPipe/WebSocket publisher thread
+        self._publisher_thread = threading.Thread(target=self._publisher_loop, daemon=True, name=f"{self.name}_pub")
+        self._publisher_thread.start()
+
+        # 3. Start WebSocket server thread if websockets library is available
         if WEBSOCKETS_AVAILABLE:
-            self._ws_thread = threading.Thread(target=self._start_ws_server, daemon=True)
+            self._ws_thread = threading.Thread(target=self._start_ws_server, daemon=True, name=f"{self.name}_ws")
             self._ws_thread.start()
 
-        logger.info(f"[{self.name}] Connected. Port={self.port}, Baud={self.baudrate}, Telemetry IPC: ipc://{self.ipc_address}")
+        logger.info(f"[{self.name}] Connected (2 Threads: Serial Reader + Publisher). Port={self.port}, Baud={self.baudrate}, Telemetry IPC: ipc://{self.ipc_address}")
         return True
 
     def disconnect(self) -> bool:
         """Disconnect device and stop all background threads."""
         self._running = False
-        if self._thread:
-            self._thread.join(timeout=1.0)
-            self._thread = None
+        if self._serial_thread:
+            self._serial_thread.join(timeout=1.0)
+            self._serial_thread = None
+
+        if self._publisher_thread:
+            self._publisher_thread.join(timeout=1.0)
+            self._publisher_thread = None
 
         if self._loop and self._loop.is_running():
             try:
@@ -229,17 +244,25 @@ class SynerexRTK(BaseDevice):
         try:
             lat_raw, lat_dir = parts[2], parts[3]
             lon_raw, lon_dir = parts[4], parts[5]
-            if lat_raw and lat_dir:
-                self.latitude = self._convert_to_decimal_degrees(lat_raw, lat_dir)
-            if lon_raw and lon_dir:
-                self.longitude = self._convert_to_decimal_degrees(lon_raw, lon_dir)
-            if parts[6]:
-                self.fix_quality = int(parts[6])
-                self.status_str = self.quality2str(self.fix_quality)
-            if parts[7]:
-                self.satellites = int(parts[7])
-            if parts[9]:
-                self.altitude = float(parts[9])
+            lat_val = self._convert_to_decimal_degrees(lat_raw, lat_dir) if (lat_raw and lat_dir) else None
+            lon_val = self._convert_to_decimal_degrees(lon_raw, lon_dir) if (lon_raw and lon_dir) else None
+            fq_val = int(parts[6]) if parts[6] else None
+            sats_val = int(parts[7]) if parts[7] else None
+            alt_val = float(parts[9]) if parts[9] else None
+
+            with self._lock:
+                if lat_val is not None:
+                    self.latitude = lat_val
+                if lon_val is not None:
+                    self.longitude = lon_val
+                if fq_val is not None:
+                    self.fix_quality = fq_val
+                    self.status_str = self.quality2str(fq_val)
+                if sats_val is not None:
+                    self.satellites = sats_val
+                if alt_val is not None:
+                    self.altitude = alt_val
+                self.new_updated = True
         except (ValueError, IndexError):
             pass
 
@@ -248,7 +271,10 @@ class SynerexRTK(BaseDevice):
             return
         try:
             if parts[1]:
-                self.heading = float(parts[1])
+                hdg_val = float(parts[1])
+                with self._lock:
+                    self.heading = hdg_val
+                    self.new_updated = True
         except (ValueError, IndexError):
             pass
 
@@ -258,12 +284,18 @@ class SynerexRTK(BaseDevice):
         try:
             lat_raw, lat_dir = parts[3], parts[4]
             lon_raw, lon_dir = parts[5], parts[6]
-            if lat_raw and lat_dir:
-                self.latitude = self._convert_to_decimal_degrees(lat_raw, lat_dir)
-            if lon_raw and lon_dir:
-                self.longitude = self._convert_to_decimal_degrees(lon_raw, lon_dir)
-            if parts[8]:  # Track angle / course over ground (heading in deg)
-                self.heading = float(parts[8])
+            lat_val = self._convert_to_decimal_degrees(lat_raw, lat_dir) if (lat_raw and lat_dir) else None
+            lon_val = self._convert_to_decimal_degrees(lon_raw, lon_dir) if (lon_raw and lon_dir) else None
+            hdg_val = float(parts[8]) if parts[8] else None
+
+            with self._lock:
+                if lat_val is not None:
+                    self.latitude = lat_val
+                if lon_val is not None:
+                    self.longitude = lon_val
+                if hdg_val is not None:
+                    self.heading = hdg_val
+                self.new_updated = True
         except (ValueError, IndexError):
             pass
 
@@ -271,8 +303,11 @@ class SynerexRTK(BaseDevice):
         if len(parts) < 2:
             return
         try:
-            if parts[1]:  # True track made good (heading in deg)
-                self.heading = float(parts[1])
+            if parts[1]:
+                hdg_val = float(parts[1])
+                with self._lock:
+                    self.heading = hdg_val
+                    self.new_updated = True
         except (ValueError, IndexError):
             pass
 
@@ -293,39 +328,40 @@ class SynerexRTK(BaseDevice):
         elif sentence_id.endswith('VTG'):
             self.parse_vtg(parts)
 
-    def _worker_loop(self):
-        """Background thread loop: read serial or simulate movement, periodically publish ZPipe & WebSocket."""
+    def _serial_reader_loop(self):
+        """Thread 1: Asynchronous Serial NMEA Reader Loop. Continously reads incoming NMEA lines and updates shared telemetry state."""
         has_serial = self.connect_serial()
         if not has_serial:
-            logger.info(f"[{self.name}] Serial port {self.port} unavailable. Running in simulation mode.")
+            logger.error(f"[{self.name}] Serial port '{self.port}' is unavailable. Please check hardware connection or port configuration.")
 
-        t = 0.0
-        base_lat = self.latitude
-        base_lon = self.longitude
+        last_serial_retry = time.time()
 
         while self._running:
-            start_time = time.time()
-            if self.serial_connection and hasattr(self.serial_connection, "is_open") and self.serial_connection.is_open:
-                try:
-                    if self.serial_connection.in_waiting > 0:
-                        line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
-                        if line.startswith('$'):
-                            self.parse_nmea_line(line)
-                except Exception as e:
-                    logger.error(f"[{self.name}] Serial read error: {e}")
-                    self.disconnect_serial()
+            if not (self.serial_connection and hasattr(self.serial_connection, "is_open") and self.serial_connection.is_open):
+                if time.time() - last_serial_retry >= 3.0:
+                    last_serial_retry = time.time()
+                    if self.connect_serial():
+                        logger.info(f"[{self.name}] Reconnected to serial port '{self.port}'.")
+                    else:
+                        logger.error(f"[{self.name}] Serial port '{self.port}' disconnected or failed to connect.")
+                time.sleep(0.5)
             else:
-                # Simulation mode
-                t += 0.1
-                base_lat = base_lat or 34.7971754
-                base_lon = base_lon or 127.6607499
-                self.latitude = base_lat + 0.00008 * math.sin(t * 0.2)
-                self.longitude = base_lon + 0.00008 * math.cos(t * 0.2)
-                self.heading = (t * 11.45) % 360.0
-                self.fix_quality = 1  # Simulation mode: 3D (not RTK Fixed)
-                self.status_str = self.quality2str(self.fix_quality)
+                try:
+                    line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                    if line and line.startswith('$'):
+                        self.parse_nmea_line(line)
+                except Exception as e:
+                    logger.error(f"[{self.name}] Serial read error on '{self.port}': {e}")
+                    self.disconnect_serial()
+                    time.sleep(0.5)
 
-            data = self.get_status()
+    def _publisher_loop(self):
+        """Thread 2: Periodic Publisher Loop. Periodically reads shared telemetry state and broadcasts via ZPipe & WebSocket."""
+        while self._running:
+            start_time = time.time()
+
+            # Consume new_updated flag so each published status carries True only on fresh packet read
+            data = self.get_status(consume_updated_flag=True)
 
             # 1. Publish over ZPipe IPC
             if self.pub_socket and self.pub_socket.is_joined:
@@ -394,19 +430,33 @@ class SynerexRTK(BaseDevice):
                     disconnected.add(ws)
             self._ws_clients -= disconnected
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self, consume_updated_flag: bool = False) -> Dict[str, Any]:
+        with self._lock:
+            lat = self.latitude
+            lon = self.longitude
+            alt = self.altitude
+            hdg = self.heading
+            fq = self.fix_quality
+            fq_str = self.quality2str(fq)
+            status = self.status_str
+            sats = self.satellites
+            updated = self.new_updated
+            if consume_updated_flag:
+                self.new_updated = False
+
         return {
             "name": self.name,
             "connected": self.is_connected,
-            "latitude": round(self.latitude, 7) if self.latitude is not None else None,
-            "longitude": round(self.longitude, 7) if self.longitude is not None else None,
-            "altitude": round(self.altitude, 2) if self.altitude is not None else None,
-            "heading": round(self.heading, 1) if self.heading is not None else 0.0,
-            "fix_quality": self.fix_quality,
-            "quality_str": self.quality2str(self.fix_quality),
-            "status": self.status_str,
-            "satellites": self.satellites,
-            "ws_port": self.ws_port
+            "latitude": round(lat, 7) if lat is not None else None,
+            "longitude": round(lon, 7) if lon is not None else None,
+            "altitude": round(alt, 2) if alt is not None else None,
+            "heading": round(hdg, 1) if hdg is not None else 0.0,
+            "fix_quality": fq,
+            "quality_str": fq_str,
+            "status": status,
+            "satellites": sats,
+            "ws_port": self.ws_port,
+            "new_updated": updated
         }
 
 
