@@ -69,7 +69,7 @@ class TelescopicMast(BaseDevice):
         initial_height: float = 1800.0,
         offset_x: float = 0.0,
         offset_y: float = 0.0,
-        offset_z: float = 0.64,
+        offset_z: float = 0.78,
         enable: bool = True
     ):
         super().__init__(name, enable=enable)
