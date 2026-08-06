@@ -31,10 +31,11 @@ class RobotConfig:
     max_steer_rate: float = math.radians(45.0)   # rad/s
 
     # Global Planner Constraints
-    max_lat_accel: float = 1.5                   # m/s^2 (Maximum lateral acceleration for curvature speed limiting)
+    max_lat_accel: float = 1.8                   # m/s^2 (Maximum lateral acceleration for curvature speed limiting)
     ds: float = 0.1                              # Waypoint sampling resolution (meters)
 
     # Local Planner DWA Constraints & Weights
+    lookahead_distance: float = 3.0              # Target lookahead distance for reference point and local window (meters)
     dt: float = 0.1                              # DWA simulation time step (seconds)
     predict_time: float = 4.0                    # DWA forward prediction horizon (seconds, extended to 4.0s)
     v_samples: int = 10                          # Linear velocity sample grid size

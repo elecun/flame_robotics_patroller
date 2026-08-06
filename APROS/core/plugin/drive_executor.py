@@ -458,8 +458,9 @@ class DriveExecutor(BasePlugin):
             # 3. Compute Local Planner (Ackermann DWA) controls to track route
             obstacles = self._get_obstacle_points()
             if self.local_planner is not None:
-                # Extract local path window (nearby segment only, not full global path)
-                local_window = self._get_local_path_window(pose, self.global_path, lookahead=5.0, max_points=50)
+                # Extract local path window using configured lookahead_distance
+                lookahead_dist = getattr(self.local_planner.config, "lookahead_distance", 3.0) if hasattr(self.local_planner, "config") else 3.0
+                local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=50)
                 target_v_ms, target_delta_rad = self.local_planner.compute_velocity_commands(
                     current_pose=pose,
                     current_vel=vel_ms,

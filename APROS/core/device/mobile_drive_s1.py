@@ -110,6 +110,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         min_velocity: float = -1.0,
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
+        predict_time: float = 4.0,
         corridor_boundary: float = 2.5,
         auto_mode_interval_ms: float = 20.0,
         enable: bool = True,
@@ -130,8 +131,9 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.MIN_VELOCITY_KMH = float(min_velocity)
         self.MAX_VELOCITY_KMH = float(max_velocity)
 
-        # Lookahead distance & corridor boundary for local path planning (meters)
+        # Lookahead distance & predict time & corridor boundary for local path planning (meters, seconds)
         self.lookahead_distance = float(lookahead_distance)
+        self.predict_time = float(predict_time)
         self.corridor_boundary = float(corridor_boundary)
 
         # Auto Mode transmission interval (ms)

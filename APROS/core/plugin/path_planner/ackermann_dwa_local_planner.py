@@ -356,10 +356,10 @@ class AckermannDWALocalPlanner(BaseLocalPlanner):
         local_path: List[Dict[str, float]]
     ) -> Dict[str, float]:
         """
-        Find lookahead target point along local_path.
+        Find lookahead target point along local_path using configured lookahead_distance.
         """
         rx, ry = current_pose["x"], current_pose["y"]
-        lookahead_dist = 1.5
+        lookahead_dist = getattr(self.config, "lookahead_distance", 3.0)
 
         for pt in local_path:
             dist = math.hypot(pt["x"] - rx, pt["y"] - ry)
