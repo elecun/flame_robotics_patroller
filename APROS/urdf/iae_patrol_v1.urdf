@@ -274,13 +274,13 @@
   </link>
 
   <!-- ================= WHEELS & ACKERMANN STEERING LINKAGE ================= -->
-  <!-- Wheel Inset: Track Width Y = +-0.38m (Tires positioned inside chassis bounds for clear steering visibility) -->
+  <!-- Wheel Inset: Track Width Y = +-0.417m (Tires positioned inside chassis bounds for clear steering visibility) -->
 
   <!-- Rear Left Drive Wheel (Fixed RWD) -->
   <joint name="rear_left_wheel_joint" type="fixed">
     <parent link="base_link"/>
     <child link="rear_left_wheel_link"/>
-    <origin xyz="-0.575 0.38 -0.0661" rpy="-1.5708 0 0"/>
+    <origin xyz="-0.575 0.417 -0.0661" rpy="-1.5708 0 0"/>
   </joint>
   <link name="rear_left_wheel_link">
     <visual>
@@ -324,7 +324,7 @@
   <joint name="front_left_steer_joint" type="revolute">
     <parent link="base_link"/>
     <child link="front_left_wheel_link"/>
-    <origin xyz="0.575 0.38 -0.0661" rpy="0 0 0"/>
+    <origin xyz="0.575 0.417 -0.0661" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-0.4886" upper="0.4886" effort="500.0" velocity="1.0"/>
     <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>
@@ -347,7 +347,7 @@
   <joint name="front_right_steer_joint" type="revolute">
     <parent link="base_link"/>
     <child link="front_right_wheel_link"/>
-    <origin xyz="0.575 -0.38 -0.0661" rpy="0 0 0"/>
+    <origin xyz="0.575 -0.417 -0.0661" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-0.4886" upper="0.4886" effort="500.0" velocity="1.0"/>
     <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>

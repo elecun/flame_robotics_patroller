@@ -214,16 +214,19 @@ class FoldableTelescopicMast:
         """텔레스코픽 마스트를 올립니다."""
         logger.debug("Put raise mast cmd...")
         self._q.put(Command(Cmd.RAISE_MAST))
+        #self._try_put_nonblocking(Command(Cmd.RAISE_MAST))
 
     def lower_mast(self) -> None:
         """텔레스코픽 마스트를 내립니다."""
         logger.debug("Put lower mast cmd...")
         self._q.put(Command(Cmd.LOWER_MAST))
+        #self._try_put_nonblocking(Command(Cmd.LOWER_MAST))
 
     def stop_mast_action(self) -> None:
         """텔레스코픽 마스트의 동작을 즉시 중지합니다."""
         logger.debug("Put stop mast action cmd...")
         self._q.put(Command(Cmd.STOP_MAST))
+        # self._try_put_nonblocking(Command(Cmd.STOP_MAST))
 
     
     # 팬틸트 관련 메서드
@@ -273,7 +276,7 @@ class FoldableTelescopicMast:
         
         di = rr.bits[:4]  # [DI0, DI1, DI2, DI3]
 
-        logger.debug(f"metal sensors DI0={int(di[0])} DI1={int(di[1])} DI2={int(di[2])} DI3={int(di[3])} | t={time.perf_counter():7.2f} ms")
+        #logger.debug(f"metal sensors DI0={int(di[0])} DI1={int(di[1])} DI2={int(di[2])} DI3={int(di[3])} | t={time.perf_counter():7.2f} ms")
 
         # 실제 구현에서는 하드웨어 센서 상태를 읽어와야 합니다.
         # TODO 아래 매핑이 맞는지 확인 필요
