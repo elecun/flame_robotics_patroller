@@ -864,9 +864,21 @@ class ViserServerManager:
                         mission_poi_dropdown.value = poi_files[0]
 
                 preview_btn = client.gui.add_button("👁️ Preview Mission", color="blue")
+                refresh_missions_btn = client.gui.add_button("🔄 Refresh Missions", color="gray")
                 start_mission_btn = client.gui.add_button("▶️ Start Mission", color="green")
                 pause_mission_btn = client.gui.add_button("⏸️ Pause Mission", color="yellow")
                 abort_mission_btn = client.gui.add_button("⏹️ Abort Mission", color="red")
+
+                @refresh_missions_btn.on_click
+                def _(_):
+                    nonlocal route_files, poi_files
+                    route_files = get_route_files()
+                    poi_files = get_poi_files()
+                    mission_route_dropdown.options = route_files
+                    mission_route_dropdown.value = route_files[0]
+                    mission_poi_dropdown.options = poi_files
+                    mission_poi_dropdown.value = poi_files[0]
+                    logger.info("[ViserUI] Refresh Missions clicked -> Reloaded route & POI lists.")
 
                 @preview_btn.on_click
                 def _(_):
@@ -924,7 +936,7 @@ class ViserServerManager:
                 )
 
                 datalog_mode_group = client.gui.add_button_group(
-                    "Data Log Control",
+                    "Action",
                     options=["⏺️ Record", "⏹️ Stop"]
                 )
 
@@ -937,6 +949,55 @@ class ViserServerManager:
                     elif selected == "⏹️ Stop":
                         if self._data_logger.is_recording:
                             self._data_logger.stop_recording()
+
+            # Route Builder (RTK) Folder
+            with client.gui.add_folder("🗺️ Route Builder (RTK)", expand_by_default=True):
+                rtk_builder_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+                rtk_builder_points_md = client.gui.add_markdown("**Points**: 0")
+                rtk_builder_group = client.gui.add_button_group(
+                    "Action",
+                    options=["⏺️ Record", "⏹️ Stop"]
+                )
+
+                # State variables for RTK route builder
+                rtk_recording_state = {"is_recording": False, "file_path": None, "file_handle": None, "point_count": 0, "last_lat": None, "last_lon": None}
+
+                @rtk_builder_group.on_click
+                def _(event: viser.GuiEvent) -> None:
+                    selected = rtk_builder_group.value
+                    if selected == "⏺️ Record":
+                        if not rtk_recording_state["is_recording"]:
+                            apros_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            route_dir = os.path.join(apros_root, "route")
+                            os.makedirs(route_dir, exist_ok=True)
+                            filename = f"record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.route"
+                            file_path = os.path.join(route_dir, filename)
+                            try:
+                                f = open(file_path, "w", encoding="utf-8")
+                                f.write("index,latitude,longitude,corridor_boundary\n")
+                                f.flush()
+                                rtk_recording_state["is_recording"] = True
+                                rtk_recording_state["file_path"] = file_path
+                                rtk_recording_state["file_handle"] = f
+                                rtk_recording_state["point_count"] = 0
+                                rtk_recording_state["last_lat"] = None
+                                rtk_recording_state["last_lon"] = None
+                                rtk_builder_status_md.content = f"**Status**: 🔴 Recording (`{filename}`)"
+                                rtk_builder_points_md.content = "**Points**: 0"
+                                logger.info(f"[ViserUI] RTK Route Builder recording started: {file_path}")
+                            except Exception as err:
+                                logger.error(f"[ViserUI] Failed to start RTK Route recording: {err}")
+                    elif selected == "⏹️ Stop":
+                        if rtk_recording_state["is_recording"]:
+                            rtk_recording_state["is_recording"] = False
+                            if rtk_recording_state["file_handle"]:
+                                try:
+                                    rtk_recording_state["file_handle"].close()
+                                except Exception:
+                                    pass
+                            rtk_recording_state["file_handle"] = None
+                            rtk_builder_status_md.content = "**Status**: ⏹️ Stopped"
+                            logger.info(f"[ViserUI] RTK Route Builder recording stopped. Total points: {rtk_recording_state['point_count']}")
 
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -1064,6 +1125,26 @@ class ViserServerManager:
                     except Exception:
                         pass
 
+                    # Update RTK Route Builder recording logic
+                    try:
+                        if rtk_recording_state["is_recording"] and rtk_recording_state["file_handle"]:
+                            rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+                            if rtk_dev is not None:
+                                cur_lat = getattr(rtk_dev, "latitude", None)
+                                cur_lon = getattr(rtk_dev, "longitude", None)
+                                if cur_lat is not None and cur_lon is not None:
+                                    if cur_lat != rtk_recording_state["last_lat"] or cur_lon != rtk_recording_state["last_lon"]:
+                                        cb = float(self.robot.config.get("mobile_drive_s1", "corridor_boundary", fallback=2.5)) if hasattr(self.robot, "config") and self.robot.config else 2.5
+                                        idx = rtk_recording_state["point_count"]
+                                        rtk_recording_state["file_handle"].write(f"{idx},{cur_lat:.8f},{cur_lon:.8f},{cb}\n")
+                                        rtk_recording_state["file_handle"].flush()
+                                        rtk_recording_state["point_count"] += 1
+                                        rtk_recording_state["last_lat"] = cur_lat
+                                        rtk_recording_state["last_lon"] = cur_lon
+                                        rtk_builder_points_md.content = f"**Points**: {rtk_recording_state['point_count']}"
+                    except Exception as rtk_err:
+                        logger.error(f"[ViserUI] RTK Route Builder update loop error: {rtk_err}")
+
                     # Update live camera stream in GUI folder if frame updated
                     if hasattr(self.robot, "last_camera_frame") and self.robot.last_camera_frame is not None:
                         try:
@@ -1128,6 +1209,30 @@ class ViserServerManager:
         tz = incline_status.get("tilt_z", 0.0)
         lines.append(f"- **Tilt X**: `{tx:.2f}°`")
         lines.append(f"- **Tilt Z**: `{tz:.2f}°`")
+
+        # 5. Synerex RTK GNSS
+        rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+        rtk_data = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else (getattr(self.robot, "last_rtk_data", {}) or {})
+        
+        is_rtk_conn = rtk_data.get("connected", False) if rtk_data else False
+        lat_val = rtk_data.get("latitude") if rtk_data else getattr(rtk_dev, "latitude", None)
+        lon_val = rtk_data.get("longitude") if rtk_data else getattr(rtk_dev, "longitude", None)
+        fq = rtk_data.get("fix_quality") if rtk_data else getattr(rtk_dev, "fix_quality", 0)
+
+        # Fallback / Disconnected / Invalid status formatting
+        if not is_rtk_conn or lat_val is None or lon_val is None or fq == 0:
+            lat_str = "-"
+            lon_str = "-"
+            quality_str = "-"
+        else:
+            lat_str = f"{lat_val} deg"
+            lon_str = f"{lon_val} deg"
+            from core.device.synerex_rtk import SynerexRTK
+            quality_str = SynerexRTK.quality2str(fq)
+
+        lines.append(f"- **GPS(Lat)**: `{lat_str}`")
+        lines.append(f"- **GPS(Lon)**: `{lon_str}`")
+        lines.append(f"- **GPS(Quality)**: `{quality_str}`")
 
         return "\n".join(lines)
 

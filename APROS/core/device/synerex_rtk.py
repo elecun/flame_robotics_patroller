@@ -1,6 +1,6 @@
 """
 Synerex RTK GPS Device Driver and WebSocket Server Module (core/device/synerex_rtk.py)
-Receives Synerex RTK GNSS latitude, longitude, altitude, and heading data,
+Receives Synerex RTK GNSS latitude, longitude, altitude, heading, and NMEA fix quality data via serial or simulation,
 publishes RTK telemetry via ZPipe AsyncZSocket (IPC PUB/SUB),
 and runs a WebSocket server to broadcast real-time GNSS data to map viewers (e.g. Leaflet Map Panel).
 """
@@ -8,10 +8,17 @@ and runs a WebSocket server to broadcast real-time GNSS data to map viewers (e.g
 import time
 import threading
 import json
-import pickle
 import math
 import asyncio
 from typing import Optional, Dict, Any, List, Callable
+
+try:
+    import serial
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+    serial = None
+
 from core.device.base import BaseDevice
 from core.zpipe import AsyncZSocket, ZPipe
 from util.logger.console import ConsoleLogger
@@ -29,34 +36,46 @@ except ImportError:
 class SynerexRTK(BaseDevice):
     """
     Synerex RTK GPS Device module.
-    Simulates / receives RTK GNSS telemetry, publishes via ZPipe IPC,
-    and runs a WebSocket server on specified port (default: 8765) to feed Leaflet map viewers.
+    Parses RTK GNSS telemetry from serial port (or simulates), publishes via ZPipe IPC,
+    and runs a WebSocket server to feed Leaflet map viewers.
     """
 
     def __init__(
         self,
         name: str = "synerex_rtk",
         robot_model: str = "iae_patrol_v1",
+        port: str = "/dev/ttyACM0",
+        baudrate: int = 9600,
+        utc_offset: int = 9,
+        update_interval_sec: float = 1.0,
         ws_host: str = "0.0.0.0",
         ws_port: int = 18765,
         default_lat: float = 34.7971754,
         default_lon: float = 127.6607499,
         default_alt: float = 45.0,
         default_heading: float = 0.0,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
         super().__init__(name, enable=enable)
         self.robot_model = robot_model
-        self.ws_host = ws_host
+        self.port = str(port)
+        self.baudrate = int(baudrate)
+        self.utc_offset = int(utc_offset)
+        self.update_interval_sec = float(update_interval_sec)
+        self.ws_host = str(ws_host)
         self.ws_port = int(ws_port)
 
         # Telemetry state
-        self.latitude = float(default_lat)
-        self.longitude = float(default_lon)
-        self.altitude = float(default_alt)
-        self.heading = float(default_heading)
-        self.status_str = "FIX_RTK"
-        self.satellites = 18
+        self.latitude: Optional[float] = None
+        self.longitude: Optional[float] = None
+        self.altitude: Optional[float] = None
+        self.heading: float = float(default_heading)
+        self.fix_quality: int = 0  # 0 = Invalid
+        self.status_str: str = self.quality2str(self.fix_quality)
+        self.satellites: int = 0
+
+        self.serial_connection: Optional[Any] = None
 
         # ZPipe IPC Publisher
         self.pub_socket: Optional[AsyncZSocket] = None
@@ -71,6 +90,17 @@ class SynerexRTK(BaseDevice):
         self._ws_clients = set()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+    @staticmethod
+    def quality2str(quality: int) -> str:
+        quality_map = {
+            0: "Invalid",
+            1: "3D",
+            2: "DGPS/DGNSS",
+            4: "RTK Fixed",
+            5: "RTK Float"
+        }
+        return quality_map.get(quality, "Unknown")
+
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish socket."""
         super().set_zpipe_context(zpipe_ctx)
@@ -84,15 +114,42 @@ class SynerexRTK(BaseDevice):
             except Exception as e:
                 logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
 
-    def update_pose(self, lat: float, lon: float, alt: float = 45.0, heading: float = 0.0):
-        """Update current RTK position and heading coordinates."""
+    def update_pose(self, lat: float, lon: float, alt: float = 45.0, heading: float = 0.0, fix_quality: int = 4):
+        """Update current RTK position, heading and fix quality coordinates."""
         self.latitude = float(lat)
         self.longitude = float(lon)
         self.altitude = float(alt)
         self.heading = float(heading)
+        self.fix_quality = int(fix_quality)
+        self.status_str = self.quality2str(self.fix_quality)
+
+    def connect_serial(self) -> bool:
+        if not SERIAL_AVAILABLE or serial is None:
+            return False
+        try:
+            self.serial_connection = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=1.0
+            )
+            return self.serial_connection.is_open
+        except Exception as e:
+            logger.warning(f"[{self.name}] Serial connection failed on {self.port}: {e}")
+            return False
+
+    def disconnect_serial(self):
+        if self.serial_connection and hasattr(self.serial_connection, "is_open") and self.serial_connection.is_open:
+            try:
+                self.serial_connection.close()
+            except Exception:
+                pass
+        self.serial_connection = None
 
     def connect(self) -> bool:
-        """Start hardware simulation worker loop and WebSocket server if enabled."""
+        """Start worker thread and WebSocket server if enabled."""
         if not self.enable:
             self.is_connected = False
             logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
@@ -101,7 +158,7 @@ class SynerexRTK(BaseDevice):
         self.is_connected = True
         self._running = True
 
-        # Start simulation / telemetry loop thread
+        # Start worker thread
         self._thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._thread.start()
 
@@ -110,7 +167,7 @@ class SynerexRTK(BaseDevice):
             self._ws_thread = threading.Thread(target=self._start_ws_server, daemon=True)
             self._ws_thread.start()
 
-        logger.info(f"[{self.name}] Connected. Telemetry IPC: ipc://{self.ipc_address}, WS Server: ws://{self.ws_host}:{self.ws_port}")
+        logger.info(f"[{self.name}] Connected. Port={self.port}, Baud={self.baudrate}, Telemetry IPC: ipc://{self.ipc_address}")
         return True
 
     def disconnect(self) -> bool:
@@ -137,29 +194,99 @@ class SynerexRTK(BaseDevice):
                 pass
             self.pub_socket = None
 
+        self.disconnect_serial()
         self.is_connected = False
         logger.info(f"[{self.name}] Disconnected.")
         return True
 
+    def _convert_to_decimal_degrees(self, coord: str, direction: str) -> float:
+        if not coord or len(coord) < 4:
+            return 0.0
+        if '.' in coord:
+            dot_index = coord.index('.')
+            if dot_index >= 3:
+                degrees = float(coord[:dot_index-2])
+                minutes = float(coord[dot_index-2:])
+            else:
+                degrees = 0.0
+                minutes = float(coord)
+        else:
+            if len(coord) >= 4:
+                degrees = float(coord[:-2])
+                minutes = float(coord[-2:])
+            else:
+                degrees = 0.0
+                minutes = float(coord)
+
+        decimal_degrees = degrees + minutes / 60.0
+        if direction in ['S', 'W']:
+            decimal_degrees = -decimal_degrees
+        return decimal_degrees
+
+    def parse_gga(self, parts: list):
+        if len(parts) < 15:
+            return
+        try:
+            lat_raw, lat_dir = parts[2], parts[3]
+            lon_raw, lon_dir = parts[4], parts[5]
+            if lat_raw and lat_dir:
+                self.latitude = self._convert_to_decimal_degrees(lat_raw, lat_dir)
+            if lon_raw and lon_dir:
+                self.longitude = self._convert_to_decimal_degrees(lon_raw, lon_dir)
+            if parts[6]:
+                self.fix_quality = int(parts[6])
+                self.status_str = self.quality2str(self.fix_quality)
+            if parts[7]:
+                self.satellites = int(parts[7])
+            if parts[9]:
+                self.altitude = float(parts[9])
+        except (ValueError, IndexError):
+            pass
+
+    def parse_nmea_line(self, line: str):
+        line = line.strip()
+        if not line.startswith('$'):
+            return
+        parts = line.split(',')
+        if len(parts) < 3:
+            return
+        sentence_id = parts[0][1:]
+        if sentence_id.endswith('GGA'):
+            self.parse_gga(parts)
+
     def _worker_loop(self):
-        """Background thread loop: periodic telemetry publishing over ZPipe & broadcasting via WebSocket."""
+        """Background thread loop: read serial or simulate movement, periodically publish ZPipe & WebSocket."""
+        has_serial = self.connect_serial()
+        if not has_serial:
+            logger.info(f"[{self.name}] Serial port {self.port} unavailable. Running in simulation mode.")
+
         t = 0.0
         base_lat = self.latitude
         base_lon = self.longitude
 
         while self._running:
             start_time = time.time()
-            t += 0.1
-
-            # Simulated slight movement if standalone
-            # Circular drift: ~0.0001 deg ~ 10m radius
-            self.latitude = base_lat + 0.00008 * math.sin(t * 0.2)
-            self.longitude = base_lon + 0.00008 * math.cos(t * 0.2)
-            self.heading = (t * 11.45) % 360.0
+            if self.serial_connection and hasattr(self.serial_connection, "is_open") and self.serial_connection.is_open:
+                try:
+                    if self.serial_connection.in_waiting > 0:
+                        line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                        if line.startswith('$'):
+                            self.parse_nmea_line(line)
+                except Exception as e:
+                    logger.error(f"[{self.name}] Serial read error: {e}")
+                    self.disconnect_serial()
+            else:
+                # Simulation mode
+                t += 0.1
+                base_lat = base_lat or 34.7971754
+                base_lon = base_lon or 127.6607499
+                self.latitude = base_lat + 0.00008 * math.sin(t * 0.2)
+                self.longitude = base_lon + 0.00008 * math.cos(t * 0.2)
+                self.heading = (t * 11.45) % 360.0
 
             data = self.get_status()
 
-            # 1. Publish over ZPipe IPC (JSON format)
+            # 1. Publish over ZPipe IPC
             if self.pub_socket and self.pub_socket.is_joined:
                 try:
                     payload = json.dumps(data, ensure_ascii=False).encode('utf-8')
@@ -173,7 +300,8 @@ class SynerexRTK(BaseDevice):
                 asyncio.run_coroutine_threadsafe(self._broadcast_ws(msg), self._loop)
 
             elapsed = time.time() - start_time
-            time.sleep(max(0.0, 0.1 - elapsed))
+            sleep_time = max(0.001, self.update_interval_sec - elapsed)
+            time.sleep(sleep_time)
 
     def _start_ws_server(self):
         """Run asyncio event loop for WebSocket server."""
@@ -184,7 +312,6 @@ class SynerexRTK(BaseDevice):
             self._ws_clients.add(websocket)
             logger.info(f"[{self.name}] WebSocket client connected: {websocket.remote_address}")
             try:
-                # Send immediate current state upon connection
                 await websocket.send(json.dumps(self.get_status()))
                 async for message in websocket:
                     pass
@@ -204,7 +331,7 @@ class SynerexRTK(BaseDevice):
 
         try:
             self._loop.run_until_complete(main_ws())
-        except (asyncio.CancelledError, OSError, Exception) as e:
+        except (asyncio.CancelledError, OSError, Exception):
             pass
         finally:
             try:
@@ -230,10 +357,12 @@ class SynerexRTK(BaseDevice):
         return {
             "name": self.name,
             "connected": self.is_connected,
-            "latitude": round(self.latitude, 7),
-            "longitude": round(self.longitude, 7),
-            "altitude": round(self.altitude, 2),
-            "heading": round(self.heading, 1),
+            "latitude": round(self.latitude, 7) if self.latitude is not None else None,
+            "longitude": round(self.longitude, 7) if self.longitude is not None else None,
+            "altitude": round(self.altitude, 2) if self.altitude is not None else None,
+            "heading": round(self.heading, 1) if self.heading is not None else 0.0,
+            "fix_quality": self.fix_quality,
+            "quality_str": self.quality2str(self.fix_quality),
             "status": self.status_str,
             "satellites": self.satellites,
             "ws_port": self.ws_port
