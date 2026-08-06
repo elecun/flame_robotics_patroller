@@ -4,16 +4,34 @@ Serves Leaflet JS/CSS resources and maptile PNG assets over local HTTP for Leafl
 """
 
 import os
+import sys
 import threading
 from typing import Optional
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Custom ThreadingHTTPServer suppressing BrokenPipeError/ConnectionResetError when clients disconnect early."""
+
+    def handle_error(self, request, client_address):
+        _, exc, _ = sys.exc_info()
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            # Suppress normal client disconnection tracebacks during HTTP asset/tile downloads
+            return
+        super().handle_error(request, client_address)
+
+
 class TileResourceHTTPRequestHandler(SimpleHTTPRequestHandler):
     """Custom HTTP handler serving /resource and /maptile directories."""
+
+    def copyfile(self, source, outputfile):
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def translate_path(self, path):
         # Base APROS directory
@@ -47,12 +65,12 @@ class TileServerManager:
     def __init__(self, host: str = "0.0.0.0", port: int = 8082):
         self.host = host
         self.port = port
-        self.httpd: Optional[HTTPServer] = None
+        self.httpd: Optional[QuietThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self):
         try:
-            self.httpd = HTTPServer((self.host, self.port), TileResourceHTTPRequestHandler)
+            self.httpd = QuietThreadingHTTPServer((self.host, self.port), TileResourceHTTPRequestHandler)
             self._thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
             self._thread.start()
             logger.info(f"[TileServer] HTTP Asset Server started on http://{self.host}:{self.port}")

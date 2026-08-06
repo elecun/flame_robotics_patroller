@@ -136,7 +136,6 @@ class ViserServerManager:
             ">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ Map Panel</span>
-                    <span id="rtk-status-badge" style="font-size: 11px; color: #FFD700; background: rgba(255,215,0,0.15); padding: 2px 8px; border-radius: 4px; font-weight: 600;">연결 중 (Connecting)...</span>
                 </div>
                 <!-- Close Button -->
                 <button onclick="document.getElementById('apros-custom-modal').style.display='none'" title="닫기" style="
@@ -303,7 +302,8 @@ class ViserServerManager:
                 )
                 logger.info(f"[ViserServerManager] Loaded URDF model from: {urdf_file_path}")
             except Exception as e:
-                logger.error(f"[ViserServerManager] Failed to load URDF model: {e}")
+                import traceback
+                logger.error(f"[ViserServerManager] Failed to load URDF model: {e}\n{traceback.format_exc()}")
 
         # Fallback Box Model if URDF is unavailable
         if self.urdf_model is None:
