@@ -375,12 +375,12 @@ class ViserServerManager:
             point_shape="circle"
         )
 
-        # 9. DWA Local Planner Path Handle (Bright Cyan line segments on ground plane)
+        # 9. DWA Local Planner Path Handle (Vivid Neon Green/Cyan thick line on ground plane)
         self.local_path_handle = self.server.scene.add_line_segments(
             name="/world/local_planner_path",
             points=np.zeros((1, 2, 3), dtype=np.float32),
             colors=np.zeros((1, 2, 3), dtype=np.uint8),
-            line_width=4.0,
+            line_width=12.0,
             visible=True
         )
 
@@ -1314,15 +1314,17 @@ class ViserServerManager:
 
             # Real-time Local Planner Planned Trajectory visualization on ground plane
             local_planner = getattr(self.robot, "local_planner", None)
+            if local_planner is None and hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                local_planner = getattr(self.robot.drive_executor, "local_planner", None)
             if local_planner and hasattr(local_planner, "best_local_path") and local_planner.best_local_path:
                 lpath = local_planner.best_local_path
                 if len(lpath) >= 2:
-                    lpts = np.array([[pt["x"], pt["y"], 0.015] for pt in lpath], dtype=np.float32)
+                    lpts = np.array([[pt["x"], pt["y"], 0.03] for pt in lpath], dtype=np.float32)
                     lsegments = np.stack((lpts[:-1], lpts[1:]), axis=1)  # (N, 2, 3)
                     lcolors = np.zeros((len(lsegments), 2, 3), dtype=np.uint8)
                     lcolors[:, :, 0] = 0     # Red
-                    lcolors[:, :, 1] = 229   # Green
-                    lcolors[:, :, 2] = 255   # Blue (Bright Cyan: 0, 229, 255)
+                    lcolors[:, :, 1] = 255   # Green (High-contrast Vivid Lime Green)
+                    lcolors[:, :, 2] = 128   # Blue
                     self.local_path_handle.points = lsegments
                     self.local_path_handle.colors = lcolors
                     self.local_path_handle.visible = True
