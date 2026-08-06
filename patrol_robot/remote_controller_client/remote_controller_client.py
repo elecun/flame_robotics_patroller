@@ -84,6 +84,7 @@ class RCClient:
         self.state = ConnectState.DISCONNECTED
         self._rx_thread: Optional[threading.Thread] = None
         self._rx_stop = threading.Event()
+        self._tx_lock = threading.Lock()
 
     # sugar
     def on_connected(self, cb: Callback) -> None: self.events.on(Event.CONNECTED, cb)
@@ -120,9 +121,10 @@ class RCClient:
 
     # 송신
     def send_packet(self, frame: ByteStr) -> None:
-        """완성된 프레임(bytes)을 그대로 전송"""
-        logger.debug(f"send_packet {len(frame)}B: {frame.hex(' ').upper()}")  # 로그 추가
-        self.transport.write(frame)
+        """완성된 프레임(bytes)을 그대로 전송 (Thread-safe)"""
+        logger.debug(f"send_packet {len(frame)}B: {frame.hex(' ').upper()}")
+        with self._tx_lock:
+            self.transport.write(frame)
 
     def send_remote_controller(
         self,

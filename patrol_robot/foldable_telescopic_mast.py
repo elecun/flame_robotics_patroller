@@ -209,6 +209,33 @@ class FoldableTelescopicMast:
 
 
     # 텔레스코픽 마스트 관련 메서드
+
+    def raise_mast_direct(self) -> None:
+        """텔레스코픽 마스트를 즉시 올리기 위한 RS485 명령 패킷을 전송합니다."""
+        logger.debug("Sending RS485 direct raise mast cmd...")
+        if self._rc:
+            self._rc.send_remote_controller(addr=1, cmd1=1, cmd2=70, data1=0, data2=1)
+            logger.debug("[Mast Direct] Send RAISE MAST command directly")
+        else:
+            logger.warning("[direct] RC client is not initialized")
+
+    def lower_mast_direct(self) -> None:
+        """텔레스코픽 마스트를 즉시 내리기 위한 RS485 명령 패킷을 전송합니다."""
+        logger.debug("Sending RS485 direct lower mast cmd...")
+        if self._rc:
+            self._rc.send_remote_controller(addr=1, cmd1=1, cmd2=70, data1=0, data2=2)
+            logger.debug("[Mast Direct] Send LOWER MAST command directly")
+        else:
+            logger.warning("[direct] RC client is not initialized")
+
+    def stop_mast_action_direct(self) -> None:
+        """텔레스코픽 마스트 동작을 즉시 중지하기 위한 RS485 명령 패킷을 전송합니다."""
+        logger.debug("Sending RS485 direct stop mast cmd...")
+        if self._rc:
+            self._rc.send_remote_controller(addr=1, cmd1=0, cmd2=0, data1=0, data2=0)
+            logger.debug("[Mast Direct] Send STOP MAST command directly")
+        else:
+            logger.warning("[direct] RC client is not initialized")
     
     def raise_mast(self) -> None:
         """텔레스코픽 마스트를 올립니다."""
@@ -479,9 +506,9 @@ class FoldableTelescopicMast:
             return
 
         command_dispatch = {
-            "raise_mast": self.raise_mast,
-            "lower_mast": self.lower_mast,
-            "stop_mast_action": self.stop_mast_action,
+            "raise_mast": self.raise_mast_direct,
+            "lower_mast": self.lower_mast_direct,
+            "stop_mast_action": self.stop_mast_action_direct,
         }
 
         while self._proxy_sub_running and not self._stop_evt.is_set():
@@ -1131,9 +1158,9 @@ class FoldableTelescopicMast:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mrj4-port", required=True, help="MRJ4 시리얼 포트 경로")
+    parser.add_argument("--mrj4-port", default="/dev/mrj4amp", help="MRJ4 시리얼 포트 경로 (기본값: /dev/mrj4amp)")
     parser.add_argument("--metal-sensor-addr", default="192.168.127.254:502", help="금속감지 센서 IP:PORT")
-    parser.add_argument("--rc-port", required=True, help="RC 시리얼 포트 경로")
+    parser.add_argument("--rc-port", default="/dev/mastrc", help="RC 시리얼 포트 경로 (기본값: /dev/mastrc)")
     args = parser.parse_args()
     
     ftm = FoldableTelescopicMast(args.mrj4_port, args.metal_sensor_addr, args.rc_port)
