@@ -45,6 +45,7 @@ class DriveExecutor(BasePlugin):
 
         # Mission & POI state variables
         self.is_active = False
+        self.mission_status: str = "Idle"  # Idle | Patrolling... | Done. | Aborted Mission
         self.current_route_file: Optional[str] = None
         self.current_poi_file: Optional[str] = None
         self.raw_waypoints: List[Tuple[float, float]] = []
@@ -237,6 +238,7 @@ class DriveExecutor(BasePlugin):
                 return True
 
             self.is_active = True
+            self.mission_status = "Patrolling..."
 
             # Explicitly release brake and DBS Valid when starting mission
             if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
@@ -264,6 +266,7 @@ class DriveExecutor(BasePlugin):
         """
         with self._lock:
             self.is_active = False
+            self.mission_status = "Aborted Mission"
             logger.info(f"[{self.name}] Mission abort requested.")
             if self.local_planner and hasattr(self.local_planner, "best_local_path"):
                 self.local_planner.best_local_path = []
@@ -450,6 +453,7 @@ class DriveExecutor(BasePlugin):
             if dist_to_goal < self.goal_reach_threshold:
                 logger.info(f"[{self.name}] Goal destination reached! Stopping mission.")
                 self.is_active = False
+                self.mission_status = "Done."
                 self._apply_stop_command()
                 if drive_dev and hasattr(drive_dev, "target_gear"):
                     drive_dev.target_gear = "P"

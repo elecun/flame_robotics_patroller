@@ -4,6 +4,7 @@ Handles 3D visualization, robot box model (W:1000, L:2055, H:640 mm), CAN connec
 """
 import os
 import time
+from datetime import datetime
 import threading
 import numpy as np
 import viser
@@ -783,7 +784,7 @@ class ViserServerManager:
                             dev.brake_stop()
                             brake_slider.value = 10.0
 
-            with client.gui.add_folder("💡 Vehicle Lighting & Signal Control", expand_by_default=True):
+                # Vehicle Lighting & Signal Controls (integrated into Vehicle Control folder)
                 left_turn_cb = client.gui.add_checkbox("Left Turn Light", initial_value=False)
                 right_turn_cb = client.gui.add_checkbox("Right Turn Light", initial_value=False)
                 head_light_cb = client.gui.add_checkbox("Head Light", initial_value=False)
@@ -819,6 +820,12 @@ class ViserServerManager:
         # Tab 3: Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission", viser.Icon.TARGET):
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
+                # Mission Status (reads from drive_executor, persists across browser refresh)
+                _init_mission_status = "Idle"
+                if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                    _init_mission_status = getattr(self.robot.drive_executor, "mission_status", "Idle")
+                mission_status_md = client.gui.add_markdown(f"**Mission Status**: `{_init_mission_status}`")
+
                 route_files = get_route_files()
                 mission_route_dropdown = client.gui.add_dropdown(
                     label="Mission Route",
@@ -871,14 +878,62 @@ class ViserServerManager:
                     route_file = mission_route_dropdown.value
                     poi_file = mission_poi_dropdown.value
                     if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file)
-                        logger.info(f"[ViserUI] Start Mission clicked -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
+                        modal = client.gui.add_modal("Mission 시작 확인")
+                        with modal:
+                            client.gui.add_markdown("패트롤 로봇 Mission을 시작합니다.")
+                            confirm_btn = client.gui.add_button("확인", color="green")
+                            cancel_btn = client.gui.add_button("취소", color="red")
+
+                            @confirm_btn.on_click
+                            def _(_):
+                                modal.close()
+                                self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file)
+                                mission_status_md.content = "**Mission Status**: `Patrolling...`"
+                                logger.info(f"[ViserUI] Start Mission confirmed -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
+
+                            @cancel_btn.on_click
+                            def _(_):
+                                modal.close()
+                                logger.info("[ViserUI] Start Mission cancelled by user.")
 
                 @abort_mission_btn.on_click
                 def _(_):
                     if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
                         self.robot.drive_executor.abort_mission()
+                        mission_status_md.content = "**Mission Status**: `Aborted Mission`"
                         logger.info("[ViserUI] Abort Mission clicked -> Aborted DriveExecutor")
+
+            # DES Control Folder (directly below Patrol Route & Task Execution folder)
+            with client.gui.add_folder("🏗️ DES Control", expand_by_default=True):
+                des_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+                des_action_group = client.gui.add_button_group(
+                    "Action",
+                    options=["⬆️ Extend", "⬇️ Retract"]
+                )
+                des_stop_btn = client.gui.add_button("⏹️ Stop", color="red")
+
+                @des_action_group.on_click
+                def _(_):
+                    selected = des_action_group.value
+                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if "Extend" in selected:
+                        if mast_dev and hasattr(mast_dev, "move_up"):
+                            mast_dev.move_up()
+                        des_status_md.content = "**Status**: ⬆️ Extending"
+                        logger.info("[ViserUI] DES Control -> Extend clicked.")
+                    elif "Retract" in selected:
+                        if mast_dev and hasattr(mast_dev, "move_down"):
+                            mast_dev.move_down()
+                        des_status_md.content = "**Status**: ⬇️ Retracting"
+                        logger.info("[ViserUI] DES Control -> Retract clicked.")
+
+                @des_stop_btn.on_click
+                def _(_):
+                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if mast_dev and hasattr(mast_dev, "move_stop"):
+                        mast_dev.move_stop()
+                    des_status_md.content = "**Status**: ⏹️ Stopped"
+                    logger.info("[ViserUI] DES Control -> Stop clicked.")
 
             # Data Logger Folder (bottom of Mission Control tab)
             with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
@@ -921,7 +976,7 @@ class ViserServerManager:
                             apros_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                             route_dir = os.path.join(apros_root, "route")
                             os.makedirs(route_dir, exist_ok=True)
-                            filename = f"record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.route"
+                            filename = f"record_{datetime.now().strftime('%Y%m%d-%H%M%S')}.route"
                             file_path = os.path.join(route_dir, filename)
                             try:
                                 f = open(file_path, "w", encoding="utf-8")
@@ -1074,6 +1129,28 @@ class ViserServerManager:
                         for ctrl in ad_controls:
                             ctrl.disabled = not is_ad_active
                     except Exception as gui_err:
+                        pass
+
+                    # Update Mission Status from drive_executor (syncs Done./Aborted/Patrolling state)
+                    try:
+                        if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                            executor_status = getattr(self.robot.drive_executor, "mission_status", "Idle")
+                            mission_status_md.content = f"**Mission Status**: `{executor_status}`"
+                    except Exception:
+                        pass
+
+                    # Update DES Control status from telescopic_mast device
+                    try:
+                        mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+                        if mast_dev:
+                            mast_state = getattr(mast_dev, "mast_action_state", "stopped")
+                            if mast_state == "raising":
+                                des_status_md.content = "**Status**: ⬆️ Extending"
+                            elif mast_state == "lowering":
+                                des_status_md.content = "**Status**: ⬇️ Retracting"
+                            else:
+                                des_status_md.content = "**Status**: ⏹️ Stopped"
+                    except Exception:
                         pass
 
                     # Update Data Logger status

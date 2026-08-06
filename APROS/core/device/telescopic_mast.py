@@ -5,7 +5,7 @@ Reads extended mast position (01 04 03 ea 00 02 50 7b), parses return bytes (01 
 publishes height data over ZPipe IPC every 500ms, and prints debug logs to console.
 Includes TelescopicMast_connector for platform subscription.
 
-Mast control commands (mast_up, mast_down, mast_stop) are published via a separate
+Mast control commands mast_up, mast_down, mast_stop) are published via a separate
 ZPipe IPC proxy channel so that FoldableTelescopicMast (running in another process)
 can subscribe and execute raise_mast / lower_mast / stop_mast_action accordingly.
 """
@@ -23,11 +23,12 @@ from util.logger.console import ConsoleLogger
 logger = ConsoleLogger.get_logger()
 
 try:
-    import serial
-    SERIAL_AVAILABLE = True
+    from pymodbus.client import ModbusSerialClient
+    PYMODBUS_AVAILABLE = True
 except ImportError:
-    SERIAL_AVAILABLE = False
-    logger.warning("[TelescopicMast] 'pyserial' module not installed. Serial communication will operate in fallback mode.")
+    PYMODBUS_AVAILABLE = False
+    ModbusSerialClient = None
+    logger.warning("[TelescopicMast] 'pymodbus' module not installed. Communication will operate in fallback mode.")
 
 
 def calculate_modbus_crc16(data: bytes) -> bytes:
@@ -46,17 +47,13 @@ def calculate_modbus_crc16(data: bytes) -> bytes:
 class TelescopicMast(BaseDevice):
     """
     Telescopic Mast device driver over RS485 Modbus.
-    Reads extended mast position every 500ms, publishes via ZPipe IPC,
+    Reads extended mast position every 100ms using pymodbus, publishes via ZPipe IPC,
     and logs height (mm) to console for debugging.
     """
 
     MIN_HEIGHT_MM = 1800.0  # 1.8m
     MAX_HEIGHT_MM = 8000.0  # 8.0m
     DIAMETER_MM = 100.0     # 100mm fixed diameter (0.1m)
-
-    # Modbus command frame: Bus 0x01, Function 0x04, Start Addr 0x03EA, Reg Count 0x0002 -> CRC 0x507B
-    # Raw bytes: 01 04 03 ea 00 02 50 7b
-    READ_POSITION_CMD = bytes([0x01, 0x04, 0x03, 0xEA, 0x00, 0x02, 0x50, 0x7B])
 
     def __init__(
         self,
@@ -100,8 +97,8 @@ class TelescopicMast(BaseDevice):
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
-        # Serial Connection
-        self.serial_conn: Optional[Any] = None
+        # Modbus Serial Client
+        self.modbus_client: Optional[Any] = None
 
         # ZPipe IPC Publisher (height telemetry)
         self.pub_socket: Optional[AsyncZSocket] = None
@@ -202,6 +199,7 @@ class TelescopicMast(BaseDevice):
         with self._lock:
             self._mast_action_state = "raising"
         self._publish_mast_command("raise_mast")
+        print("mast up")
 
     def mast_down(self):
         """Send lower command to FoldableTelescopicMast via proxy IPC."""
@@ -313,34 +311,31 @@ class TelescopicMast(BaseDevice):
             self._move_height_target = None
 
     def connect(self) -> bool:
-        """Connect RS485 serial port and start 500ms telemetry/control thread if enabled."""
+        """Connect RS485 Modbus client and start telemetry/control thread if enabled."""
         if not self.enable:
             self.is_connected = False
             logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
             return False
 
         self.is_connected = False
-        if SERIAL_AVAILABLE:
+        if PYMODBUS_AVAILABLE and ModbusSerialClient is not None:
             try:
-                stopbits_val = serial.STOPBITS_TWO if self.stopbits == 2 else serial.STOPBITS_ONE
-                parity_val = serial.PARITY_NONE
-                if self.parity == "E":
-                    parity_val = serial.PARITY_EVEN
-                elif self.parity == "O":
-                    parity_val = serial.PARITY_ODD
-
-                self.serial_conn = serial.Serial(
+                self.modbus_client = ModbusSerialClient(
                     port=self.port_name,
                     baudrate=self.baudrate,
-                    bytesize=serial.EIGHTBITS,
-                    parity=parity_val,
-                    stopbits=stopbits_val,
-                    timeout=0.05
+                    bytesize=8,
+                    parity=self.parity,
+                    stopbits=self.stopbits,
+                    timeout=0.2,
+                    retries=1
                 )
-                self.is_connected = True
-                logger.info(f"[{self.name}] RS485 Serial connected on {self.port_name} ({self.baudrate}bps, N, {self.stopbits})")
+                if self.modbus_client.connect():
+                    self.is_connected = True
+                    logger.info(f"[{self.name}] RS485 Modbus connected on {self.port_name} ({self.baudrate}bps, {self.parity}, {self.stopbits})")
+                else:
+                    logger.warning(f"[{self.name}] Could not connect Modbus client on '{self.port_name}'.")
             except Exception as e:
-                logger.warning(f"[{self.name}] Could not open serial port '{self.port_name}': {e}.")
+                logger.warning(f"[{self.name}] Failed to initialize Modbus client on '{self.port_name}': {e}.")
 
         # Always start worker loop for simulation/telemetry if enable=True
         self._running = True
@@ -364,12 +359,12 @@ class TelescopicMast(BaseDevice):
             self._thread.join(timeout=1.0)
             self._thread = None
 
-        if self.serial_conn and self.serial_conn.is_open:
+        if self.modbus_client:
             try:
-                self.serial_conn.close()
+                self.modbus_client.close()
             except Exception:
                 pass
-            self.serial_conn = None
+            self.modbus_client = None
 
         if self.pub_socket:
             try:
@@ -393,13 +388,25 @@ class TelescopicMast(BaseDevice):
         """Stop device communication worker thread."""
         return self.disconnect()
 
+    def _read_input_registers(self, address: int, count: int, slave: int):
+        """Helper to read input registers compatible across pymodbus versions."""
+        if not self.modbus_client:
+            return None
+        try:
+            return self.modbus_client.read_input_registers(address, count=count, device_id=slave)
+        except TypeError:
+            try:
+                return self.modbus_client.read_input_registers(address, count=count, slave=slave)
+            except TypeError:
+                return self.modbus_client.read_input_registers(address, count=count, unit=slave)
+
     def _worker_loop(self):
         """
         Background worker loop running at 100ms (0.1s) intervals:
-        1. Queries RS485 Modbus device with 01 04 03 ea 00 02 50 7b (or updates simulated pose towards target).
-        2. Parses response bytes (e.g. 01 04 04 00 00 07 08 f8 72 -> 0x00000708 = 1800 mm).
+        1. Queries RS485 Modbus device for position (Address 0x03EA, 2 input registers).
+        2. Parses response registers (e.g. [0, 1800] -> 1800 mm).
         3. Publishes mast telemetry over ZPipe IPC.
-        4. Logs current mast position (extended) in mm & m to console for debugging.
+        4. Logs current mast position in mm & m to console for debugging.
         """
         speed_mm_per_sec = 300.0  # Smooth motion speed 300mm/s for simulation
         dt = 0.1  # 100ms interval as requested
@@ -407,49 +414,30 @@ class TelescopicMast(BaseDevice):
         while self._running:
             start_time = time.time()
             read_height_mm: Optional[float] = None
-            raw_rx_hex = "N/A (SIM Mode)"
-            # raw_tx_hex = self.READ_POSITION_CMD.hex(' ')
 
-            # 1. Try RS485 Modbus hardware read if serial is connected
-            if self.serial_conn and self.serial_conn.is_open:
+            # 1. Try RS485 Modbus hardware read if pymodbus client is connected
+            if self.modbus_client and self.is_connected:
                 try:
-                    self.serial_conn.reset_input_buffer()
-                    self.serial_conn.write(self.READ_POSITION_CMD)
-                    self.serial_conn.flush()
-
-                    # Response length expected: 9 bytes (01 04 04 [4 bytes data] [2 bytes CRC])
-                    rx_bytes = self.serial_conn.read(9)
-                    if len(rx_bytes) > 0:
-                        raw_rx_hex = rx_bytes.hex(' ')
-
-                    if len(rx_bytes) == 9 and rx_bytes[0] == 0x01 and rx_bytes[1] == 0x04 and rx_bytes[2] == 0x04:
-                        # Extract 4-byte 32-bit unsigned integer (bytes 3..6)
-                        raw_val = struct.unpack('>I', rx_bytes[3:7])[0]
+                    rr = self._read_input_registers(address=0x03EA, count=2, slave=self.bus_address)
+                    if rr is not None and not rr.isError() and hasattr(rr, 'registers') and len(rr.registers) >= 2:
+                        raw_val = (rr.registers[0] << 16) | rr.registers[1]
                         read_height_mm = float(raw_val)
-                        logger.info(f"[{self.name}] [RS485 Modbus Rx] Communication height received: raw_val={raw_val} -> {read_height_mm:.1f} mm ({read_height_mm / 1000.0:.3f} m)")
-                    else:
-                        logger.warning(f"[{self.name}] Invalid Modbus RX packet ({len(rx_bytes)} bytes): {raw_rx_hex}")
                 except Exception as e:
-                    logger.error(f"[{self.name}] RS485 read error: {e}")
+                    logger.error(f"[{self.name}] Modbus read error: {e}")
 
             # 2. Update current position (use hardware read or simulated transition towards target)
             with self._lock:
                 if read_height_mm is not None:
                     self._current_height_mm = read_height_mm
-                    is_hw = True
                 else:
                     # Simulation motion update towards target_height_mm
                     diff = self._target_height_mm - self._current_height_mm
                     if abs(diff) > 0.01:
                         step = (1.0 if diff > 0 else -1.0) * min(abs(diff), speed_mm_per_sec * dt)
                         self._current_height_mm += step
-                    is_hw = False
 
-                current_mm = self._current_height_mm
-
-            # 4. Publish telemetry data over ZPipe IPC (JSON format)
+            # 3. Publish telemetry data over ZPipe IPC (JSON format)
             data = self.get_status()
-            logger.info(f"[{self.name}] [Telemetry Tx] Height: {data['current_height_mm']} mm ({data['current_height_m']} m) [HW_read: {is_hw}]")
             if self.pub_socket and self.pub_socket.is_joined:
                 try:
                     payload = json.dumps(data, ensure_ascii=False).encode('utf-8')
@@ -542,7 +530,6 @@ class TelescopicMast_Connector:
                     json_str = payload_bytes.decode('utf-8')
                     data = json.loads(json_str)
                     self.last_mast_data = data
-                    logger.info(f"[TelescopicMast_Connector] [IPC Rx] Received mast data: height_mm={data.get('current_height_mm')} mm ({data.get('current_height_m')} m)")
                     if self.on_data_received:
                         self.on_data_received(data)
                 except Exception as e:

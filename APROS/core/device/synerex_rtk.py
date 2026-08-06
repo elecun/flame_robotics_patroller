@@ -322,6 +322,8 @@ class SynerexRTK(BaseDevice):
                 self.latitude = base_lat + 0.00008 * math.sin(t * 0.2)
                 self.longitude = base_lon + 0.00008 * math.cos(t * 0.2)
                 self.heading = (t * 11.45) % 360.0
+                self.fix_quality = 1  # Simulation mode: 3D (not RTK Fixed)
+                self.status_str = self.quality2str(self.fix_quality)
 
             data = self.get_status()
 
