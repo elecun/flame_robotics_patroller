@@ -334,7 +334,10 @@ class DriveExecutor(BasePlugin):
                 dlon = rtk_dev.longitude - self.origin_lon
                 rx = dlat * 111000.0
                 ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
-                rheading = np.radians(getattr(rtk_dev, "heading", 0.0))
+                raw_hdg_deg = float(getattr(rtk_dev, "heading", 0.0)) % 360.0
+                if raw_hdg_deg > 180.0:
+                    raw_hdg_deg -= 360.0
+                rheading = np.radians(raw_hdg_deg)
                 # Also update simulated pose so Viser robot visualization tracks RTK position
                 if hasattr(self.robot, "simulated_x"):
                     self.robot.simulated_x = rx
@@ -488,7 +491,13 @@ class DriveExecutor(BasePlugin):
             target_v_kmh = target_v_ms * 3.6
             target_delta_deg = math.degrees(target_delta_rad)
 
-            logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {target_delta_deg:.2f}°")
+            # Invert steer angle polarity for actual vehicle steering actuator:
+            # Vehicle kinematics: positive steer angle (+30°) -> Clockwise / Right Turn
+            # Local planner DWA: positive steer angle -> Counter-Clockwise / Left Turn
+            # Inverted polarity (-target_delta_deg) required for actual vehicle steering
+            cmd_delta_deg = -target_delta_deg
+
+            logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {cmd_delta_deg:.2f}° (Planner raw: {target_delta_deg:.2f}°)")
 
             # 4. Dispatch control command to mobile drive base
             if drive_dev:
@@ -499,7 +508,7 @@ class DriveExecutor(BasePlugin):
                 if hasattr(drive_dev, "set_speed"):
                     drive_dev.set_speed(target_v_kmh)
                 if hasattr(drive_dev, "set_steering_angle"):
-                    drive_dev.set_steering_angle(target_delta_deg)
+                    drive_dev.set_steering_angle(cmd_delta_deg)
 
             elapsed = time.time() - start_time
             logger.debug(f"[{self.name}][_control_loop] Iteration elapsed: {elapsed * 1000.0:.2f} ms ({elapsed:.4f} s) / Target period: {self.control_period * 1000.0:.2f} ms")
