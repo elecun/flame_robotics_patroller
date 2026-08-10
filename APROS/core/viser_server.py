@@ -4,6 +4,7 @@ Handles 3D visualization, robot box model (W:1000, L:2055, H:640 mm), CAN connec
 """
 import math
 import os
+import importlib
 import time
 from datetime import datetime
 import threading
@@ -79,6 +80,8 @@ class ViserServerManager:
                 except ValueError:
                     pass
 
+        map_host = "127.0.0.1" if self.platform_ip in ("0.0.0.0", "") else self.platform_ip
+
         # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
         titlebar_html = f"""
         <div id="apros-top-titlebar" style="
@@ -114,38 +117,42 @@ class ViserServerManager:
             <button id="apros-titlebar-btn" onclick="
                 var modal = document.getElementById('apros-custom-modal');
                 if(modal) {{
-                    modal.style.display = (modal.style.display === 'none' || !modal.style.display) ? 'flex' : 'none';
+                    var isHidden = modal.style.display === 'none' || modal.style.display === '';
+                    modal.style.display = isHidden ? 'flex' : 'none';
                 }}
             " style="
-                background: linear-gradient(135deg, #1E90FF, #00E676);
-                border: none;
+                background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
                 color: #FFFFFF;
-                font-weight: bold;
-                font-size: 13px;
+                border: 1px solid rgba(255, 255, 255, 0.2);
                 padding: 7px 16px;
                 border-radius: 6px;
+                font-size: 13px;
+                font-weight: 600;
                 cursor: pointer;
-                box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
                 transition: all 0.2s ease;
-            " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1.0'">
+            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(30,144,255,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.3)';"">
                 🗺️ Map Window
             </button>
         </div>
 
-        <!-- Custom Floating Map Panel (Embedded map.html via Configured Platform IP) -->
+        <!-- Custom Floating Draggable Map Panel Window (Initially Hidden, Toggled by Titlebar Button) -->
         <div id="apros-custom-modal" style="
-            position: fixed;
-            bottom: 25px;
-            left: 25px;
-            width: 560px;
-            height: 400px;
-            z-index: 15000;
-            background: rgba(18, 24, 38, 0.96);
-            border: 1px solid rgba(0, 230, 118, 0.6);
-            border-radius: 12px;
-            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.75);
-            backdrop-filter: blur(10px);
             display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 640px;
+            height: 480px;
+            z-index: 9999;
+            background: rgba(16, 20, 31, 0.95);
+            border: 1px solid rgba(30, 144, 255, 0.4);
+            border-radius: 12px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
             flex-direction: column;
             overflow: hidden;
             resize: both;
@@ -179,9 +186,9 @@ class ViserServerManager:
                 " onmouseover="this.style.background='rgba(255,82,82,0.2)'" onmouseout="this.style.background='transparent'">✕</button>
             </div>
 
-            <!-- Leaflet Map Container (Embedded map.html using configured IP: {self.platform_ip}) -->
+            <!-- Leaflet Map Container (Embedded map.html using configured IP: {map_host}) -->
             <div style="position: relative; flex: 1; width: 100%; height: 100%;">
-                <iframe id="apros-map-iframe" style="width: 100%; height: 100%; border: none; background: #10141f;" src="http://{self.platform_ip}:8082/resource/map.html"></iframe>
+                <iframe id="apros-map-iframe" style="width: 100%; height: 100%; border: none; background: #10141f;" src="http://{map_host}:8082/resource/map.html?lat={self.default_lat}&lon={self.default_lon}&zoom=18"></iframe>
             </div>
         </div>
 
@@ -543,6 +550,15 @@ class ViserServerManager:
                                     continue
                 except Exception as e:
                     logger.error(f"[ViserServerManager] Error loading route '{route_file_name}': {e}")
+
+        # Sample route waypoints by 1m distance intervals for visualization & preview
+        if route_waypoints:
+            try:
+                mod_ru = importlib.import_module("APROS.util.route_utils" if __name__.startswith("APROS") else "util.route_utils")
+                sample_route_by_distance = getattr(mod_ru, "sample_route_by_distance")
+                route_waypoints, route_corridors = sample_route_by_distance(route_waypoints, route_corridors, sample_step_m=1.0)
+            except Exception as e:
+                logger.error(f"[ViserServerManager] Error sampling route by 1m: {e}")
 
         if route_waypoints:
             origin_lat, origin_lon = route_waypoints[0]

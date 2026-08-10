@@ -66,7 +66,7 @@
 </head>
 <body>
     <div id="map"></div>
-    <div id="coordOverlay">Lat: 34.797175, Lon: 127.660750 (Zoom: 17)</div>
+    <div id="coordOverlay">Lat: --, Lon: -- (Zoom: 18)</div>
     <button id="autoCenterBtn">🎯 현재위치 고정 ON</button>
 
     <script>
@@ -84,8 +84,13 @@
             js.src = assetServer + '/resource/leaflet.js';
             document.head.appendChild(js);
 
-            var defaultLat = 34.7971754;
-            var defaultLon = 127.6607499;
+            // Parse URL query parameters passed from Viser iframe (e.g. ?lat=34.7971754&lon=127.6607499&zoom=18)
+            var urlParams = new URLSearchParams(window.location.search);
+            var defaultLat = parseFloat(urlParams.get('lat')) || 34.7971754;
+            var defaultLon = parseFloat(urlParams.get('lon')) || 127.6607499;
+            var defaultZoom = parseInt(urlParams.get('zoom')) || 18;
+            var wsPort = urlParams.get('ws_port') || '18765';
+
             var currentLat = defaultLat;
             var currentLon = defaultLon;
             var autoCenter = true;
@@ -112,7 +117,7 @@
                     return;
                 }
 
-                map = L.map('map').setView([defaultLat, defaultLon], 17);
+                map = L.map('map').setView([defaultLat, defaultLon], defaultZoom);
                 window.map = map;
 
                 L.tileLayer(assetServer + '/maptile/{z}/{x}/{y}.png', {
@@ -124,9 +129,9 @@
 
                 var robotIcon = L.divIcon({
                     className: 'apros-robot-marker',
-                    html: '<div style="width:18px; height:18px; background:#00E676; border:3px solid #FFF; border-radius:50%; box-shadow:0 0 14px #00E676;"></div>',
-                    iconSize: [18, 18],
-                    iconAnchor: [9, 9]
+                    html: '<div style="width:10px; height:10px; background:#00E676; border:2px solid #FFF; border-radius:50%; box-shadow:0 0 8px #00E676;"></div>',
+                    iconSize: [10, 10],
+                    iconAnchor: [5, 5]
                 });
 
                 marker = L.marker([defaultLat, defaultLon], {icon: robotIcon}).addTo(map);
@@ -141,7 +146,7 @@
                 map.on('move', updateCoordDisplay);
                 map.on('zoomend', updateCoordDisplay);
                 
-                # If user manually drags the map, temporarily disable auto-center
+                // If user manually drags the map, temporarily disable auto-center
                 map.on('dragstart', function() {
                     setAutoCenter(false);
                 });
@@ -155,7 +160,7 @@
             }
 
             function connectWS() {
-                var wsUrl = 'ws://' + host + ':8765';
+                var wsUrl = 'ws://' + host + ':' + wsPort;
                 var ws = new WebSocket(wsUrl);
 
                 ws.onmessage = function(evt) {

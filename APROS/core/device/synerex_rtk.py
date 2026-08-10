@@ -66,6 +66,11 @@ class SynerexRTK(BaseDevice):
         self.ws_host = str(ws_host)
         self.ws_port = int(ws_port)
 
+        # Default fallback coordinates when RTK signal is not received yet
+        self.default_lat = float(default_lat)
+        self.default_lon = float(default_lon)
+        self.default_alt = float(default_alt)
+
         # Lock for thread-safe telemetry state access
         self._lock = threading.Lock()
 
@@ -447,9 +452,9 @@ class SynerexRTK(BaseDevice):
         return {
             "name": self.name,
             "connected": self.is_connected,
-            "latitude": round(lat, 7) if lat is not None else None,
-            "longitude": round(lon, 7) if lon is not None else None,
-            "altitude": round(alt, 2) if alt is not None else None,
+            "latitude": round(lat, 7) if lat is not None else self.default_lat,
+            "longitude": round(lon, 7) if lon is not None else self.default_lon,
+            "altitude": round(alt, 2) if alt is not None else self.default_alt,
             "heading": round(hdg, 1) if hdg is not None else 0.0,
             "fix_quality": fq,
             "quality_str": fq_str,

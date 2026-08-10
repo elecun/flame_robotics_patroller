@@ -4,6 +4,7 @@ Integrates Global Path Planning, Local Path Planning (DWA), and Vehicle Control 
 Runs at control_freq (default 10 Hz).
 """
 import os
+import importlib
 import math
 import csv
 import time
@@ -175,6 +176,15 @@ class DriveExecutor(BasePlugin):
         if not waypoints:
             logger.warning(f"[{self.name}] No valid waypoints found in '{route_file_name}'.")
             return False
+
+        # Sample route waypoints by 1m distance intervals for navigation global path
+        try:
+            mod_ru = importlib.import_module("APROS.util.route_utils" if __name__.startswith("APROS") else "util.route_utils")
+            sample_route_by_distance = getattr(mod_ru, "sample_route_by_distance")
+            waypoints, corridor_boundaries = sample_route_by_distance(waypoints, corridor_boundaries, sample_step_m=1.0)
+            logger.info(f"[{self.name}] Sampled route '{route_file_name}' to 1m distance intervals ({len(waypoints)} waypoints).")
+        except Exception as e:
+            logger.error(f"[{self.name}] Error sampling route by 1m: {e}")
 
         # Convert latitude/longitude to relative meter coordinates
         # Frame Requirement: +X North, -X South, -Y East, +Y West
