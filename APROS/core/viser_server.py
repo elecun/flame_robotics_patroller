@@ -2,6 +2,7 @@
 APROS Viser Visualization Server & UI Module.
 Handles 3D visualization, robot box model (W:1000, L:2055, H:640 mm), CAN connection status display, and MobileDriveS1 control integration.
 """
+import math
 import os
 import time
 from datetime import datetime
@@ -10,6 +11,7 @@ import numpy as np
 import viser
 import viser.transforms as tf
 from typing import Any, Optional
+from pyproj import Transformer
 from resource.tile_server import TileServerManager
 from core.data_logger import DataLogger
 from util.logger.console import ConsoleLogger
@@ -27,6 +29,16 @@ class ViserServerManager:
 
         # Viser server
         self.server = viser.ViserServer(host=self.host, port=self.port)
+
+        # Default WGS84 coordinates & heading (Korean Central Belt Origin)
+        self.default_lat = 34.7971754
+        self.default_lon = 127.6607499
+        self.default_heading = 0.0
+
+        # Pyproj Transformer: WGS84 (EPSG:4326) -> Korean Central Belt TM (EPSG:5186)
+        self.tm_transformer = Transformer.from_crs("EPSG:4326", "EPSG:5186", always_xy=True)
+
+        self.robot_frame_handle: Optional[Any] = None
 
         # Data Logger
         self._data_logger = DataLogger(robot=self.robot)
@@ -250,22 +262,46 @@ class ViserServerManager:
         def _(client: viser.ClientHandle):
             self._setup_client_ui(client)
 
+    def _wgs84_to_tm_viser(self, lat: float, lon: float) -> tuple[float, float]:
+        """
+        Convert WGS84 (Lat, Lon) to Korean Central Belt TM (EPSG:5186) Viser coordinates.
+        Viser Mapping:
+          +X axis = True North (Northing N)
+          -Y axis = True East (Easting E) -> Y_viser = -Easting
+        """
+        easting, northing = self.tm_transformer.transform(lon, lat)
+        return float(northing), float(-easting)
+
+    def _heading_to_wxyz(self, heading_deg: float) -> tuple[float, float, float, float]:
+        """
+        Convert Heading (degrees, 0=North, 90=East, 180=South, 270=West) to Viser WXYZ Quaternion.
+        Yaw = -radians(heading_deg) around Z-axis.
+        """
+        rad = -math.radians(heading_deg)
+        w = math.cos(rad / 2.0)
+        z = math.sin(rad / 2.0)
+        return (w, 0.0, 0.0, z)
+
     def _setup_scene(self):
-        """Build environment scene with single grid, pure robot box model, and controllable frame axes."""
-        # 1. Single Ground Grid (XY Plane in ROS frame: plane='xy')
+        """Build environment scene in Korean Central Belt TM Coordinate System (EPSG:5186)."""
+        init_x, init_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
+        init_wxyz = self._heading_to_wxyz(self.default_heading)
+
+        # 1. Ground Grid centered at initial TM position
         self.server.scene.add_grid(
             name="/ground_grid",
-            width=50.0,
-            height=50.0,
+            width=200.0,
+            height=200.0,
+            position=(init_x, init_y, 0.0),
             plane="xy",
             cell_color=(80, 90, 100),
             section_color=(140, 150, 160)
         )
 
-        # 2. World Axes Frame with X, Y, Z labels (Scene Tree show/hide support)
-        # ROS Standard Frame: X=Forward (Red), Y=Left (Green), Z=Up (Blue)
+        # 2. World Axes Frame in TM Space (+X=North, -Y=East, Z=Up)
         self.server.scene.add_frame(
             name="/world_axes",
+            position=(init_x, init_y, 0.0),
             show_axes=True,
             axes_length=1.5,
             axes_radius=0.03,
@@ -274,18 +310,38 @@ class ViserServerManager:
         
         self.server.scene.add_label(
             name="/world_axes/label_x",
-            text="X (Forward)",
-            position=(1.7, 0.0, 0.0)
+            text="X (North / TM Northing)",
+            position=(init_x + 1.7, init_y, 0.0)
         )
         self.server.scene.add_label(
             name="/world_axes/label_y",
-            text="Y (Left)",
-            position=(0.0, 1.7, 0.0)
+            text="Y (-Y: East / +Y: West)",
+            position=(init_x, init_y + 1.7, 0.0)
         )
         self.server.scene.add_label(
             name="/world_axes/label_z",
             text="Z (Up)",
-            position=(0.0, 0.0, 1.7)
+            position=(init_x, init_y, 1.7)
+        )
+
+        # 3. Add /robot Root Frame Node in TM Space
+        self.robot_frame_handle = self.server.scene.add_frame(
+            name="/robot",
+            position=(init_x, init_y, 0.0),
+            wxyz=init_wxyz
+        )
+
+        # 4. Floating 3D Text Label displaying live WGS84 & EPSG:5186 TM Origin Coordinates (World Aligned)
+        init_e, init_n = self.tm_transformer.transform(self.default_lon, self.default_lat)
+        init_label_text = (
+            f"📍 Robot Origin\n"
+            f"WGS84: N {self.default_lat:.6f}°, E {self.default_lon:.6f}°\n"
+            f"TM (EPSG:5186): E {init_e:.2f}m, N {init_n:.2f}m"
+        )
+        self.robot_origin_label_handle = self.server.scene.add_label(
+            name="/world/robot_origin_text_label",
+            text=init_label_text,
+            position=(init_x, init_y, self.robot_height + 0.6)
         )
 
         # 3. Load URDF Robot Model into Viser Scene
@@ -480,16 +536,12 @@ class ViserServerManager:
         if origin_lat is None and poi_waypoints:
             origin_lat, origin_lon = poi_waypoints[0][0], poi_waypoints[0][1]
 
-        # Update Route & Corridor Boundary Visualization
-        if route_waypoints and origin_lat is not None:
+        # Update Route & Corridor Boundary Visualization in TM Coordinates
+        if route_waypoints:
             points_3d = []
             for lat, lon in route_waypoints:
-                dlat = lat - origin_lat
-                dlon = lon - origin_lon
-                dx = dlat * 111000.0
-                dy = -dlon * 111000.0 * np.cos(np.radians(origin_lat))
-                dz = 0.002
-                points_3d.append([dx, dy, dz])
+                rx, ry = self._wgs84_to_tm_viser(lat, lon)
+                points_3d.append([rx, ry, 0.002])
 
             pts_arr = np.array(points_3d, dtype=np.float32)
             self.route_pc_handle.points = pts_arr
@@ -555,16 +607,13 @@ class ViserServerManager:
             self.route_line_handle.visible = False
             self.corridor_boundary_handle.visible = False
 
-        # Update POI Visualization (Sky Blue Points in 3D Space, mast_height converted from mm to meters Z)
-        if poi_waypoints and origin_lat is not None:
+        # Update POI Visualization in TM Coordinates
+        if poi_waypoints:
             poi_points_3d = []
             for lat, lon, mast_h_mm in poi_waypoints:
-                dlat = lat - origin_lat
-                dlon = lon - origin_lon
-                dx = dlat * 111000.0
-                dy = -dlon * 111000.0 * np.cos(np.radians(origin_lat))
+                rx, ry = self._wgs84_to_tm_viser(lat, lon)
                 dz = mast_h_mm / 1000.0  # Convert mm to meters for Z-axis
-                poi_points_3d.append([dx, dy, dz])
+                poi_points_3d.append([rx, ry, dz])
 
             poi_pts_arr = np.array(poi_points_3d, dtype=np.float32)
             self.poi_pc_handle.points = poi_pts_arr
@@ -582,10 +631,11 @@ class ViserServerManager:
 
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
-        # ROS Z-Up Camera Orientation
+        # TM Coordinate Frame Camera Orientation
+        init_x, init_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
         client.camera.up_direction = (0.0, 0.0, 1.0)
-        client.camera.position = (-6.0, -3.5, 3.5)
-        client.camera.look_at = (3.0, 0.0, 0.0)
+        client.camera.position = (init_x - 6.0, init_y - 3.5, 3.5)
+        client.camera.look_at = (init_x, init_y, 0.5)
 
         # Create Tab Group for multiple GUI windows
         tabs = client.gui.add_tab_group()
@@ -1347,11 +1397,13 @@ class ViserServerManager:
         l_mm = int(self.robot_length * 1000)
         h_mm = int(self.robot_height * 1000)
 
+        easting, northing = self.tm_transformer.transform(lon, lat)
         return (
             f"### APROS Patrol Robot Status\n"
             f"- **Speed**: `{speed:.1f} km/h`\n"
             f"- **Steer Angle**: `{steer:.1f}°`\n"
-            f"- **Position**: `N {lat:.6f}°, E {lon:.6f}°`\n"
+            f"- **Position (WGS84)**: `N {lat:.6f}°, E {lon:.6f}°`\n"
+            f"- **TM Position (EPSG:5186)**: `E {easting:.2f}m, N {northing:.2f}m`\n"
             f"- **Gear**: `{gear}` | **Mode**: `{mode}`\n"
             f"- **Dimensions**: `{w_mm} × {l_mm} × {h_mm} mm`"
         )
@@ -1366,6 +1418,33 @@ class ViserServerManager:
 
             # Update simulated physics/kinematics in device controller
             self.robot.update_simulation_step(dt=dt)
+
+            # Update real-time RTK TM Position & Heading pose of /robot node in Viser 3D scene
+            rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+            lat_val = getattr(rtk_dev, "latitude", None) if rtk_dev else None
+            lon_val = getattr(rtk_dev, "longitude", None) if rtk_dev else None
+            heading_val = getattr(rtk_dev, "heading", None) if rtk_dev else None
+
+            if lat_val is None: lat_val = self.default_lat
+            if lon_val is None: lon_val = self.default_lon
+            if heading_val is None: heading_val = self.default_heading
+
+            rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
+            rwxyz = self._heading_to_wxyz(heading_val)
+
+            if self.robot_frame_handle:
+                self.robot_frame_handle.position = (rx, ry, 0.0)
+                self.robot_frame_handle.wxyz = rwxyz
+
+            if hasattr(self, "robot_origin_label_handle") and self.robot_origin_label_handle:
+                easting, northing = self.tm_transformer.transform(lon_val, lat_val)
+                label_text = (
+                    f"📍 Robot Origin\n"
+                    f"WGS84: N {lat_val:.6f}°, E {lon_val:.6f}°\n"
+                    f"TM (EPSG:5186): E {easting:.2f}m, N {northing:.2f}m"
+                )
+                self.robot_origin_label_handle.position = (rx, ry, self.robot_height + 0.6)
+                self.robot_origin_label_handle.text = label_text
 
             # Update URDF Joint States (Mast height & Steering angle)
             mast_height_m = 2.9  # Ground-relative height in meters (default 2.9m = 2900mm)
