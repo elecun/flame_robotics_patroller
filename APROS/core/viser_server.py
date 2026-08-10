@@ -806,6 +806,17 @@ class ViserServerManager:
                     format="jpeg"
                 )
 
+                reset_exposure_btn = client.gui.add_button(
+                    label="🔄 Reset Auto Exposure",
+                    color="blue"
+                )
+
+                @reset_exposure_btn.on_click
+                def _(_):
+                    cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if cam_dev and hasattr(cam_dev, "reset_auto_exposure"):
+                        cam_dev.reset_auto_exposure()
+
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP",
                 color="red",

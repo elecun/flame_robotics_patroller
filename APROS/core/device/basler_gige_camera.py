@@ -180,6 +180,40 @@ class BaslerGigECamera(BaseDevice):
         self._start_thread()
         return self.is_connected
 
+    def reset_auto_exposure(self) -> bool:
+        """
+        Trigger 1-shot (Once) auto exposure reset on the camera.
+        Recalibrates auto exposure once when clicked, without continuous adjustment.
+        """
+        logger.info(f"[{self.name}] Resetting camera auto exposure (Once)...")
+        if self.is_connected and self._camera is not None and hasattr(self._camera, "ExposureAuto"):
+            try:
+                # Try setting ExposureAuto to 'Once' for one-shot auto exposure calibration
+                if self._camera.ExposureAuto.CanSetValue("Once"):
+                    self._camera.ExposureAuto.SetValue("Once")
+                    logger.info(f"[{self.name}] Camera ExposureAuto set to 'Once'. Auto exposure recalibrated.")
+                    return True
+                elif self._camera.ExposureAuto.CanSetValue("Continuous"):
+                    self._camera.ExposureAuto.SetValue("Continuous")
+                    threading.Thread(target=self._auto_exposure_once_fallback, daemon=True).start()
+                    logger.info(f"[{self.name}] Camera ExposureAuto triggered via Continuous fallback.")
+                    return True
+            except Exception as e:
+                logger.warning(f"[{self.name}] Failed to reset auto exposure via Pylon API: {e}")
+                return False
+        else:
+            logger.info(f"[{self.name}] Auto exposure reset requested (Camera hardware not connected or standalone).")
+            return True
+
+    def _auto_exposure_once_fallback(self):
+        try:
+            time.sleep(1.0)
+            if self._camera is not None and hasattr(self._camera, "ExposureAuto") and self._camera.ExposureAuto.CanSetValue("Off"):
+                self._camera.ExposureAuto.SetValue("Off")
+                logger.info(f"[{self.name}] Camera ExposureAuto fallback turned back Off.")
+        except Exception:
+            pass
+
     def disconnect(self) -> bool:
         """Stop background capture thread and release camera resources."""
         self._stop_thread()
