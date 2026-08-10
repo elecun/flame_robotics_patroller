@@ -50,8 +50,15 @@ class DriveExecutor(BasePlugin):
         self.current_route_file: Optional[str] = None
         self.current_poi_file: Optional[str] = None
         self.raw_waypoints: List[Tuple[float, float]] = []
+        self.raw_wgs84_waypoints: List[Tuple[float, float]] = []
+        self.sampled_wgs84_waypoints: List[Tuple[float, float]] = []
         self.global_path: List[Dict[str, float]] = []
         self.poi_tasks: List[Dict[str, Any]] = []  # List of {'x', 'y', 'mast_height_mm', 'executed'}
+        self.poi_enabled: bool = True           # Toggle POI inspection & mast control
+        self.is_paused_for_poi: bool = False
+        self.hil_simulation_enabled: bool = False  # Toggle HIL Simulation mode (1s step route pose update)
+        self._hil_step_index: int = 0
+        self._hil_last_update_time: float = 0.0
         self.goal_reach_threshold: float = 0.5  # meters
         self.poi_reach_threshold: float = 0.8   # meters
 
@@ -173,9 +180,8 @@ class DriveExecutor(BasePlugin):
             logger.error(f"[{self.name}] Error reading route file '{route_file_name}': {e}")
             return False
 
-        if not waypoints:
-            logger.warning(f"[{self.name}] No valid waypoints found in '{route_file_name}'.")
-            return False
+        # Store original raw route WGS84 waypoints (before 1m sampling) for HIL simulation
+        self.raw_wgs84_waypoints = list(waypoints)
 
         # Sample route waypoints by 1m distance intervals for navigation global path
         try:
@@ -200,6 +206,7 @@ class DriveExecutor(BasePlugin):
             points_meter.append((dx, dy))
 
         self.raw_waypoints = points_meter
+        self.sampled_wgs84_waypoints = waypoints
         self.current_route_file = route_file_name
 
         # Run Global Planner to create smooth sub-path
@@ -249,6 +256,28 @@ class DriveExecutor(BasePlugin):
 
             self.is_active = True
             self.mission_status = "Patrolling..."
+
+            # Trim global_path from current robot position to final goal
+            pose, _ = self._get_current_robot_pose()
+            if self.global_path:
+                nearest_idx = 0
+                min_dist = float("inf")
+                for i, pt in enumerate(self.global_path):
+                    d = math.hypot(pt["x"] - pose["x"], pt["y"] - pose["y"])
+                    if d < min_dist:
+                        min_dist = d
+                        nearest_idx = i
+
+                if nearest_idx > 0:
+                    logger.info(f"[{self.name}] Trimming global path starting from nearest index {nearest_idx}/{len(self.global_path)} (dist: {min_dist:.2f}m) to final goal.")
+                    self.global_path = self.global_path[nearest_idx:]
+                    if self.sampled_wgs84_waypoints and nearest_idx < len(self.sampled_wgs84_waypoints):
+                        self.sampled_wgs84_waypoints = self.sampled_wgs84_waypoints[nearest_idx:]
+                    if self.raw_wgs84_waypoints and nearest_idx < len(self.raw_wgs84_waypoints):
+                        self.raw_wgs84_waypoints = self.raw_wgs84_waypoints[nearest_idx:]
+
+            self._hil_step_index = 0
+            self._hil_last_update_time = time.time()
 
             # Explicitly release brake and DBS Valid when starting mission
             if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
@@ -323,6 +352,59 @@ class DriveExecutor(BasePlugin):
         rx, ry, rheading = 0.0, 0.0, 0.0
         rvel = 0.0
 
+        # HIL Simulation Mode: stepped 500ms (0.5s) update along raw route's WGS84 waypoints converted to TM space
+        hil_wgs84 = self.raw_wgs84_waypoints or self.sampled_wgs84_waypoints
+        if self.hil_simulation_enabled and (hil_wgs84 or self.global_path):
+            now = time.time()
+            total_steps = len(hil_wgs84) if hil_wgs84 else len(self.global_path)
+
+            if now - self._hil_last_update_time >= 0.5:
+                self._hil_last_update_time = now
+                if self._hil_step_index < total_steps - 1:
+                    self._hil_step_index += 1
+
+            if hil_wgs84 and hasattr(self, "origin_lat") and self.origin_lat is not None:
+                curr_lat, curr_lon = hil_wgs84[self._hil_step_index]
+                dlat = curr_lat - self.origin_lat
+                dlon = curr_lon - self.origin_lon
+                rx = dlat * 111000.0
+                ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
+
+                # Compute heading (True North=0 deg, East=90 deg)
+                if self._hil_step_index < len(hil_wgs84) - 1:
+                    next_lat, next_lon = hil_wgs84[self._hil_step_index + 1]
+                    d_n = (next_lat - curr_lat) * 111000.0
+                    d_e = (next_lon - curr_lon) * 111000.0 * np.cos(np.radians(curr_lat))
+                    hdg_deg = math.degrees(math.atan2(d_e, d_n)) % 360.0
+                else:
+                    hdg_deg = 0.0
+
+                raw_hdg = hdg_deg % 360.0
+                if raw_hdg > 180.0:
+                    raw_hdg -= 360.0
+                rheading = np.radians(raw_hdg)
+                rvel = 1.0
+
+                # Synchronize synerex_rtk device position so Viser & Map UI track the HIL WGS84 position
+                if self.robot and hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
+                    rtk_dev = self.robot.devices["synerex_rtk"]
+                    if hasattr(rtk_dev, "update_pose"):
+                        rtk_dev.update_pose(curr_lat, curr_lon, 45.0, hdg_deg)
+            else:
+                hil_pt = self.global_path[self._hil_step_index]
+                rx = hil_pt["x"]
+                ry = hil_pt["y"]
+                rheading = hil_pt["heading"]
+                rvel = hil_pt.get("v_ref", 1.0)
+
+            if self.robot:
+                if hasattr(self.robot, "simulated_x"):
+                    self.robot.simulated_x = rx
+                    self.robot.simulated_y = ry
+                    self.robot.simulated_heading = rheading
+
+            return {"x": rx, "y": ry, "heading": rheading}, rvel
+
         if self.robot:
             # Use SynerexRTK GNSS position converted to relative meters
             rtk_dev = None
@@ -359,6 +441,11 @@ class DriveExecutor(BasePlugin):
     def _get_obstacle_points(self) -> List[Tuple[float, float]]:
         """Get current obstacle points from VLP-16 or Ouster LiDAR point cloud."""
         obstacles: List[Tuple[float, float]] = []
+
+        # When HIL Simulation mode is enabled, ignore VLP-16 LiDAR obstacles
+        if self.hil_simulation_enabled:
+            return obstacles
+
         if not self.robot:
             return obstacles
 
@@ -448,16 +535,14 @@ class DriveExecutor(BasePlugin):
             drive_dev = getattr(self.robot, "drive_base", None) if self.robot else None
             pose, vel_ms = self._get_current_robot_pose()
 
-            # 1. Check POI Arrival
-            for poi in self.poi_tasks:
-                if not poi["executed"]:
-                    dist_to_poi = math.hypot(poi["x"] - pose["x"], poi["y"] - pose["y"])
-                    if dist_to_poi <= self.poi_reach_threshold:
-                        self._execute_poi_inspection_sequence(poi)
-                        break
-
             if not self.is_active:
                 break
+
+            # If MissionManager is performing POI mast inspection, hold vehicle stopped
+            if self.is_paused_for_poi:
+                self._apply_stop_command()
+                time.sleep(0.1)
+                continue
 
             # 2. Check Global Goal Reach Condition
             goal = self.global_path[-1]
@@ -468,8 +553,6 @@ class DriveExecutor(BasePlugin):
                 self.is_active = False
                 self.mission_status = "Done."
                 self._apply_stop_command()
-                if drive_dev and hasattr(drive_dev, "target_gear"):
-                    drive_dev.target_gear = "P"
                 break
 
             # 3. Compute Local Planner (Ackermann DWA) controls to track route
@@ -492,9 +575,8 @@ class DriveExecutor(BasePlugin):
             target_delta_deg = math.degrees(target_delta_rad)
 
             # Invert steer angle polarity for actual vehicle steering actuator:
-            # Vehicle kinematics: positive steer angle (+30°) -> Clockwise / Right Turn
-            # Local planner DWA: positive steer angle -> Counter-Clockwise / Left Turn
-            # Inverted polarity (-target_delta_deg) required for actual vehicle steering
+            # - RTK Heading +45° (East) -> Clockwise/Right Turn -> Negative steer angle (-)
+            # - RTK Heading 315° (-45° West) -> Counter-Clockwise/Left Turn -> Positive steer angle (+)
             cmd_delta_deg = -target_delta_deg
 
             logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {cmd_delta_deg:.2f}° (Planner raw: {target_delta_deg:.2f}°)")

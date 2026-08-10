@@ -974,6 +974,30 @@ class ViserServerManager:
                     options=poi_files,
                     initial_value=poi_files[0]
                 )
+
+                _init_poi_enabled = True
+                if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                    _init_poi_enabled = getattr(self.robot.drive_executor, "poi_enabled", True)
+
+                poi_enable_cb = client.gui.add_checkbox("POI Enable", initial_value=_init_poi_enabled)
+
+                @poi_enable_cb.on_update
+                def _(_):
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.poi_enabled = poi_enable_cb.value
+                    logger.info(f"[ViserUI] POI Enable set to {poi_enable_cb.value}.")
+
+                _init_hil_sim_enabled = False
+                if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                    _init_hil_sim_enabled = getattr(self.robot.drive_executor, "hil_simulation_enabled", False)
+
+                hil_sim_enable_cb = client.gui.add_checkbox("HIL Simulation", initial_value=_init_hil_sim_enabled)
+
+                @hil_sim_enable_cb.on_update
+                def _(_):
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.hil_simulation_enabled = hil_sim_enable_cb.value
+                    logger.info(f"[ViserUI] HIL Simulation set to {hil_sim_enable_cb.value}.")
                 @mission_route_dropdown.on_update
                 def _(_):
                     val = mission_route_dropdown.value
@@ -1018,31 +1042,39 @@ class ViserServerManager:
                 def _(_):
                     route_file = mission_route_dropdown.value
                     poi_file = mission_poi_dropdown.value
-                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        modal = client.gui.add_modal("Mission 시작 확인")
-                        with modal:
-                            client.gui.add_markdown("패트롤 로봇 Mission을 시작합니다.")
-                            confirm_btn = client.gui.add_button("확인", color="green")
-                            cancel_btn = client.gui.add_button("취소", color="red")
+                    modal = client.gui.add_modal("Mission 시작 확인")
+                    with modal:
+                        client.gui.add_markdown("패트롤 로봇 Mission을 시작합니다.")
+                        confirm_btn = client.gui.add_button("확인", color="green")
+                        cancel_btn = client.gui.add_button("취소", color="red")
 
-                            @confirm_btn.on_click
-                            def _(_):
-                                modal.close()
-                                self.robot.drive_executor.start_mission(route_file, poi_file_name=poi_file)
-                                mission_status_md.content = "**Mission Status**: `Patrolling...`"
-                                logger.info(f"[ViserUI] Start Mission confirmed -> Started DriveExecutor with route '{route_file}' & POI '{poi_file}'")
+                        @confirm_btn.on_click
+                        def _(_):
+                            modal.close()
+                            mission_mgr = getattr(self.robot, "mission_manager", None)
+                            drive_exec = getattr(self.robot, "drive_executor", None)
+                            if mission_mgr and hasattr(mission_mgr, "start_mission"):
+                                mission_mgr.start_mission(route_file, poi_file_name=poi_file)
+                            elif drive_exec and hasattr(drive_exec, "start_mission"):
+                                drive_exec.start_mission(route_file, poi_file_name=poi_file)
+                            mission_status_md.content = "**Mission Status**: `Patrolling...`"
+                            logger.info(f"[ViserUI] Start Mission confirmed -> Started MissionManager with route '{route_file}' & POI '{poi_file}'")
 
-                            @cancel_btn.on_click
-                            def _(_):
-                                modal.close()
-                                logger.info("[ViserUI] Start Mission cancelled by user.")
+                        @cancel_btn.on_click
+                        def _(_):
+                            modal.close()
+                            logger.info("[ViserUI] Start Mission cancelled by user.")
 
                 @abort_mission_btn.on_click
                 def _(_):
-                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        self.robot.drive_executor.abort_mission()
-                        mission_status_md.content = "**Mission Status**: `Aborted Mission`"
-                        logger.info("[ViserUI] Abort Mission clicked -> Aborted DriveExecutor")
+                    mission_mgr = getattr(self.robot, "mission_manager", None)
+                    drive_exec = getattr(self.robot, "drive_executor", None)
+                    if mission_mgr and hasattr(mission_mgr, "abort_mission"):
+                        mission_mgr.abort_mission()
+                    elif drive_exec and hasattr(drive_exec, "abort_mission"):
+                        drive_exec.abort_mission()
+                    mission_status_md.content = "**Mission Status**: `Aborted`"
+                    logger.info("[ViserUI] Abort Mission clicked -> Aborted MissionManager / DriveExecutor.")
 
             # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
             with client.gui.add_folder("🏗️ DES Control", expand_by_default=True):
@@ -1286,6 +1318,7 @@ class ViserServerManager:
         # Background update loop for UI Markdown refresh and Camera Stream
         def ui_update_loop():
             last_img_ts = 0.0
+            last_mission_done_state = False
             while self._running:
                 try:
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
@@ -1306,11 +1339,34 @@ class ViserServerManager:
                     except Exception as gui_err:
                         pass
 
-                    # Update Mission Status from drive_executor (syncs Done./Aborted/Patrolling state)
+                    # Update Mission Status from mission_manager or drive_executor (syncs Done./Aborted/Patrolling state)
                     try:
-                        if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                            executor_status = getattr(self.robot.drive_executor, "mission_status", "Idle")
-                            mission_status_md.content = f"**Mission Status**: `{executor_status}`"
+                        mission_mgr = getattr(self.robot, "mission_manager", None)
+                        drive_exec = getattr(self.robot, "drive_executor", None)
+                        executor_status = "Idle"
+                        if mission_mgr and hasattr(mission_mgr, "mission_status"):
+                            executor_status = getattr(mission_mgr, "mission_status", "Idle")
+                        elif drive_exec and hasattr(drive_exec, "mission_status"):
+                            executor_status = getattr(drive_exec, "mission_status", "Idle")
+
+                        mission_status_md.content = f"**Mission Status**: `{executor_status}`"
+
+                        # Display completion modal window when patrol mission finishes
+                        if executor_status == "Done." and not last_mission_done_state:
+                            last_mission_done_state = True
+                            modal = client.gui.add_modal("🎉 구간 패트롤 완료")
+                            with modal:
+                                client.gui.add_markdown(
+                                    "### 🎉 구간 패트롤이 완료되었습니다.\n\n"
+                                    "설정된 패트롤 경로(Route) 및 POI 태스크 완주가 정상 완료되었습니다."
+                                )
+                                close_btn = client.gui.add_button("확인", color="green")
+                                @close_btn.on_click
+                                def _(_):
+                                    modal.close()
+                            logger.info("[ViserUI] Patrol Mission Completed modal displayed.")
+                        elif executor_status != "Done.":
+                            last_mission_done_state = False
                     except Exception:
                         pass
 

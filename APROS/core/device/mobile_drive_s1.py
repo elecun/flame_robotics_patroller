@@ -356,6 +356,16 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         Build and send 0x501, 0x502, 0x503, 0x504, 0x506 CAN control frames.
         Reference implementation from PatrolCar_SlideBar_original.py _tick_impl.
         """
+        # Check if HIL Simulation mode is active
+        hil_active = False
+        if hasattr(self, "robot") and self.robot:
+            drive_exec = getattr(self.robot, "drive_executor", None)
+            if drive_exec:
+                hil_active = getattr(drive_exec, "hil_simulation_enabled", False)
+
+        if hil_active:
+            return
+
         if not self.is_connected or self.ch is None or Frame is None:
             return
 
@@ -400,6 +410,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             work_mode = 1 if self.ad_control_req_flag == 1 else 0  # 1: Speed Control Mode
             gear_code = 0  # 0: P Gear, 1: D Gear, 2: N Gear, 3: R Gear
             gear_str = str(self.target_gear).strip().upper()
+            curr_spd = max(abs(float(self.speed)), abs(float(self.cmd_speed)))
             if gear_str == "R":
                 gear_code = 3
             elif gear_str == "D":
@@ -407,14 +418,18 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             elif gear_str == "N":
                 gear_code = 2
             elif gear_str == "P":
-                gear_code = 0
+                # Safety guard: only allow P gear code when speed is 0 km/h
+                if curr_spd <= 0.01:
+                    gear_code = 0
+                else:
+                    gear_code = 1  # Retain D gear if vehicle is still moving
             else:
                 if self.cmd_speed < -0.01:
                     gear_code = 3
                 elif self.cmd_speed > 0.01:
                     gear_code = 1
                 else:
-                    gear_code = 0
+                    gear_code = 1
 
             raw_accde = 0  # ad_acc_de = 0
             raw_torque = 0 # ad_torque_control = 0
@@ -498,6 +513,23 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.start_ad_tx_thread()
         else:
             self.stop_ad_tx_thread()
+
+    def set_gear(self, gear_str: str) -> bool:
+        """
+        Set vehicle target gear ('P', 'D', 'N', 'R').
+        Safety Rule: Gear can ONLY be changed to 'P' (Park) when vehicle speed is strictly 0 km/h.
+        """
+        target_g = str(gear_str).strip().upper()
+        if target_g == "P":
+            curr_speed_mag = max(abs(float(self.speed)), abs(float(self.cmd_speed)))
+            if curr_speed_mag > 0.01:
+                logger.warning(f"[{self.name}] Safety Block: Cannot change gear to 'P' while vehicle is moving ({curr_speed_mag:.2f} km/h). Speed must be 0 km/h.")
+                return False
+
+        self.target_gear = target_g
+        self.gear = target_g
+        logger.info(f"[{self.name}] Target gear set to '{target_g}'.")
+        return True
 
     def set_speed(self, speed_kmh: float):
         """Set control target velocity clamped between min_velocity and max_velocity. Automatically sets target_gear to R if negative or D if positive."""

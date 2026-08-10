@@ -79,6 +79,7 @@ class IAEPatrolV1:
         self.local_planner = None
         self.drive_executor = None
         self.mast_executor = None
+        self.mission_manager = None
 
         self._init_path_planners_and_executor()
 
@@ -182,6 +183,16 @@ class IAEPatrolV1:
             logger.info(f"[IAEPatrolV1] Mast Executor plugin initialized (stop_trig_bound={stop_trig_b}mm).")
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Error initializing Mast Executor: {e}")
+
+        # 5. Dynamically load Mission Manager Plugin
+        try:
+            mod_mm = importlib.import_module("APROS.core.plugin.mission_manager" if __name__.startswith("APROS") else "core.plugin.mission_manager")
+            MissionManager = getattr(mod_mm, "MissionManager")
+            self.mission_manager = MissionManager(robot=self, poi_reach_threshold=0.5)
+            self.plugins["mission_manager"] = self.mission_manager
+            logger.info(f"[IAEPatrolV1] Mission Manager plugin initialized (poi_reach_threshold=0.5m).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Error initializing Mission Manager: {e}")
 
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""

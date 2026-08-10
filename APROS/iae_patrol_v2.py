@@ -90,6 +90,17 @@ class IAEPatrolV2:
         except Exception as e:
             logger.error(f"[IAEPatrolV2] Error initializing Mast Executor: {e}")
 
+        # Dynamically load Mission Manager Plugin
+        self.mission_manager = None
+        try:
+            mod_mm = importlib.import_module("APROS.core.plugin.mission_manager" if __name__.startswith("APROS") else "core.plugin.mission_manager")
+            MissionManager = getattr(mod_mm, "MissionManager")
+            self.mission_manager = MissionManager(robot=self, poi_reach_threshold=0.5)
+            self.plugins["mission_manager"] = self.mission_manager
+            logger.info(f"[IAEPatrolV2] Mission Manager plugin initialized (poi_reach_threshold=0.5m).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV2] Error initializing Mission Manager: {e}")
+
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""
         if dev_name not in self.DEVICE_MAP:

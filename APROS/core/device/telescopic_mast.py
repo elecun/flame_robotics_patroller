@@ -187,6 +187,17 @@ class TelescopicMast(BaseDevice):
 
     def _publish_mast_command(self, command: str):
         """Publish a mast control command via the proxy IPC channel."""
+        # Check if HIL Simulation mode is active from DriveExecutor
+        hil_active = False
+        if hasattr(self, "robot") and self.robot:
+            drive_exec = getattr(self.robot, "drive_executor", None)
+            if drive_exec:
+                hil_active = getattr(drive_exec, "hil_simulation_enabled", False)
+
+        if hil_active:
+            logger.info(f"[{self.name}] [HIL Simulation Mode] Hardware mast command '{command}' bypassed (virtual 40mm/s movement active).")
+            return
+
         if self.proxy_pub_socket and self.proxy_pub_socket.is_joined:
             try:
                 payload = json.dumps({"command": command}).encode('utf-8')
@@ -412,15 +423,21 @@ class TelescopicMast(BaseDevice):
         3. Publishes mast telemetry over ZPipe IPC.
         4. Logs current mast position in mm & m to console for debugging.
         """
-        speed_mm_per_sec = 300.0  # Smooth motion speed 300mm/s for simulation
-        dt = 0.1  # 100ms interval as requested
+        speed_mm_per_sec = 40.0  # Virtual 40mm/s movement speed for HIL simulation
+        dt = 0.1  # 100ms interval
 
         while self._running:
             start_time = time.time()
             read_height_mm: Optional[float] = None
 
-            # 1. Try RS485 Modbus hardware read if pymodbus client is connected
-            if self.modbus_client and self.is_connected:
+            hil_active = False
+            if hasattr(self, "robot") and self.robot:
+                drive_exec = getattr(self.robot, "drive_executor", None)
+                if drive_exec:
+                    hil_active = getattr(drive_exec, "hil_simulation_enabled", False)
+
+            # 1. Try RS485 Modbus hardware read if pymodbus client is connected (and NOT in HIL mode)
+            if not hil_active and self.modbus_client and self.is_connected:
                 try:
                     rr = self._read_input_registers(address=0x03EA, count=2, slave=self.bus_address)
                     if rr is not None and not rr.isError() and hasattr(rr, 'registers') and len(rr.registers) >= 2:
@@ -429,12 +446,12 @@ class TelescopicMast(BaseDevice):
                 except Exception as e:
                     logger.error(f"[{self.name}] Modbus read error: {e}")
 
-            # 2. Update current position (use hardware read or simulated transition towards target)
+            # 2. Update current position (use hardware read or 40mm/s simulated transition towards target)
             with self._lock:
-                if read_height_mm is not None:
+                if read_height_mm is not None and not hil_active:
                     self._current_height_mm = read_height_mm
                 else:
-                    # Simulation motion update based on mast_action_state or target_height_mm
+                    # Simulation motion update based on mast_action_state or target_height_mm (40mm/s)
                     if self._mast_action_state == "raising":
                         self._current_height_mm = min(self.max_height, self._current_height_mm + speed_mm_per_sec * dt)
                     elif self._mast_action_state == "lowering":
