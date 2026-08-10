@@ -67,10 +67,12 @@ class TelescopicMast(BaseDevice):
         min_height: float = 2900.0,
         max_height: float = 9100.0,
         initial_height: float = 2900.0,
+        stop_trig_bound: float = 15.0,
         offset_x: float = 0.0,
         offset_y: float = 0.0,
         offset_z: float = 0.78,
-        enable: bool = True
+        enable: bool = True,
+        **kwargs
     ):
         super().__init__(name, enable=enable)
         self.robot_model = robot_model
@@ -82,6 +84,7 @@ class TelescopicMast(BaseDevice):
 
         self.min_height = float(min_height)
         self.max_height = float(max_height)
+        self.stop_trig_bound = float(stop_trig_bound)
 
         # Installation offset relative to robot frame (meters)
         self.offset_x = float(offset_x)
@@ -116,6 +119,12 @@ class TelescopicMast(BaseDevice):
         self._move_height_thread: Optional[threading.Thread] = None
         self._move_height_running = False
         self._move_height_tolerance_mm: float = 50.0  # ±50mm tolerance for target reached
+
+        # Target height control background worker thread (auto-stop & 1.0s retry)
+        self._target_control_thread: Optional[threading.Thread] = None
+        self._target_control_running: bool = False
+        self._target_control_mode: Optional[str] = None  # "extend" or "retract"
+        self._target_control_target_mm: float = 2900.0
 
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish sockets (telemetry + proxy control)."""
@@ -199,7 +208,6 @@ class TelescopicMast(BaseDevice):
         with self._lock:
             self._mast_action_state = "raising"
         self._publish_mast_command("raise_mast")
-        print("mast up")
 
     def mast_down(self):
         """Send lower command to FoldableTelescopicMast via proxy IPC."""
@@ -226,9 +234,9 @@ class TelescopicMast(BaseDevice):
         self.mast_down()
 
     def move_stop(self):
-        """Stop mast movement immediately."""
+        """Stop mast movement and target control thread immediately."""
         self._stop_move_height_monitor()
-        self.mast_stop()
+        self.stop_target_control()
 
     def move_height(self, target_height_mm: float):
         """
@@ -309,6 +317,124 @@ class TelescopicMast(BaseDevice):
         self._move_height_thread = None
         with self._lock:
             self._move_height_target = None
+
+    # ── Target Height Worker Control (Auto-Stop & 1.0s Retry) ─────────
+
+    def start_target_extend(self, target_height_mm: float) -> bool:
+        """
+        Start extending mast toward target_height_mm in dedicated background thread.
+        Validates target range [2900, 9100] mm. Automatically stops when current >= target.
+        If no height change for 1.0s before target reached, re-triggers raise command.
+        """
+        if target_height_mm < self.min_height or target_height_mm > self.max_height:
+            logger.warning(f"[{self.name}] Target height {target_height_mm} mm out of range [{self.min_height}, {self.max_height}] mm.")
+            return False
+
+        self.stop_target_control()
+
+        with self._lock:
+            self._target_control_mode = "extend"
+            self._target_control_target_mm = float(target_height_mm)
+            self._target_control_running = True
+
+        self._target_control_thread = threading.Thread(
+            target=self._target_control_worker, daemon=True, name=f"{self.name}_target_extend"
+        )
+        self._target_control_thread.start()
+        logger.info(f"[{self.name}] Target EXTEND thread started (target={target_height_mm:.1f} mm).")
+        return True
+
+    def start_target_retract(self, target_height_mm: float) -> bool:
+        """
+        Start retracting mast toward target_height_mm in dedicated background thread.
+        Validates target range [2900, 9100] mm. Automatically stops when current <= target.
+        If no height change for 1.0s before target reached, re-triggers lower command.
+        """
+        if target_height_mm < self.min_height or target_height_mm > self.max_height:
+            logger.warning(f"[{self.name}] Target height {target_height_mm} mm out of range [{self.min_height}, {self.max_height}] mm.")
+            return False
+
+        self.stop_target_control()
+
+        with self._lock:
+            self._target_control_mode = "retract"
+            self._target_control_target_mm = float(target_height_mm)
+            self._target_control_running = True
+
+        self._target_control_thread = threading.Thread(
+            target=self._target_control_worker, daemon=True, name=f"{self.name}_target_retract"
+        )
+        self._target_control_thread.start()
+        logger.info(f"[{self.name}] Target RETRACT thread started (target={target_height_mm:.1f} mm).")
+        return True
+
+    def stop_target_control(self):
+        """Stop background target height control thread and send mast_stop command."""
+        self._target_control_running = False
+        if self._target_control_thread and self._target_control_thread.is_alive() and threading.current_thread() != self._target_control_thread:
+            self._target_control_thread.join(timeout=1.0)
+        self._target_control_thread = None
+        self.mast_stop()
+
+    def _target_control_worker(self):
+        """
+        Dedicated background worker thread for Telescopic Mast target height tracking:
+        1. Sends extend (mast_up) or retract (mast_down) command.
+        2. Monitors current mast height.
+        3. Stops automatically when current >= target (for extend) or current <= target (for retract).
+        4. If height doesn't change for 1.0s before target is reached, re-issues extend/retract command once more.
+        """
+        with self._lock:
+            mode = self._target_control_mode
+            target_h = self._target_control_target_mm
+
+        if not mode or target_h is None:
+            return
+
+        # Trigger initial motion
+        if mode == "extend":
+            self.mast_up()
+        elif mode == "retract":
+            self.mast_down()
+
+        last_h = self.current_height_mm
+        last_change_time = time.time()
+
+        while self._target_control_running and self._running:
+            curr_h = self.current_height_mm
+
+            # Check target stop trigger condition (accounting for deceleration/inertia offset: stop_trig_bound mm)
+            extend_stop_h = target_h - self.stop_trig_bound
+            retract_stop_h = target_h + self.stop_trig_bound
+
+            if mode == "extend" and curr_h >= extend_stop_h:
+                logger.info(f"[{self.name}] Stop trigger boundary reached for EXTEND (curr={curr_h:.1f}mm >= target={target_h:.1f}mm - {self.stop_trig_bound:.1f}mm). Auto-stopping mast.")
+                self.mast_stop()
+                break
+            elif mode == "retract" and curr_h <= retract_stop_h:
+                logger.info(f"[{self.name}] Stop trigger boundary reached for RETRACT (curr={curr_h:.1f}mm <= target={target_h:.1f}mm + {self.stop_trig_bound:.1f}mm). Auto-stopping mast.")
+                self.mast_stop()
+                break
+
+            # Height change tracking (threshold 1.0 mm)
+            if abs(curr_h - last_h) >= 1.0:
+                last_h = curr_h
+                last_change_time = time.time()
+            else:
+                # No height change detected — check if 1.0 second elapsed
+                if time.time() - last_change_time >= 1.0:
+                    logger.info(f"[{self.name}] No height change detected for 1.0s (curr={curr_h:.1f}mm, target={target_h:.1f}mm). Re-triggering {mode} command.")
+                    if mode == "extend":
+                        self.mast_up()
+                    elif mode == "retract":
+                        self.mast_down()
+                    last_change_time = time.time()
+                    last_h = curr_h
+
+            time.sleep(0.05)
+
+        with self._lock:
+            self._target_control_running = False
 
     def connect(self) -> bool:
         """Connect RS485 Modbus client and start telemetry/control thread if enabled."""
@@ -430,11 +556,16 @@ class TelescopicMast(BaseDevice):
                 if read_height_mm is not None:
                     self._current_height_mm = read_height_mm
                 else:
-                    # Simulation motion update towards target_height_mm
-                    diff = self._target_height_mm - self._current_height_mm
-                    if abs(diff) > 0.01:
-                        step = (1.0 if diff > 0 else -1.0) * min(abs(diff), speed_mm_per_sec * dt)
-                        self._current_height_mm += step
+                    # Simulation motion update based on mast_action_state or target_height_mm
+                    if self._mast_action_state == "raising":
+                        self._current_height_mm = min(self.max_height, self._current_height_mm + speed_mm_per_sec * dt)
+                    elif self._mast_action_state == "lowering":
+                        self._current_height_mm = max(self.min_height, self._current_height_mm - speed_mm_per_sec * dt)
+                    else:
+                        diff = self._target_height_mm - self._current_height_mm
+                        if abs(diff) > 0.01:
+                            step = (1.0 if diff > 0 else -1.0) * min(abs(diff), speed_mm_per_sec * dt)
+                            self._current_height_mm += step
 
             # 3. Publish telemetry data over ZPipe IPC (JSON format)
             data = self.get_status()
@@ -458,6 +589,7 @@ class TelescopicMast(BaseDevice):
                 "current_height_m": round(self._current_height_mm / 1000.0, 3),
                 "min_height_mm": self.min_height,
                 "max_height_mm": self.max_height,
+                "stop_trig_bound_mm": self.stop_trig_bound,
                 "diameter_mm": self.DIAMETER_MM,
                 "port": self.port_name,
                 "baudrate": self.baudrate,

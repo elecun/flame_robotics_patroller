@@ -1033,9 +1033,18 @@ class ViserServerManager:
                         mission_status_md.content = "**Mission Status**: `Aborted Mission`"
                         logger.info("[ViserUI] Abort Mission clicked -> Aborted DriveExecutor")
 
-            # DES Control Folder (directly below Patrol Route & Task Execution folder)
+            # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
             with client.gui.add_folder("🏗️ DES Control", expand_by_default=True):
+                mast_target_number = client.gui.add_number(
+                    label="Target Height (mm)",
+                    initial_value=2900,
+                    min=2900,
+                    max=9100,
+                    step=100
+                )
+                mast_current_height_md = client.gui.add_markdown("**Current Height**: `2900 mm` (2.90 m)")
                 des_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+
                 des_action_group = client.gui.add_button_group(
                     "Action",
                     options=["⬆️ Extend", "⬇️ Retract"]
@@ -1045,23 +1054,47 @@ class ViserServerManager:
                 @des_action_group.on_click
                 def _(_):
                     selected = des_action_group.value
+                    target_val = float(mast_target_number.value)
+
+                    # Validate target mast height range (2900 ~ 9100 mm)
+                    if target_val < 2900.0 or target_val > 9100.0:
+                        modal = client.gui.add_modal("⚠️ Target Height 범위 오류")
+                        with modal:
+                            client.gui.add_markdown(
+                                "### ⚠️ Target Mast Height 범위 오류\n\n"
+                                "Target Mast Height 범위는 **2900 ~ 9100 mm** 입니다.\n\n"
+                                "유효한 높이(2900 ~ 9100 mm)를 입력한 후 다시 시도하십시오."
+                            )
+                            close_btn = client.gui.add_button("확인", color="red")
+                            @close_btn.on_click
+                            def _(_):
+                                modal.close()
+                        logger.warning(f"[ViserUI] Invalid target mast height {target_val} mm. Range must be 2900~9100 mm.")
+                        return
+
                     mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if "Extend" in selected:
-                        if mast_dev and hasattr(mast_dev, "move_up"):
-                            mast_dev.move_up()
-                        des_status_md.content = "**Status**: ⬆️ Extending"
-                        logger.info("[ViserUI] DES Control -> Extend clicked.")
-                    elif "Retract" in selected:
-                        if mast_dev and hasattr(mast_dev, "move_down"):
-                            mast_dev.move_down()
-                        des_status_md.content = "**Status**: ⬇️ Retracting"
-                        logger.info("[ViserUI] DES Control -> Retract clicked.")
+                    if mast_dev:
+                        if "Extend" in selected:
+                            if hasattr(mast_dev, "start_target_extend"):
+                                mast_dev.start_target_extend(target_val)
+                            elif hasattr(mast_dev, "move_up"):
+                                mast_dev.move_up()
+                            logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
+                        elif "Retract" in selected:
+                            if hasattr(mast_dev, "start_target_retract"):
+                                mast_dev.start_target_retract(target_val)
+                            elif hasattr(mast_dev, "move_down"):
+                                mast_dev.move_down()
+                            logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
 
                 @des_stop_btn.on_click
                 def _(_):
                     mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if mast_dev and hasattr(mast_dev, "move_stop"):
-                        mast_dev.move_stop()
+                    if mast_dev:
+                        if hasattr(mast_dev, "stop_target_control"):
+                            mast_dev.stop_target_control()
+                        elif hasattr(mast_dev, "move_stop"):
+                            mast_dev.move_stop()
                     des_status_md.content = "**Status**: ⏹️ Stopped"
                     logger.info("[ViserUI] DES Control -> Stop clicked.")
 
@@ -1269,15 +1302,20 @@ class ViserServerManager:
                     except Exception:
                         pass
 
-                    # Update DES Control status from telescopic_mast device
+                    # Update DES Control status and current mast height from telescopic_mast device
                     try:
                         mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
                         if mast_dev:
+                            curr_h_mm = getattr(mast_dev, "current_height_mm", 2900.0)
+                            curr_h_m = curr_h_mm / 1000.0
                             mast_state = getattr(mast_dev, "mast_action_state", "stopped")
+
+                            mast_current_height_md.content = f"**Current Height**: `{curr_h_mm:.0f} mm` ({curr_h_m:.2f} m)"
+
                             if mast_state == "raising":
-                                des_status_md.content = "**Status**: ⬆️ Extending"
+                                des_status_md.content = "**Status**: ⬆️ Extending..."
                             elif mast_state == "lowering":
-                                des_status_md.content = "**Status**: ⬇️ Retracting"
+                                des_status_md.content = "**Status**: ⬇️ Retracting..."
                             else:
                                 des_status_md.content = "**Status**: ⏹️ Stopped"
                     except Exception:
