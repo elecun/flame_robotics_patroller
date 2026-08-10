@@ -73,8 +73,8 @@ def sample_poi_from_route(
         writer = csv.writer(f_out)
         writer.writerow(["index", "latitude", "longitude", "mast_height", "ptu_pan", "ptu_tilt"])
         for idx, (lat, lon) in enumerate(sampled_data):
-            mast_height = round(random.uniform(min_height, max_height), 1)
-            writer.writerow([idx, f"{lat:.8f}", f"{lon:.8f}", f"{mast_height:.1f}", 0.0, 0.0])
+            mast_height = random.randint(int(min_height), int(max_height))
+            writer.writerow([idx, f"{lat:.8f}", f"{lon:.8f}", mast_height, 0.0, 0.0])
 
     print(
         f"Successfully sampled {len(sampled_data)} POI points from '{route_path}' -> '{poi_path}' "

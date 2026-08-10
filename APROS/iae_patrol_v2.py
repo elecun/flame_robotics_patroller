@@ -5,6 +5,7 @@ Excludes baumer_incline device while maintaining compatibility with IAEPatrolV1 
 """
 
 import importlib
+import inspect
 from typing import Dict, Any, Optional
 from core.device.base import BaseDevice
 from core.plugin.base import BasePlugin
@@ -89,10 +90,17 @@ class IAEPatrolV2:
 
         # Read specific device section settings from config if available
         kwargs = {}
-        if dev_name in ["vlp-16", "ouster-sr-128"]:
-            if self.config and self.config.has_section("PLATFORM"):
-                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2")
+        if self.config and self.config.has_section("PLATFORM"):
+            plat_sec = self.config["PLATFORM"]
+            if dev_name in ["vlp-16", "ouster-sr-128"]:
+                robot_model = plat_sec.get("robot_model", fallback="iae_patrol_v2")
                 kwargs["robot_model"] = robot_model
+            for key in ("default_lat", "default_lon", "default_alt"):
+                if key in plat_sec:
+                    try:
+                        kwargs[key] = float(plat_sec[key])
+                    except ValueError:
+                        kwargs[key] = plat_sec[key]
 
         if self.config and self.config.has_section(dev_name):
             section = self.config[dev_name]
@@ -128,8 +136,15 @@ class IAEPatrolV2:
                 kwargs["ground_removal_params"] = gr_params
 
         try:
-            instance = cls(name=dev_name, **kwargs)
-            logger.info(f"[IAEPatrolV2] Loaded device '{dev_name}' ({class_name}) with parameters: {kwargs}")
+            sig = inspect.signature(cls)
+            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_kwargs:
+                init_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            else:
+                init_kwargs = kwargs
+
+            instance = cls(name=dev_name, **init_kwargs)
+            logger.info(f"[IAEPatrolV2] Loaded device '{dev_name}' ({class_name}) with parameters: {init_kwargs}")
             return instance
         except Exception as e:
             logger.error(f"[IAEPatrolV2] Error initializing device '{dev_name}': {e}")

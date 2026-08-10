@@ -58,10 +58,26 @@ class ViserServerManager:
         self.tile_server = TileServerManager(host=self.host, port=8082)
         self.tile_server.start()
 
-        # Read platform IP from apros.cfg [PLATFORM] section
+        # Read platform IP & default coordinates from apros.cfg [PLATFORM] section
         self.platform_ip = "127.0.0.1"
         if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("PLATFORM"):
-            self.platform_ip = self.robot.config.get("PLATFORM", "ip", fallback="127.0.0.1")
+            plat_sec = self.robot.config["PLATFORM"]
+            self.platform_ip = plat_sec.get("ip", fallback="127.0.0.1")
+            if "default_lat" in plat_sec:
+                try:
+                    self.default_lat = float(plat_sec["default_lat"])
+                except ValueError:
+                    pass
+            if "default_lon" in plat_sec:
+                try:
+                    self.default_lon = float(plat_sec["default_lon"])
+                except ValueError:
+                    pass
+            if "default_alt" in plat_sec:
+                try:
+                    self.default_alt = float(plat_sec["default_alt"])
+                except ValueError:
+                    pass
 
         # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
         titlebar_html = f"""
@@ -423,13 +439,21 @@ class ViserServerManager:
             visible=True
         )
 
-        # 8. POI Visualization Scene Handle (Sky Blue circles for POI points)
+        # 8. POI Visualization Scene Handles & Labels
+        self.poi_label_handles = []
         self.poi_pc_handle = self.server.scene.add_point_cloud(
             name="/world/poi_points",
             points=np.zeros((1, 3), dtype=np.float32),
             colors=np.array([[0, 191, 255]], dtype=np.uint8),  # Sky Blue color
-            point_size=0.15,  # Diameter 150mm = 0.15m
+            point_size=0.2,  # Diameter 200mm = 0.2m
             point_shape="circle"
+        )
+        self.poi_mast_line_handle = self.server.scene.add_line_segments(
+            name="/world/poi_mast_lines",
+            points=np.zeros((1, 2, 3), dtype=np.float32),
+            colors=np.array([[[0, 191, 255], [0, 191, 255]]], dtype=np.uint8),
+            line_width=3.0,
+            visible=True
         )
 
         # 9. DWA Local Planner Path Handle (Vivid Neon Green/Cyan thick line on ground plane)
@@ -462,6 +486,17 @@ class ViserServerManager:
         self.route_line_handle.visible = False
         self.poi_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
         self.poi_pc_handle.colors = np.zeros((0, 3), dtype=np.uint8)
+        if hasattr(self, "poi_mast_line_handle"):
+            self.poi_mast_line_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
+            self.poi_mast_line_handle.visible = False
+
+        for lbl in self.poi_label_handles:
+            try:
+                lbl.remove()
+            except Exception:
+                pass
+        self.poi_label_handles.clear()
+
         self.corridor_boundary_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
         self.corridor_boundary_handle.colors = np.zeros((0, 2, 3), dtype=np.uint8)
         self.corridor_boundary_handle.visible = False
@@ -512,7 +547,7 @@ class ViserServerManager:
         if route_waypoints:
             origin_lat, origin_lon = route_waypoints[0]
 
-        # 2. Load POI Waypoints: (lat, lon, mast_height_mm)
+        # 2. Load POI Waypoints: (lat, lon, mast_height_mm [int])
         poi_waypoints = []
         if poi_file_name and poi_file_name != "None":
             poi_path = os.path.join(route_dir, poi_file_name)
@@ -526,7 +561,7 @@ class ViserServerManager:
                                 try:
                                     lat = float(row[1])
                                     lon = float(row[2])
-                                    mast_height = float(row[3]) if len(row) >= 4 else 0.0
+                                    mast_height = int(round(float(row[3]))) if len(row) >= 4 else 0
                                     poi_waypoints.append((lat, lon, mast_height))
                                 except ValueError:
                                     continue
@@ -607,13 +642,24 @@ class ViserServerManager:
             self.route_line_handle.visible = False
             self.corridor_boundary_handle.visible = False
 
-        # Update POI Visualization in TM Coordinates
+        # Update POI Visualization in TM Coordinates & Add Labels for mast_height (int)
         if poi_waypoints:
             poi_points_3d = []
-            for lat, lon, mast_h_mm in poi_waypoints:
+            mast_lines = []
+            for idx, (lat, lon, mast_h_mm) in enumerate(poi_waypoints):
                 rx, ry = self._wgs84_to_tm_viser(lat, lon)
                 dz = mast_h_mm / 1000.0  # Convert mm to meters for Z-axis
                 poi_points_3d.append([rx, ry, dz])
+                mast_lines.append([[rx, ry, 0.0], [rx, ry, dz]])
+
+                # Add 3D text label for each POI showing integer mast_height
+                lbl_text = f"📍 POI #{idx}: {mast_h_mm} mm"
+                lbl_handle = self.server.scene.add_label(
+                    name=f"/world/poi_labels/label_{idx}",
+                    text=lbl_text,
+                    position=(rx, ry, dz + 0.3)
+                )
+                self.poi_label_handles.append(lbl_handle)
 
             poi_pts_arr = np.array(poi_points_3d, dtype=np.float32)
             self.poi_pc_handle.points = poi_pts_arr
@@ -622,8 +668,21 @@ class ViserServerManager:
             poi_colors[:, 1] = 191   # Green
             poi_colors[:, 2] = 255   # Blue (Sky Blue: 0, 191, 255)
             self.poi_pc_handle.colors = poi_colors
+
+            if mast_lines and hasattr(self, "poi_mast_line_handle"):
+                mast_lines_arr = np.array(mast_lines, dtype=np.float32)
+                self.poi_mast_line_handle.points = mast_lines_arr
+                line_colors = np.zeros((len(mast_lines_arr), 2, 3), dtype=np.uint8)
+                line_colors[:, :, 0] = 0
+                line_colors[:, :, 1] = 191
+                line_colors[:, :, 2] = 255
+                self.poi_mast_line_handle.colors = line_colors
+                self.poi_mast_line_handle.visible = True
         else:
             self.poi_pc_handle.points = np.zeros((0, 3), dtype=np.float32)
+            if hasattr(self, "poi_mast_line_handle"):
+                self.poi_mast_line_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
+                self.poi_mast_line_handle.visible = False
 
         logger.info(f"[ViserServerManager] Preview updated for Route '{route_file_name}' ({len(route_waypoints)} pts) & POI '{poi_file_name}' ({len(poi_waypoints)} pts)")
 
@@ -893,6 +952,11 @@ class ViserServerManager:
                     val = mission_route_dropdown.value
                     if val not in route_files:
                         mission_route_dropdown.value = route_files[0]
+                    else:
+                        base_name = os.path.splitext(val)[0]
+                        matching_poi = f"{base_name}.poi"
+                        if matching_poi in poi_files:
+                            mission_poi_dropdown.value = matching_poi
 
                 @mission_poi_dropdown.on_update
                 def _(_):
