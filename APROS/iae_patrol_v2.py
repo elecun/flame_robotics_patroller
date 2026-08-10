@@ -72,6 +72,24 @@ class IAEPatrolV2:
         if self.zpipe_ctx:
             self.set_zpipe_context(self.zpipe_ctx)
 
+        # Dynamically load Mast Executor Plugin
+        self.mast_executor = None
+        try:
+            mod_me = importlib.import_module("APROS.core.plugin.mast_executor" if __name__.startswith("APROS") else "core.plugin.mast_executor")
+            MastExecutor = getattr(mod_me, "MastExecutor")
+            stop_trig_b = 15.0
+            if self.config:
+                if self.config.has_section("telescopic_mast") and "stop_trig_bound" in self.config["telescopic_mast"]:
+                    stop_trig_b = float(self.config.get("telescopic_mast", "stop_trig_bound", fallback=15.0))
+                elif self.config.has_section("mast_executor") and "stop_trig_bound" in self.config["mast_executor"]:
+                    stop_trig_b = float(self.config.get("mast_executor", "stop_trig_bound", fallback=15.0))
+
+            self.mast_executor = MastExecutor(robot=self, stop_trig_bound=stop_trig_b)
+            self.plugins["mast_executor"] = self.mast_executor
+            logger.info(f"[IAEPatrolV2] Mast Executor plugin initialized (stop_trig_bound={stop_trig_b}mm).")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV2] Error initializing Mast Executor: {e}")
+
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""
         if dev_name not in self.DEVICE_MAP:

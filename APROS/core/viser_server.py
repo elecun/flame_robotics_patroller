@@ -1072,29 +1072,30 @@ class ViserServerManager:
                         logger.warning(f"[ViserUI] Invalid target mast height {target_val} mm. Range must be 2900~9100 mm.")
                         return
 
+                    mast_exec = getattr(self.robot, "mast_executor", None)
                     mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if mast_dev:
-                        if "Extend" in selected:
-                            if hasattr(mast_dev, "start_target_extend"):
-                                mast_dev.start_target_extend(target_val)
-                            elif hasattr(mast_dev, "move_up"):
-                                mast_dev.move_up()
-                            logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
-                        elif "Retract" in selected:
-                            if hasattr(mast_dev, "start_target_retract"):
-                                mast_dev.start_target_retract(target_val)
-                            elif hasattr(mast_dev, "move_down"):
-                                mast_dev.move_down()
-                            logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
+
+                    if "Extend" in selected:
+                        if mast_exec and hasattr(mast_exec, "start_target_extend"):
+                            mast_exec.start_target_extend(target_val)
+                        elif mast_dev and hasattr(mast_dev, "move_up"):
+                            mast_dev.move_up()
+                        logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
+                    elif "Retract" in selected:
+                        if mast_exec and hasattr(mast_exec, "start_target_retract"):
+                            mast_exec.start_target_retract(target_val)
+                        elif mast_dev and hasattr(mast_dev, "move_down"):
+                            mast_dev.move_down()
+                        logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
 
                 @des_stop_btn.on_click
                 def _(_):
+                    mast_exec = getattr(self.robot, "mast_executor", None)
                     mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if mast_dev:
-                        if hasattr(mast_dev, "stop_target_control"):
-                            mast_dev.stop_target_control()
-                        elif hasattr(mast_dev, "move_stop"):
-                            mast_dev.move_stop()
+                    if mast_exec and hasattr(mast_exec, "stop_target_control"):
+                        mast_exec.stop_target_control()
+                    elif mast_dev and hasattr(mast_dev, "move_stop"):
+                        mast_dev.move_stop()
                     des_status_md.content = "**Status**: ⏹️ Stopped"
                     logger.info("[ViserUI] DES Control -> Stop clicked.")
 
