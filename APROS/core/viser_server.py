@@ -1211,6 +1211,138 @@ class ViserServerManager:
                             rtk_recording_state["file_handle"] = None
                             rtk_builder_status_md.content = "**Status**: ⏹️ Stopped"
                             logger.info(f"[ViserUI] RTK Route Builder recording stopped. Total points: {rtk_recording_state['point_count']}")
+                            # Refresh route dropdown options in POI Sampler
+                            try:
+                                updated_routes = get_route_files()
+                                poi_sampler_route_dropdown.options = updated_routes
+                            except Exception:
+                                pass
+
+            # POI Sampler Folder
+            with client.gui.add_folder("📍 POI Sampler", expand_by_default=True):
+                poi_sampler_status_md = client.gui.add_markdown("**Status**: ⏹️ Idle")
+
+                route_files_for_sampler = get_route_files()
+                poi_sampler_route_dropdown = client.gui.add_dropdown(
+                    label="Route Files",
+                    options=route_files_for_sampler,
+                    initial_value=route_files_for_sampler[0]
+                )
+
+                poi_sampler_max_samples = client.gui.add_number(
+                    label="Max Samples",
+                    initial_value=10,
+                    min=1,
+                    step=1
+                )
+
+                poi_sampler_max_height = client.gui.add_number(
+                    label="Max Height",
+                    initial_value=9100,
+                    min=2900,
+                    max=9100,
+                    step=100
+                )
+
+                poi_sampler_gen_btn = client.gui.add_button("📍 Generate", color="blue")
+
+                @poi_sampler_gen_btn.on_click
+                def _(event: viser.GuiEvent) -> None:
+                    sel_route = poi_sampler_route_dropdown.value
+                    if not sel_route or sel_route == "None":
+                        modal = client.gui.add_modal("⚠️ Route 파일 오류")
+                        with modal:
+                            client.gui.add_markdown("선택된 Route 파일이 없습니다.")
+                            close_btn = client.gui.add_button("확인", color="red")
+                            @close_btn.on_click
+                            def _(_):
+                                modal.close()
+                        return
+
+                    apros_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    route_dir = os.path.join(apros_root, "route")
+                    route_file_path = os.path.join(route_dir, sel_route)
+
+                    if not os.path.exists(route_file_path):
+                        poi_sampler_status_md.content = f"**Status**: ❌ File not found: `{sel_route}`"
+                        return
+
+                    base_name = os.path.splitext(sel_route)[0]
+                    poi_filename = f"{base_name}.poi"
+                    poi_file_path = os.path.join(route_dir, poi_filename)
+
+                    num_samples = int(poi_sampler_max_samples.value)
+                    max_h = float(poi_sampler_max_height.value)
+                    min_h = 2900.0
+                    if max_h < min_h:
+                        max_h = min_h
+
+                    try:
+                        route_data = []
+                        with open(route_file_path, "r", encoding="utf-8") as f_in:
+                            reader = csv.reader(f_in)
+                            header = next(reader, None)
+                            lat_idx, lon_idx = 1, 2
+                            if header:
+                                for i, col in enumerate(header):
+                                    col_clean = col.strip().lower()
+                                    if col_clean in ["latitude", "lat"]:
+                                        lat_idx = i
+                                    elif col_clean in ["longitude", "lon", "lng"]:
+                                        lon_idx = i
+
+                            for row in reader:
+                                if not row or len(row) <= max(lat_idx, lon_idx):
+                                    continue
+                                try:
+                                    lat = float(row[lat_idx])
+                                    lon = float(row[lon_idx])
+                                    route_data.append((lat, lon))
+                                except (ValueError, IndexError):
+                                    continue
+
+                        if not route_data:
+                            poi_sampler_status_md.content = f"**Status**: ❌ No valid points in `{sel_route}`"
+                            return
+
+                        total_pts = len(route_data)
+                        n_samp = max(1, num_samples)
+                        if total_pts <= n_samp:
+                            sampled_data = route_data
+                        else:
+                            if n_samp == 1:
+                                indices = [0]
+                            else:
+                                indices = [int(round(i * (total_pts - 1) / (n_samp - 1))) for i in range(n_samp)]
+                            sampled_data = [route_data[idx] for idx in indices]
+
+                        with open(poi_file_path, "w", encoding="utf-8", newline="") as f_out:
+                            writer = csv.writer(f_out)
+                            writer.writerow(["index", "latitude", "longitude", "mast_height", "ptu_pan", "ptu_tilt"])
+                            for idx, (lat, lon) in enumerate(sampled_data):
+                                mast_h = random.randint(int(min_h), int(max_h))
+                                writer.writerow([idx, f"{lat:.8f}", f"{lon:.8f}", mast_h, 0.0, 0.0])
+
+                        poi_sampler_status_md.content = f"**Status**: ✅ Generated `{poi_filename}` ({len(sampled_data)} points)"
+                        logger.info(f"[ViserUI] POI file generated: {poi_file_path} ({len(sampled_data)} points)")
+
+                        modal = client.gui.add_modal("🎉 POI 생성 완료")
+                        with modal:
+                            client.gui.add_markdown(
+                                f"### 🎉 POI 파일 생성이 완료되었습니다.\n\n"
+                                f"- **Route 파일**: `{sel_route}`\n"
+                                f"- **POI 파일**: `{poi_filename}`\n"
+                                f"- **샘플 수**: {len(sampled_data)} pts\n"
+                                f"- **Mast Height 범위**: 2900 ~ {int(max_h)} mm"
+                            )
+                            close_btn = client.gui.add_button("확인", color="green")
+                            @close_btn.on_click
+                            def _(_):
+                                modal.close()
+
+                    except Exception as gen_err:
+                        poi_sampler_status_md.content = f"**Status**: ❌ Error: `{gen_err}`"
+                        logger.error(f"[ViserUI] Failed to generate POI: {gen_err}")
 
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
