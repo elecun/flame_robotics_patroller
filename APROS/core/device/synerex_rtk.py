@@ -316,6 +316,45 @@ class SynerexRTK(BaseDevice):
         except (ValueError, IndexError):
             pass
 
+    def parse_pashr(self, parts: list):
+        """Parse $PASHR Ashtech/Hemisphere NMEA sentence containing Heading & Roll/Pitch telemetry."""
+        if len(parts) < 3:
+            return
+        try:
+            if parts[2]:
+                hdg_val = float(parts[2])
+                with self._lock:
+                    self.heading = hdg_val
+                    self.new_updated = True
+        except (ValueError, IndexError):
+            pass
+
+    def parse_ths(self, parts: list):
+        """Parse $GPTHS / $GNTHS True Heading and Status NMEA sentence."""
+        if len(parts) < 3:
+            return
+        try:
+            if parts[1] and parts[2] != 'V':
+                hdg_val = float(parts[1])
+                with self._lock:
+                    self.heading = hdg_val
+                    self.new_updated = True
+        except (ValueError, IndexError):
+            pass
+
+    def parse_ksxt(self, parts: list):
+        """Parse $KSXT NMEA sentence."""
+        if len(parts) < 5:
+            return
+        try:
+            if parts[4]:
+                hdg_val = float(parts[4])
+                with self._lock:
+                    self.heading = hdg_val
+                    self.new_updated = True
+        except (ValueError, IndexError):
+            pass
+
     def parse_nmea_line(self, line: str):
         line = line.strip()
         if not line.startswith('$'):
@@ -328,6 +367,12 @@ class SynerexRTK(BaseDevice):
             self.parse_gga(parts)
         elif sentence_id.endswith('HDT'):
             self.parse_hdt(parts)
+        elif sentence_id.endswith('THS'):
+            self.parse_ths(parts)
+        elif sentence_id.endswith('PASHR'):
+            self.parse_pashr(parts)
+        elif sentence_id.endswith('KSXT'):
+            self.parse_ksxt(parts)
         elif sentence_id.endswith('RMC'):
             self.parse_rmc(parts)
         elif sentence_id.endswith('VTG'):

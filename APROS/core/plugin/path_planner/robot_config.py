@@ -46,6 +46,7 @@ class RobotConfig:
     obstacle_weight: float = 1.5                # Obstacle clearance weight
     velocity_weight: float = 1.0                # Target velocity tracking weight
     steer_smoothness_weight: float = 0.5         # Steering angle change penalty weight
+    corridor_weight: float = 5.0                 # Corridor boundary constraint weight
     
     # Safety margins
     inflation_radius: float = 0.15                # Footprint inflation margin (meters)
@@ -58,6 +59,74 @@ class RobotConfig:
         (-1.0275, -0.500), # Rear Right
         (-1.0275, 0.500)   # Rear Left
     ])
+
+    def update_from_config(self, config: any) -> None:
+        """
+        Update RobotConfig parameters from ConfigParser object (e.g. apros.cfg).
+        Supports section [ackermann_dwa_local_planner] and fallback [mobile_drive_s1].
+        """
+        if not config:
+            return
+
+        sec = None
+        if config.has_section("ackermann_dwa_local_planner"):
+            sec = config["ackermann_dwa_local_planner"]
+        elif config.has_section("mobile_drive_s1"):
+            sec = config["mobile_drive_s1"]
+
+        if not sec:
+            return
+
+        if "predict_time" in sec:
+            self.predict_time = float(sec["predict_time"])
+        if "dt" in sec:
+            self.dt = float(sec["dt"])
+        if "v_samples" in sec:
+            self.v_samples = int(sec["v_samples"])
+        if "steer_samples" in sec:
+            self.steer_samples = int(sec["steer_samples"])
+        if "lookahead_distance" in sec:
+            self.lookahead_distance = float(sec["lookahead_distance"])
+
+        if "min_velocity" in sec:
+            val = float(sec["min_velocity"])
+            self.min_velocity = val / 3.6 if val > 0.5 else val
+        if "max_velocity" in sec:
+            val = float(sec["max_velocity"])
+            self.max_velocity = val / 3.6 if val > 0.5 else val
+        if "max_accel" in sec:
+            self.max_accel = float(sec["max_accel"])
+
+        if "min_steer_angle" in sec:
+            val = float(sec["min_steer_angle"])
+            self.min_steer_angle = math.radians(val) if abs(val) > 1.5 else val
+        if "max_steer_angle" in sec or "max_steering_angle" in sec:
+            val_str = sec.get("max_steer_angle", sec.get("max_steering_angle"))
+            val = float(val_str)
+            self.max_steer_angle = math.radians(val) if abs(val) > 1.5 else val
+        if "max_steer_rate" in sec:
+            val = float(sec["max_steer_rate"])
+            self.max_steer_rate = math.radians(val) if abs(val) > 1.5 else val
+
+        if "inflation_radius" in sec:
+            self.inflation_radius = float(sec["inflation_radius"])
+        if "path_distance_weight" in sec:
+            self.path_distance_weight = float(sec["path_distance_weight"])
+        if "obstacle_weight" in sec:
+            self.obstacle_weight = float(sec["obstacle_weight"])
+        if "velocity_weight" in sec:
+            self.velocity_weight = float(sec["velocity_weight"])
+        if "steer_smoothness_weight" in sec:
+            self.steer_smoothness_weight = float(sec["steer_smoothness_weight"])
+        if "corridor_weight" in sec:
+            self.corridor_weight = float(sec["corridor_weight"])
+
+        logger.info(
+            f"[RobotConfig] Updated from apros.cfg: predict_time={self.predict_time:.1f}s, dt={self.dt:.2f}s, "
+            f"lookahead={self.lookahead_distance:.1f}m, max_v={self.max_velocity * 3.6:.1f}km/h, "
+            f"max_steer={math.degrees(self.max_steer_angle):.1f}deg, weights(path={self.path_distance_weight}, "
+            f"obs={self.obstacle_weight}, vel={self.velocity_weight}, steer_smooth={self.steer_smoothness_weight}, corridor={self.corridor_weight})"
+        )
 
     @classmethod
     def from_urdf(cls, urdf_path: str) -> "RobotConfig":

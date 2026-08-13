@@ -94,17 +94,9 @@ class IAEPatrolV1:
             mod_cfg = importlib.import_module("APROS.core.plugin.path_planner.robot_config" if __name__.startswith("APROS") else "core.plugin.path_planner.robot_config")
             RobotConfig = getattr(mod_cfg, "RobotConfig")
             self.robot_config = RobotConfig.from_urdf(urdf_path)
-            # Override max_velocity, min_velocity, lookahead_distance and predict_time from apros.cfg [mobile_drive_s1] section
-            if self.config and self.config.has_section("mobile_drive_s1"):
-                max_v_kmh = float(self.config.get("mobile_drive_s1", "max_velocity", fallback=3.0))
-                min_v_kmh = float(self.config.get("mobile_drive_s1", "min_velocity", fallback=0.0))
-                lookahead_dist = float(self.config.get("mobile_drive_s1", "lookahead_distance", fallback=3.0))
-                pred_time = float(self.config.get("mobile_drive_s1", "predict_time", fallback=4.0))
-                self.robot_config.max_velocity = max_v_kmh / 3.6
-                self.robot_config.min_velocity = min_v_kmh / 3.6
-                self.robot_config.lookahead_distance = lookahead_dist
-                self.robot_config.predict_time = pred_time
-                logger.info(f"[IAEPatrolV1] Overrode RobotConfig max_velocity: {max_v_kmh:.1f} km/h ({self.robot_config.max_velocity:.3f} m/s), lookahead_distance: {self.robot_config.lookahead_distance:.1f} m, predict_time: {self.robot_config.predict_time:.1f} s")
+            # Override RobotConfig parameters from apros.cfg
+            if self.config:
+                self.robot_config.update_from_config(self.config)
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Error loading RobotConfig: {e}")
             return

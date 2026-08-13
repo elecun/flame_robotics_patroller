@@ -62,6 +62,11 @@ class DriveExecutor(BasePlugin):
         self.goal_reach_threshold: float = 0.5  # meters
         self.poi_reach_threshold: float = 0.8   # meters
 
+        # Motion-derived heading state (disables reliance on RTK heading)
+        self._prev_pose_x: Optional[float] = None
+        self._prev_pose_y: Optional[float] = None
+        self._current_motion_heading: float = 0.0
+
         # Control thread management
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -279,6 +284,16 @@ class DriveExecutor(BasePlugin):
             self._hil_step_index = 0
             self._hil_last_update_time = time.time()
 
+            # Initialize motion heading based on initial global path direction
+            if self.global_path:
+                if len(self.global_path) >= 2:
+                    dx0 = self.global_path[1]["x"] - self.global_path[0]["x"]
+                    dy0 = self.global_path[1]["y"] - self.global_path[0]["y"]
+                    if math.hypot(dx0, dy0) > 0.001:
+                        self._current_motion_heading = math.atan2(dy0, dx0)
+                elif "heading" in self.global_path[0]:
+                    self._current_motion_heading = self.global_path[0]["heading"]
+
             # Explicitly release brake and DBS Valid when starting mission
             if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
                 drive_dev = self.robot.drive_base
@@ -416,11 +431,22 @@ class DriveExecutor(BasePlugin):
                 dlon = rtk_dev.longitude - self.origin_lon
                 rx = dlat * 111000.0
                 ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
-                raw_hdg_deg = float(getattr(rtk_dev, "heading", 0.0)) % 360.0
-                if raw_hdg_deg > 180.0:
-                    raw_hdg_deg -= 360.0
-                rheading = np.radians(raw_hdg_deg)
-                # Also update simulated pose so Viser robot visualization tracks RTK position
+                # Note: RTK heading (rtk_dev.heading) is NOT used.
+                # Compute vehicle heading from position motion displacement delta.
+                if self._prev_pose_x is not None and self._prev_pose_y is not None:
+                    dx_m = rx - self._prev_pose_x
+                    dy_m = ry - self._prev_pose_y
+                    if math.hypot(dx_m, dy_m) > 0.02:
+                        cand_hdg = math.atan2(dy_m, dx_m)
+                        # Assume forward-only movement: filter out reverse displacement vectors (> 90 deg diff) caused by RTK noise
+                        hdg_diff = math.atan2(math.sin(cand_hdg - self._current_motion_heading), math.cos(cand_hdg - self._current_motion_heading))
+                        if abs(hdg_diff) <= math.pi / 2.0:
+                            self._current_motion_heading = cand_hdg
+                self._prev_pose_x = rx
+                self._prev_pose_y = ry
+                rheading = self._current_motion_heading
+
+                # Update simulated pose so Viser robot visualization tracks position
                 if hasattr(self.robot, "simulated_x"):
                     self.robot.simulated_x = rx
                     self.robot.simulated_y = ry
@@ -571,21 +597,19 @@ class DriveExecutor(BasePlugin):
                 target_v_ms = 1.0
                 target_delta_rad = 0.0
 
-            target_v_kmh = target_v_ms * 3.6
+            target_v_kmh = max(0.0, target_v_ms * 3.6)
             target_delta_deg = math.degrees(target_delta_rad)
 
-            # Invert steer angle polarity for actual vehicle steering actuator:
-            # - RTK Heading +45° (East) -> Clockwise/Right Turn -> Negative steer angle (-)
-            # - RTK Heading 315° (-45° West) -> Counter-Clockwise/Left Turn -> Positive steer angle (+)
-            cmd_delta_deg = -target_delta_deg
+            # Steer angle polarity (ISO 8855 / ROS convention):
+            # + is Counter-Clockwise / Left turn, - is Clockwise / Right turn
+            cmd_delta_deg = target_delta_deg
 
-            logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {cmd_delta_deg:.2f}° (Planner raw: {target_delta_deg:.2f}°)")
+            logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {cmd_delta_deg:.2f}°")
 
-            # 4. Dispatch control command to mobile drive base
+            # 4. Dispatch control command to mobile drive base (Forward-only D gear)
             if drive_dev:
-                if target_v_kmh > 0.01:
-                    drive_dev.target_gear = "D"
-                    drive_dev.gear = "D"
+                drive_dev.target_gear = "D"
+                drive_dev.gear = "D"
 
                 if hasattr(drive_dev, "set_speed"):
                     drive_dev.set_speed(target_v_kmh)

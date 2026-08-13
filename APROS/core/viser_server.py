@@ -80,6 +80,10 @@ class ViserServerManager:
                 except ValueError:
                     pass
 
+        # Compute origin TM coordinates for relative Viser 3D local scene (centered at site origin)
+        self.origin_easting, self.origin_northing = self.tm_transformer.transform(self.default_lon, self.default_lat)
+        self._origin_set = False
+
         map_host = "127.0.0.1" if self.platform_ip in ("0.0.0.0", "") else self.platform_ip
 
         # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
@@ -287,13 +291,15 @@ class ViserServerManager:
 
     def _wgs84_to_tm_viser(self, lat: float, lon: float) -> tuple[float, float]:
         """
-        Convert WGS84 (Lat, Lon) to Korean Central Belt TM (EPSG:5186) Viser coordinates.
-        Viser Mapping:
-          +X axis = True North (Northing N)
-          -Y axis = True East (Easting E) -> Y_viser = -Easting
+        Convert WGS84 (Lat, Lon) to Korean Central Belt TM (EPSG:5186) relative Viser coordinates.
+        Viser Mapping (relative to origin default_lat, default_lon):
+          +X axis = True North (Northing offset N)
+          -Y axis = True East (Easting offset E) -> Y_viser = -Easting offset
         """
         easting, northing = self.tm_transformer.transform(lon, lat)
-        return float(northing), float(-easting)
+        rel_n = northing - self.origin_northing
+        rel_e = easting - self.origin_easting
+        return float(rel_n), float(-rel_e)
 
     def _heading_to_wxyz(self, heading_deg: float) -> tuple[float, float, float, float]:
         """
@@ -859,17 +865,22 @@ class ViserServerManager:
                 max_vel = getattr(drive_dev, "MAX_VELOCITY_KMH", 3.0) if drive_dev else 3.0
                 max_steer = getattr(drive_dev, "max_steering_angle", 30.0) if drive_dev else 30.0
 
+                slider_min_vel = min(0.0, float(min_vel))
+                slider_max_vel = max(float(max_vel), slider_min_vel + 0.1)
+                init_vel = max(slider_min_vel, min(slider_max_vel, 0.0))
+
                 vel_slider = client.gui.add_slider(
                     label="Velocity (km/h)",
-                    min=float(min_vel),
-                    max=float(max_vel),
+                    min=slider_min_vel,
+                    max=slider_max_vel,
                     step=0.1,
-                    initial_value=0.0
+                    initial_value=init_vel
                 )
+                slider_max_steer = max(0.1, abs(float(max_steer)))
                 steer_slider = client.gui.add_slider(
                     label="Steer Angle (deg)",
-                    min=-float(max_steer),
-                    max=float(max_steer),
+                    min=-slider_max_steer,
+                    max=slider_max_steer,
                     step=0.1,
                     initial_value=0.0
                 )
@@ -1672,8 +1683,8 @@ class ViserServerManager:
             heading_str = "-"
             quality_str = f"{update_icon} -"
         else:
-            lat_str = f"{lat_val} deg"
-            lon_str = f"{lon_val} deg"
+            lat_str = f"{lat_val}"
+            lon_str = f"{lon_val}"
             heading_str = f"{heading_val:.1f}°" if heading_val is not None else "-"
             from core.device.synerex_rtk import SynerexRTK
             quality_str = f"{update_icon} {SynerexRTK.quality2str(fq)}"
@@ -1700,7 +1711,7 @@ class ViserServerManager:
         cmd_val = status.get("can_cmd_val", 0)
         
         status_str = f"**ONLINE** (`{channel}`)" if is_conn else f"**OFFLINE** (`{channel}`)"
-        return f"- **CAN Bus Status**: {status_str}\n- **Current Steering Cmd**: `{cmd_val}` (-2000: L / +2000: R)"
+        return f"- **CAN Bus Status**: {status_str}\n- **Current Steering Cmd**: `{cmd_val}` (-2000: R / +2000: L)"
 
     def _format_dashboard_text(self) -> str:
         status = self.robot.get_status() if hasattr(self.robot, "get_status") else {}
@@ -1746,6 +1757,12 @@ class ViserServerManager:
             if lat_val is None: lat_val = self.default_lat
             if lon_val is None: lon_val = self.default_lon
             if heading_val is None: heading_val = self.default_heading
+
+            if not getattr(self, "_origin_set", False) and lat_val is not None and lon_val is not None:
+                self.default_lat = lat_val
+                self.default_lon = lon_val
+                self.origin_easting, self.origin_northing = self.tm_transformer.transform(lon_val, lat_val)
+                self._origin_set = True
 
             rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
             rwxyz = self._heading_to_wxyz(heading_val)

@@ -107,7 +107,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         name: str = "MobileDriveS1",
         can_channel: int = 0,
         max_steering_angle: float = 30.0,
-        min_velocity: float = -1.0,
+        min_velocity: float = 0.0,
         max_velocity: float = 5.0,
         lookahead_distance: float = 3.0,
         predict_time: float = 4.0,
@@ -378,7 +378,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
 
             # 2. 0x502 AD_Control_Steering
             # Byte0: cntr<<4 | (ad_steer_valid & 0x1) -- Start Byte 0, Start Bit 0 (1 when Auto, 0 when Remote)
-            # Invert sign (+ is Right turn, - is Left turn for CAN command)
+            # Standard steer angle (+ is Left turn, - is Right turn)
             cntr_502 = self._next_cntr(0x502)
             byte0_502 = (cntr_502 << 4) | (self.ad_control_req_flag & 0x1)
             clamped_angle = max(self.min_steering_angle, min(self.max_steering_angle, float(self.cmd_steering_angle)))
@@ -532,7 +532,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         return True
 
     def set_speed(self, speed_kmh: float):
-        """Set control target velocity clamped between min_velocity and max_velocity. Automatically sets target_gear to R if negative or D if positive."""
+        """Set control target velocity clamped between min_velocity and max_velocity. Automatically sets target_gear to R if negative or D if positive/zero."""
         clamped_speed = max(self.MIN_VELOCITY_KMH, min(float(speed_kmh), self.MAX_VELOCITY_KMH))
         self.cmd_speed = clamped_speed
         self.speed = clamped_speed
@@ -540,7 +540,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             self.target_gear = "R"
             self.gear = "R"
             self.ad_dbs_valid = 0  # Release active brake flag when moving
-        elif clamped_speed > 0.01:
+        else:
             self.target_gear = "D"
             self.gear = "D"
             self.ad_dbs_valid = 0  # Release active brake flag when moving
@@ -562,7 +562,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
     def degree_to_can_cmd(self, angle_deg: float) -> int:
         """
         Map degree (min_steering_angle to max_steering_angle) to raw CAN command (-2000 to +2000).
-        Left: -2000 (at min deg), Right: +2000 (at max deg)
+        Right: -2000 (at min deg), Left: +2000 (at max deg)
         """
         clamped_deg = max(self.min_steering_angle, min(self.max_steering_angle, float(angle_deg)))
         cmd_val = int(round((clamped_deg / self.max_steering_angle) * self.MAX_CMD_VAL))
@@ -574,7 +574,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         return (clamped_cmd / float(self.MAX_CMD_VAL)) * self.max_steering_angle
 
     def update_simulation_step(self, dt: float = 0.05):
-        """Kinematics update step for 3D visualization positioning (+ is Right turn, - is Left turn)."""
+        """Kinematics update step for 3D visualization positioning (+ is Left turn, - is Right turn)."""
         speed_m_s = (self.speed * 1000.0) / 3600.0
         wheelbase = 1.5
         
