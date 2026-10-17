@@ -1,0 +1,405 @@
+<?xml version="1.0"?>
+<robot name="iae_patrol_v2">
+
+  <!-- Mechanical specs: lower chassis 2030 x 970 x 500 mm from z=110..610 mm;
+       upper chassis 1560 x 750 x 227 mm on top (z=610..837 mm);
+       minimum ground clearance 110 mm; wheelbase 1080 mm; minimum turning radius 2500 mm;
+       maximum speed 20 km/h; curb mass 280 kg; maximum steering angle 30 deg;
+       steering rate 15 deg/s; mast collapsed height 1870 mm; PTU yaw body
+       132.64 x 140 x 196.86 mm. -->
+
+  <!-- Base footprint: ground projection center -->
+  <link name="base_footprint"/>
+
+  <!-- Base link; lower chassis bottom is aligned with the ground plane. -->
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <!-- base_link origin is chassis center at z=360 mm: 110 mm clearance + half of 500 mm chassis. -->
+    <origin xyz="0 0 0.36" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+
+    <!-- Approximate uniform-box inertia for 280 kg curb mass; refine with measured CoG/inertia if available. -->
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="280.0"/>
+      <inertia ixx="27.7877" ixy="0" ixz="0" iyy="101.9877" iyz="0" izz="118.1087"/>
+    </inertial>
+
+    <!-- Lower chassis visual: 2030 x 870 x 500 mm, centered within the 970 mm collision footprint. -->
+    <visual name="lower_chassis_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.030 0.870 0.500"/>
+      </geometry>
+      <material name="chassis_mat">
+        <color rgba="0.52 0.52 0.52 1.0"/>
+      </material>
+    </visual>
+    <collision name="lower_chassis_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="2.030 0.970 0.500"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Upper chassis sits on the lower chassis roof; its link origin is at its bottom. -->
+  <joint name="upper_chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="upper_chassis_link"/>
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+  </joint>
+
+  <link name="upper_chassis_link">
+    <visual name="upper_chassis_visual">
+      <origin xyz="0 0 0.1135" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.560 0.750 0.227"/>
+      </geometry>
+      <material name="upper_chassis_mat">
+        <color rgba="0.30 0.30 0.32 1.0"/>
+      </material>
+    </visual>
+    <collision name="upper_chassis_collision">
+      <origin xyz="0 0 0.1135" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.560 0.750 0.227"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Front VLP-16 LiDAR Sensor -->
+  <!-- Front sensor mounted at the chassis front edge and top surface. -->
+  <joint name="vlp16_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="vlp16_link"/>
+    <origin xyz="1.015 0.0 0.25" rpy="0 0.2618 0"/>
+  </joint>
+
+  <link name="vlp16_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.0516" length="0.0717"/>
+      </geometry>
+      <material name="vlp16_mat">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- ================= 6-STAGE TELESCOPIC MAST (VIRTUAL MASTER & PASSIVE MIMIC) ================= -->
+  <!-- Mast is mounted on top of the upper chassis, 477 mm above base_link. -->
+  <joint name="mast_joint" type="prismatic">
+    <parent link="upper_chassis_link"/>
+    <child link="mast_dummy_link"/>
+    <origin xyz="0.0 0.0 0.227" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="6.2" effort="1000.0" velocity="0.5"/>
+  </joint>
+  <link name="mast_dummy_link"/>
+
+  <!-- Stage 1 base fixed to the upper chassis roof. -->
+  <joint name="mast_base_joint" type="fixed">
+    <parent link="upper_chassis_link"/>
+    <child link="mast_stage1_link"/>
+    <origin xyz="0.0 0.0 0.227" rpy="0 0 0"/>
+  </joint>
+
+  <link name="mast_stage1_link">
+    <visual>
+      <origin xyz="0 0 0.935" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.105" length="1.870"/>
+      </geometry>
+      <material name="mast_stage1_mat">
+        <color rgba="0.25 0.25 0.30 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Stage 2 (Passive Mimic mast_joint: multiplier 0.2 = 1/5th of total stroke, max 1.24m per stage) -->
+  <joint name="mast_stage2_joint" type="prismatic">
+    <parent link="mast_stage1_link"/>
+    <child link="mast_stage2_link"/>
+    <origin xyz="0 0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.24" effort="1000.0" velocity="0.2"/>
+    <mimic joint="mast_joint" multiplier="0.2" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="mast_stage2_link">
+    <visual>
+      <origin xyz="0 0 0.90" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.056" length="1.80"/>
+      </geometry>
+      <material name="mast_stage2_mat">
+        <color rgba="0.20 0.40 0.60 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Stage 3 (Passive Mimic mast_joint: multiplier 0.2) -->
+  <joint name="mast_stage3_joint" type="prismatic">
+    <parent link="mast_stage2_link"/>
+    <child link="mast_stage3_link"/>
+    <origin xyz="0 0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.24" effort="1000.0" velocity="0.2"/>
+    <mimic joint="mast_joint" multiplier="0.2" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="mast_stage3_link">
+    <visual>
+      <origin xyz="0 0 0.90" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.052" length="1.80"/>
+      </geometry>
+      <material name="mast_stage3_mat">
+        <color rgba="0.15 0.50 0.70 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Stage 4 (Passive Mimic mast_joint: multiplier 0.2) -->
+  <joint name="mast_stage4_joint" type="prismatic">
+    <parent link="mast_stage3_link"/>
+    <child link="mast_stage4_link"/>
+    <origin xyz="0 0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.24" effort="1000.0" velocity="0.2"/>
+    <mimic joint="mast_joint" multiplier="0.2" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="mast_stage4_link">
+    <visual>
+      <origin xyz="0 0 0.90" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.048" length="1.80"/>
+      </geometry>
+      <material name="mast_stage4_mat">
+        <color rgba="0.10 0.60 0.80 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Stage 5 (Passive Mimic mast_joint: multiplier 0.2) -->
+  <joint name="mast_stage5_joint" type="prismatic">
+    <parent link="mast_stage4_link"/>
+    <child link="mast_stage5_link"/>
+    <origin xyz="0 0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.24" effort="1000.0" velocity="0.2"/>
+    <mimic joint="mast_joint" multiplier="0.2" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="mast_stage5_link">
+    <visual>
+      <origin xyz="0 0 0.90" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.044" length="1.80"/>
+      </geometry>
+      <material name="mast_stage5_mat">
+        <color rgba="0.05 0.65 0.90 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Stage 6 (Passive Mimic mast_joint: multiplier 0.2) -->
+  <joint name="mast_stage6_joint" type="prismatic">
+    <parent link="mast_stage5_link"/>
+    <child link="mast_stage6_link"/>
+    <origin xyz="0 0 0.0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.24" effort="1000.0" velocity="0.2"/>
+    <mimic joint="mast_joint" multiplier="0.2" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="mast_stage6_link">
+    <visual>
+      <origin xyz="0 0 0.90" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.040" length="1.80"/>
+      </geometry>
+      <material name="mast_stage6_mat">
+        <color rgba="0.00 0.70 1.00 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- ================= PTU (YAW/TILT) & OUSTER SR-128 ================= -->
+  <!-- Yaw axis at the end of the 1870 mm collapsed mast. -->
+  <joint name="mission_pan_joint" type="revolute">
+    <parent link="mast_stage6_link"/>
+    <child link="mission_pan_link"/>
+    <origin xyz="0.0 0.0 1.87" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="500.0" velocity="1.0"/>
+  </joint>
+  <link name="mission_pan_link">
+    <visual name="ptu_yaw_body_visual">
+      <origin xyz="0 0 0.09843" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.13264 0.140 0.19686"/>
+      </geometry>
+      <material name="ptu_yaw_body_mat">
+        <color rgba="0.20 0.22 0.26 1.0"/>
+      </material>
+    </visual>
+    <collision name="ptu_yaw_body_collision">
+      <origin xyz="0 0 0.09843" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.13264 0.140 0.19686"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Tilt axis is 164.21 mm above the pan joint origin; its shaft runs along Y. -->
+  <joint name="mission_tilt_joint" type="revolute">
+    <parent link="mission_pan_link"/>
+    <child link="mission_module_link"/>
+    <origin xyz="0.0 0.0 0.16421" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="500.0" velocity="1.0"/>
+  </joint>
+
+  <!-- PTU tilt-axis cylinder: radius 66.43 mm and 140 mm long. -->
+  <link name="mission_module_link">
+    <!-- Mission module 155.10 x 338.5 x 173 mm, mounted above the pan housing.
+         It belongs to this tilt child link so it follows both pan and tilt motion. -->
+    <visual name="mission_module_box_visual">
+      <origin xyz="0 0 0.11915" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15510 0.3385 0.173"/>
+      </geometry>
+      <material name="mission_module_box_mat">
+        <color rgba="0.30 0.34 0.40 1.0"/>
+      </material>
+    </visual>
+    <collision name="mission_module_box_collision">
+      <origin xyz="0 0 0.11915" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15510 0.3385 0.173"/>
+      </geometry>
+    </collision>
+    <visual name="ptu_tilt_axis_visual">
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.06643" length="0.140"/>
+      </geometry>
+      <material name="ptu_tilt_axis_mat">
+        <color rgba="0.18 0.42 0.65 1.0"/>
+      </material>
+    </visual>
+    <collision name="ptu_tilt_axis_collision">
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.06643" length="0.140"/>
+      </geometry>
+    </collision>
+  </link>
+
+
+  <!-- ================= WHEELS & ACKERMANN STEERING LINKAGE ================= -->
+  <!-- 125/65R12 tires: nominal diameter 467.3 mm, width 125 mm; wheelbase 1080 mm. -->
+
+  <!-- Rear Left Drive Wheel (Fixed RWD) -->
+  <joint name="rear_left_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_left_wheel_link"/>
+    <origin xyz="-0.540 0.417 -0.12635" rpy="-1.5708 0 0"/>
+  </joint>
+  <link name="rear_left_wheel_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.23365" length="0.125"/>
+      </geometry>
+      <material name="wheel_mat">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Rear Right Drive Wheel (Fixed RWD) -->
+  <joint name="rear_right_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_right_wheel_link"/>
+    <origin xyz="-0.540 -0.417 -0.12635" rpy="-1.5708 0 0"/>
+  </joint>
+  <link name="rear_right_wheel_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.23365" length="0.125"/>
+      </geometry>
+      <material name="wheel_mat">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Virtual Steering Master Joint (front_steer_joint) -->
+  <joint name="front_steer_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="steer_dummy_link"/>
+    <origin xyz="0.540 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
+  </joint>
+  <link name="steer_dummy_link"/>
+
+  <!-- Front Left Steering Kingpin & Wheel (Passive Mimic joint driven by front_steer_joint) -->
+  <joint name="front_left_steer_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="front_left_wheel_link"/>
+    <origin xyz="0.540 0.417 -0.12635" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
+    <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="front_left_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.23365" length="0.125"/>
+      </geometry>
+      <material name="wheel_mat">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Front Right Steering Kingpin & Wheel (Passive Mimic joint driven by front_steer_joint) -->
+  <joint name="front_right_steer_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="front_right_wheel_link"/>
+    <origin xyz="0.540 -0.417 -0.12635" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
+    <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>
+    <passive/>
+  </joint>
+
+  <link name="front_right_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.23365" length="0.125"/>
+      </geometry>
+      <material name="wheel_mat">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+</robot>
