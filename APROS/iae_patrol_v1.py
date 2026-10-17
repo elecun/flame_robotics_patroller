@@ -29,14 +29,18 @@ class IAEPatrolV1:
         "ouster-sr-128": ("ouster-sr-128", "OusterSR128"),
         "baumer_incline": ("baumer_incline", "BaumerIncline"),
         "telescopic_mast": ("telescopic_mast", "TelescopicMast"),
-        "synerex_rtk": ("synerex_rtk", "SynerexRTK"),
+        "synerex_syn2000": ("synerex_syn2000", "SynerexSyn2000"),
+        "synerex_syn3100": ("synerex_syn3100", "SynerexSyn3100"),
+        "fluke_sv600": ("fluke_sv600", "FlukeSV600"),
+        "xsens_mti_630r": ("xsens_mti_630r", "XsensMTi630R"),
         "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
 
-    def __init__(self, config: Optional[Any] = None, zpipe_ctx: Optional[Any] = None):
+    def __init__(self, config: Optional[Any] = None, zpipe_ctx: Optional[Any] = None, simulation_mode: bool = False):
         self.config = config
         self.zpipe_ctx = zpipe_ctx
+        self.simulation_mode = simulation_mode
 
         self.devices: Dict[str, BaseDevice] = {}
         self.plugins: Dict[str, BasePlugin] = {}
@@ -67,7 +71,13 @@ class IAEPatrolV1:
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
-            device_obj = self._instantiate_device(dev_name)
+            if self.simulation_mode:
+                if dev_name != "mobile_drive_s1":
+                    logger.info(f"[IAEPatrolV1] Simulation mode: skipping hardware device '{dev_name}'.")
+                    continue
+                device_obj = self._instantiate_simulated_drive()
+            else:
+                device_obj = self._instantiate_device(dev_name)
             if device_obj:
                 self.devices[dev_name] = device_obj
                 if dev_name == "mobile_drive_s1":
@@ -269,6 +279,18 @@ class IAEPatrolV1:
             logger.error(f"[IAEPatrolV1] Error initializing device '{dev_name}': {e}")
             return None
 
+    def _instantiate_simulated_drive(self) -> Optional[BaseDevice]:
+        """Build a pure software drive model without importing MobileDriveS1/CANlib."""
+        try:
+            mod = importlib.import_module("APROS.core.device.robot_controller" if __name__.startswith("APROS") else "core.device.robot_controller")
+            cls = getattr(mod, "RobotController")
+            instance = cls(name="mobile_drive_s1")
+            logger.info("[IAEPatrolV1] Using RobotController simulation drive; MobileDriveS1/CANlib was not loaded.")
+            return instance
+        except Exception as e:
+            logger.error(f"[IAEPatrolV1] Could not initialize simulated drive: {e}")
+            return None
+
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Pass ZPipe context to all registered device and plugin components."""
         self.zpipe_ctx = zpipe_ctx
@@ -315,6 +337,12 @@ class IAEPatrolV1:
 
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
+        if getattr(self, "simulation_mode", False):
+            logger.info("[IAEPatrolV1] Simulation mode: skipping all device and IPC connections.")
+            if self.drive_base:
+                self.drive_base.drive_mode = "Auto"
+                self.drive_base.is_connected = True
+            return True
         success = True
         logger.info("[IAEPatrolV1] Connecting platform devices...")
         for name, device in self.devices.items():
@@ -354,12 +382,15 @@ class IAEPatrolV1:
                 logger.error(f"[IAEPatrolV1] Error initializing BaumerIncline_Connector: {e}")
 
         # Initialize SynerexRTK_Connector for IPC reception
-        if "synerex_rtk" in self.devices:
+        synerex_name = next((name for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk") if name in self.devices), None)
+        if synerex_name:
             try:
-                mod = importlib.import_module("APROS.core.device.synerex_rtk" if __name__.startswith("APROS") else "core.device.synerex_rtk")
-                SynerexRTK_Connector = getattr(mod, "SynerexRTK_Connector")
+                mod_name = "synerex_rtk" if synerex_name == "synerex_rtk" else synerex_name
+                mod = importlib.import_module(f"APROS.core.device.{mod_name}" if __name__.startswith("APROS") else f"core.device.{mod_name}")
+                connector_class = "SynerexRTK_Connector" if synerex_name == "synerex_rtk" else ("SynerexSyn2000_Connector" if synerex_name == "synerex_syn2000" else "SynerexSyn3100_Connector")
+                SynerexConnector = getattr(mod, connector_class)
                 robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v1") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v1"
-                self.synerex_rtk_connector = SynerexRTK_Connector(
+                self.synerex_rtk_connector = SynerexConnector(
                     robot_model=robot_model,
                     zpipe_ctx=self.zpipe_ctx,
                     on_data_received=self._on_rtk_data_received

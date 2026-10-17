@@ -18,3 +18,4 @@ ouster-sdk
 pypatchworkpp
 pymodbus
 pyproj
+zmq

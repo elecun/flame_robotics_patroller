@@ -12,6 +12,7 @@ import time
 
 from core.zpipe import zpipe_create_pipe, zpipe_destroy_pipe
 from iae_patrol_v1 import IAEPatrolV1
+from iae_patrol_v2 import IAEPatrolV2
 from core.viser_server import ViserServerManager
 from util.logger.console import ConsoleLogger
 
@@ -28,6 +29,7 @@ def parse_args():
         default="apros.cfg",
         help="Path to the configuration file (default: apros.cfg)"
     )
+    parser.add_argument("--simulation", action="store_true", help="Run control and navigation logic without connecting external devices")
     return parser.parse_args()
 
 
@@ -75,7 +77,19 @@ def main():
     logger.info("Main ZPipe context initialized successfully.")
 
     # 2. Instantiate and connect main robot platform (IAEPatrolV1)
-    robot = IAEPatrolV1(config=config, zpipe_ctx=zpipe_ctx)
+    model = config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2").strip().lower()
+    if args.simulation:
+        # ConsoleLogger writes to stderr; keep escape codes out of redirected logs.
+        display_model = f"\033[1;36m{model}\033[0m" if sys.stderr.isatty() else model
+        logger.info("Simulation robot model: %s", display_model)
+    robot_cls = {"iae_patrol_v1": IAEPatrolV1, "iae_patrol_v2": IAEPatrolV2}.get(model)
+    if robot_cls is None:
+        logger.error(f"Unsupported robot model: {model}")
+        zpipe_destroy_pipe()
+        sys.exit(1)
+    robot = robot_cls(config=config, zpipe_ctx=zpipe_ctx, simulation_mode=args.simulation)
+    if args.simulation:
+        logger.info("Simulation mode enabled; external device connections are disabled.")
     robot.connect()
 
     # 3. Start Viser 3D visualization dashboard server

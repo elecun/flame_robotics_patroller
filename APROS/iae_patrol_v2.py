@@ -6,6 +6,8 @@ Excludes baumer_incline device while maintaining compatibility with IAEPatrolV1 
 
 import importlib
 import inspect
+import math
+import os
 from typing import Dict, Any, Optional
 from core.device.base import BaseDevice
 from core.plugin.base import BasePlugin
@@ -27,13 +29,18 @@ class IAEPatrolV2:
         "vlp-16": ("vlp-16", "VLP16"),
         "ouster-sr-128": ("ouster-sr-128", "OusterSR128"),
         "telescopic_mast": ("telescopic_mast", "TelescopicMast"),
-        "synerex_rtk": ("synerex_rtk", "SynerexRTK"),
+        "synerex_syn2000": ("synerex_syn2000", "SynerexSyn2000"),
+        "synerex_syn3100": ("synerex_syn3100", "SynerexSyn3100"),
+        "fluke_sv600": ("fluke_sv600", "FlukeSV600"),
+        "xsens_mti_630r": ("xsens_mti_630r", "XsensMTi630R"),
+        "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
 
-    def __init__(self, config: Optional[Any] = None, zpipe_ctx: Optional[Any] = None):
+    def __init__(self, config: Optional[Any] = None, zpipe_ctx: Optional[Any] = None, simulation_mode: bool = False):
         self.config = config
         self.zpipe_ctx = zpipe_ctx
+        self.simulation_mode = simulation_mode
 
         self.devices: Dict[str, BaseDevice] = {}
         self.plugins: Dict[str, BasePlugin] = {}
@@ -42,6 +49,15 @@ class IAEPatrolV2:
         self.last_vlp16_points: Optional[Any] = None
         self.synerex_rtk_connector: Optional[Any] = None
         self.last_rtk_data: Optional[Dict[str, Any]] = None
+        self.basler_camera_connector: Optional[Any] = None
+        self.last_camera_header: Optional[Dict[str, Any]] = None
+        self.last_camera_frame: Optional[bytes] = None
+        self.global_planner = None
+        self.local_planner = None
+        self.drive_executor = None
+        self.simulated_x = 0.0
+        self.simulated_y = 0.0
+        self.simulated_heading = 0.0
 
         # Parse platform device list from config
         device_names = []
@@ -52,13 +68,19 @@ class IAEPatrolV2:
 
         # Fallback to default devices if config is empty (baumer_incline is omitted in V2)
         if not device_names:
-            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "telescopic_mast", "synerex_rtk"]
+            device_names = ["mobile_drive_s1", "vlp-16", "ouster-sr-128", "telescopic_mast", "synerex_syn2000"]
 
         # Dynamically instantiate devices with section parameters from config
         for dev_name in device_names:
             if dev_name == "baumer_incline":
                 continue
-            device_obj = self._instantiate_device(dev_name)
+            if self.simulation_mode:
+                if dev_name != "mobile_drive_s1":
+                    logger.info(f"[IAEPatrolV2] Simulation mode: skipping hardware device '{dev_name}'.")
+                    continue
+                device_obj = self._instantiate_simulated_drive()
+            else:
+                device_obj = self._instantiate_device(dev_name)
             if device_obj:
                 self.devices[dev_name] = device_obj
                 if dev_name == "mobile_drive_s1":
@@ -71,6 +93,8 @@ class IAEPatrolV2:
         # Inject ZPipe context if provided
         if self.zpipe_ctx:
             self.set_zpipe_context(self.zpipe_ctx)
+
+        self._init_navigation_planners()
 
         # Dynamically load Mast Executor Plugin
         self.mast_executor = None
@@ -100,6 +124,57 @@ class IAEPatrolV2:
             logger.info(f"[IAEPatrolV2] Mission Manager plugin initialized (poi_reach_threshold=0.5m).")
         except Exception as e:
             logger.error(f"[IAEPatrolV2] Error initializing Mission Manager: {e}")
+
+        if self.zpipe_ctx:
+            self.set_zpipe_context(self.zpipe_ctx)
+
+    def _init_navigation_planners(self):
+        """Load V2 global/local planners and connect them to DriveExecutor."""
+        try:
+            mod_cfg = importlib.import_module("APROS.core.plugin.path_planner.robot_config" if __name__.startswith("APROS") else "core.plugin.path_planner.robot_config")
+            RobotConfig = getattr(mod_cfg, "RobotConfig")
+            model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2").strip().lower() if self.config else "iae_patrol_v2"
+            urdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "urdf", f"{model}.urdf")
+            self.robot_config = RobotConfig.from_urdf(urdf_path)
+            if self.config:
+                self.robot_config.update_from_config(self.config)
+
+            section = self.config["iae_patrol_v2"] if self.config and self.config.has_section("iae_patrol_v2") else {}
+            gp_name = section.get("global_planner", "cubic_spline_global_planner").strip()
+            lp_name = section.get("local_planner", "mppi_local_planner").strip()
+            pkg = "APROS.core.plugin.path_planner" if __name__.startswith("APROS") else "core.plugin.path_planner"
+
+            gp_mod = importlib.import_module(f"{pkg}.{gp_name}")
+            gp_cls = next((getattr(gp_mod, n) for n in dir(gp_mod)
+                           if n.lower().endswith("globalplanner") and n != "BaseGlobalPlanner"), None)
+            if gp_cls:
+                self.global_planner = gp_cls(self.robot_config)
+
+            lp_mod = importlib.import_module(f"{pkg}.{lp_name}")
+            lp_cls = next((getattr(lp_mod, n) for n in dir(lp_mod)
+                           if n.lower().endswith("localplanner") and n != "BaseLocalPlanner"), None)
+            if lp_cls:
+                mppi = self.config["mppi_local_planner"] if self.config and self.config.has_section("mppi_local_planner") else {}
+                self.local_planner = lp_cls(
+                    self.robot_config,
+                    samples=int(mppi.get("samples", 96)),
+                    horizon=int(mppi.get("horizon", 36)),
+                    iterations=int(mppi.get("iterations", 2)),
+                    temperature=float(mppi.get("temperature", 1.0)),
+                    steering_noise=float(mppi.get("steering_noise", 0.16)),
+                    velocity_noise=float(mppi.get("velocity_noise", 0.22)),
+                )
+
+            drive_cfg = self.config["mobile_drive_s1"] if self.config and self.config.has_section("mobile_drive_s1") else {}
+            mod_exec = importlib.import_module("APROS.core.plugin.drive_executor" if __name__.startswith("APROS") else "core.plugin.drive_executor")
+            DriveExecutor = getattr(mod_exec, "DriveExecutor")
+            self.drive_executor = DriveExecutor(
+                robot=self, global_planner=self.global_planner, local_planner=self.local_planner,
+                control_freq=float(drive_cfg.get("control_freq", 10.0)))
+            self.plugins["drive_executor"] = self.drive_executor
+            logger.info(f"[IAEPatrolV2] Navigation ready: global={gp_name}, local={lp_name}.")
+        except Exception as e:
+            logger.error(f"[IAEPatrolV2] Failed to initialize V2 navigation planners: {e}")
 
     def _instantiate_device(self, dev_name: str) -> Optional[BaseDevice]:
         """Dynamically import device class and pass arguments parsed from section [dev_name]."""
@@ -134,6 +209,12 @@ class IAEPatrolV2:
         if self.config and self.config.has_section(dev_name):
             section = self.config[dev_name]
             for key, val in section.items():
+                if val.lower() in ("true", "yes", "1"):
+                    kwargs[key] = True
+                    continue
+                if val.lower() in ("false", "no", "0"):
+                    kwargs[key] = False
+                    continue
                 # Cast numeric strings to int/float appropriately
                 try:
                     if "." in val:
@@ -179,6 +260,18 @@ class IAEPatrolV2:
             logger.error(f"[IAEPatrolV2] Error initializing device '{dev_name}': {e}")
             return None
 
+    def _instantiate_simulated_drive(self) -> Optional[BaseDevice]:
+        """Build a pure software drive model without importing MobileDriveS1/CANlib."""
+        try:
+            mod = importlib.import_module("APROS.core.device.robot_controller" if __name__.startswith("APROS") else "core.device.robot_controller")
+            cls = getattr(mod, "RobotController")
+            instance = cls(name="mobile_drive_s1")
+            logger.info("[IAEPatrolV2] Using RobotController simulation drive; MobileDriveS1/CANlib was not loaded.")
+            return instance
+        except Exception as e:
+            logger.error(f"[IAEPatrolV2] Could not initialize simulated drive: {e}")
+            return None
+
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Pass ZPipe context to all registered device and plugin components."""
         self.zpipe_ctx = zpipe_ctx
@@ -195,8 +288,18 @@ class IAEPatrolV2:
         """Callback invoked when SynerexRTK_Connector receives GNSS position data over ZPipe IPC."""
         self.last_rtk_data = data
 
+    def _on_basler_camera_received(self, header: Dict[str, Any], jpeg_data: bytes):
+        self.last_camera_header = header
+        self.last_camera_frame = jpeg_data
+
     def connect(self) -> bool:
         """Connect all configured hardware devices and start IPC connectors."""
+        if getattr(self, "simulation_mode", False):
+            logger.info("[IAEPatrolV2] Simulation mode: skipping all device and IPC connections.")
+            if self.drive_base:
+                self.drive_base.drive_mode = "Auto"
+                self.drive_base.is_connected = True
+            return True
         success = True
         logger.info("[IAEPatrolV2] Connecting platform devices...")
         for name, device in self.devices.items():
@@ -221,12 +324,15 @@ class IAEPatrolV2:
                 logger.error(f"[IAEPatrolV2] Error initializing VLP16_Connector: {e}")
 
         # Initialize SynerexRTK_Connector for IPC reception
-        if "synerex_rtk" in self.devices:
+        synerex_name = next((name for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk") if name in self.devices), None)
+        if synerex_name:
             try:
-                mod = importlib.import_module("APROS.core.device.synerex_rtk" if __name__.startswith("APROS") else "core.device.synerex_rtk")
-                SynerexRTK_Connector = getattr(mod, "SynerexRTK_Connector")
+                mod_name = "synerex_rtk" if synerex_name == "synerex_rtk" else synerex_name
+                mod = importlib.import_module(f"APROS.core.device.{mod_name}" if __name__.startswith("APROS") else f"core.device.{mod_name}")
+                connector_class = "SynerexRTK_Connector" if synerex_name == "synerex_rtk" else ("SynerexSyn2000_Connector" if synerex_name == "synerex_syn2000" else "SynerexSyn3100_Connector")
+                SynerexConnector = getattr(mod, connector_class)
                 robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v2"
-                self.synerex_rtk_connector = SynerexRTK_Connector(
+                self.synerex_rtk_connector = SynerexConnector(
                     robot_model=robot_model,
                     zpipe_ctx=self.zpipe_ctx,
                     on_data_received=self._on_rtk_data_received
@@ -234,6 +340,17 @@ class IAEPatrolV2:
                 self.synerex_rtk_connector.start()
             except Exception as e:
                 logger.error(f"[IAEPatrolV2] Error initializing SynerexRTK_Connector: {e}")
+
+        if "basler_gige_camera" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.basler_gige_camera" if __name__.startswith("APROS") else "core.device.basler_gige_camera")
+                CameraConnector = getattr(mod, "BaslerGigECamera_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v2"
+                self.basler_camera_connector = CameraConnector(robot_model=robot_model, zpipe_ctx=self.zpipe_ctx,
+                                                               on_frame_received=self._on_basler_camera_received)
+                self.basler_camera_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV2] Error initializing BaslerGigECamera_Connector: {e}")
 
         return success
 
@@ -252,6 +369,12 @@ class IAEPatrolV2:
             except Exception:
                 pass
             self.synerex_rtk_connector = None
+        if self.basler_camera_connector:
+            try:
+                self.basler_camera_connector.stop()
+            except Exception:
+                pass
+            self.basler_camera_connector = None
         for name, device in self.devices.items():
             device.disconnect()
         return True
@@ -323,3 +446,9 @@ class IAEPatrolV2:
     def update_simulation_step(self, dt: float = 0.05):
         if self.drive_base and hasattr(self.drive_base, 'update_simulation_step'):
             self.drive_base.update_simulation_step(dt=dt)
+            if self.simulation_mode:
+                speed_m_s = float(getattr(self.drive_base, "speed", 0.0)) / 3.6
+                heading = float(getattr(self.drive_base, "simulated_heading", self.simulated_heading))
+                self.simulated_x += speed_m_s * math.cos(heading) * dt
+                self.simulated_y += speed_m_s * math.sin(heading) * dt
+                self.simulated_heading = heading
