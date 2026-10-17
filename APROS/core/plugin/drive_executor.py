@@ -401,8 +401,9 @@ class DriveExecutor(BasePlugin):
                 rvel = 1.0
 
                 # Synchronize synerex_rtk device position so Viser & Map UI track the HIL WGS84 position
-                if self.robot and hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
-                    rtk_dev = self.robot.devices["synerex_rtk"]
+                rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                                if self.robot and hasattr(self.robot, "devices") and name in self.robot.devices), None)
+                if rtk_dev:
                     if hasattr(rtk_dev, "update_pose"):
                         rtk_dev.update_pose(curr_lat, curr_lon, 45.0, hdg_deg)
             else:
@@ -423,8 +424,8 @@ class DriveExecutor(BasePlugin):
         if self.robot:
             # Use SynerexRTK GNSS position converted to relative meters
             rtk_dev = None
-            if hasattr(self.robot, "devices") and "synerex_rtk" in self.robot.devices:
-                rtk_dev = self.robot.devices["synerex_rtk"]
+            rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                            if hasattr(self.robot, "devices") and name in self.robot.devices), None)
 
             if rtk_dev and hasattr(rtk_dev, "latitude") and rtk_dev.latitude is not None and hasattr(self, "origin_lat") and self.origin_lat is not None:
                 dlat = rtk_dev.latitude - self.origin_lat

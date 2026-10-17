@@ -32,6 +32,12 @@ class RobotController(BaseDevice):
         self.speed = max(0.0, min(speed_kmh, 25.0))
         self.steer_angle = max(-35.0, min(steer_deg, 35.0))
 
+    def set_speed(self, speed_kmh: float):
+        self.speed = max(0.0, min(float(speed_kmh), 25.0))
+
+    def set_steering_angle(self, steer_deg: float):
+        self.steer_angle = max(-35.0, min(float(steer_deg), 35.0))
+
     def update_simulation_step(self, dt: float = 0.05):
         """Update simulated pose, speed, and GPS position for autonomous driving view."""
         if not self.is_connected:

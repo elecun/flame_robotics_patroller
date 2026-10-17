@@ -88,7 +88,7 @@ class SynerexRTK(BaseDevice):
 
         # ZPipe IPC Publisher
         self.pub_socket: Optional[AsyncZSocket] = None
-        self.ipc_address = f"/tmp/{self.robot_model}_synerex_rtk.ipc"
+        self.ipc_address = f"/tmp/{self.robot_model}_{self.name}.ipc"
 
         # Dedicated Thread control (Serial Reader + Periodic Publisher + WebSocket Server)
         self._running = False
@@ -520,13 +520,15 @@ class SynerexRTK_Connector:
         self,
         robot_model: str = "iae_patrol_v1",
         zpipe_ctx: Optional[ZPipe] = None,
-        on_data_received: Optional[Callable[[Dict[str, Any]], None]] = None
+        on_data_received: Optional[Callable[[Dict[str, Any]], None]] = None,
+        device_name: str = "synerex_rtk"
     ):
         self.robot_model = robot_model
+        self.device_name = device_name
         self.zpipe_ctx = zpipe_ctx or ZPipe.create_pipe()
         self.on_data_received = on_data_received
 
-        self.ipc_address = f"/tmp/{self.robot_model}_synerex_rtk.ipc"
+        self.ipc_address = f"/tmp/{self.robot_model}_{self.device_name}.ipc"
         self.sub_socket: Optional[AsyncZSocket] = None
         self.last_rtk_data: Optional[Dict[str, Any]] = None
 

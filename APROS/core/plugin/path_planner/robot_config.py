@@ -155,6 +155,9 @@ class RobotConfig:
                             config.max_steer_angle = abs(float(upper))
                         if lower is not None:
                             config.min_steer_angle = float(lower)
+                        velocity = limit.get("velocity") if limit is not None else None
+                        if velocity is not None:
+                            config.max_steer_rate = abs(float(velocity))
                         logger.info(f"[RobotConfig] Parsed max_steer_angle: {math.degrees(config.max_steer_angle):.1f} deg from URDF.")
 
             # 2. Parse Chassis Box Dimensions & Footprint from 'base_link' visual/collision boxes
@@ -194,7 +197,9 @@ class RobotConfig:
                     xyz_str = origin.get("xyz")
                     if xyz_str:
                         xyz = [float(val) for val in xyz_str.split()]
-                        if "front_" in jname and "wheel" in jname:
+                        # V2 names its front axle joints front_*_steer_joint;
+                        # accept those names as wheel-center locations as well.
+                        if "front_" in jname and ("wheel" in jname or "_left_" in jname or "_right_" in jname):
                             fx = xyz[0]
                             if "left" in jname:
                                 fly = xyz[1]

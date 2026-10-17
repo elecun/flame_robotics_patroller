@@ -253,10 +253,15 @@ class ViserServerManager:
         """
         self.server.gui.add_html(titlebar_html)
 
-        # Robot dimensions in meters (default fallback: 1.000m W, 2.055m L, 0.640m H)
-        self.robot_width = 1.000
-        self.robot_length = 2.055
-        self.robot_height = 0.640
+        # Robot dimensions in meters; V2 includes its upper chassis in overall height.
+        model_name = "iae_patrol_v1"
+        if self.robot and getattr(self.robot, "config", None) and self.robot.config.has_section("PLATFORM"):
+            model_name = self.robot.config.get("PLATFORM", "robot_model", fallback=model_name).strip().lower()
+        model_dimensions = {
+            "iae_patrol_v1": (1.000, 2.055, 0.640),
+            "iae_patrol_v2": (0.970, 2.030, 0.837),
+        }
+        self.robot_width, self.robot_length, self.robot_height = model_dimensions.get(model_name, model_dimensions["iae_patrol_v1"])
         self.lookahead_distance = 3.0  # meters (default 3.0m)
 
         if hasattr(self.robot, 'config') and self.robot.config:
@@ -374,7 +379,9 @@ class ViserServerManager:
         )
 
         # 3. Load URDF Robot Model into Viser Scene
-        urdf_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "urdf", "iae_patrol_v1.urdf")
+        platform_cfg = self.robot.config["PLATFORM"] if self.robot and getattr(self.robot, "config", None) and self.robot.config.has_section("PLATFORM") else {}
+        robot_model = str(platform_cfg.get("robot_model", "iae_patrol_v1")).strip().lower()
+        urdf_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "urdf", f"{robot_model}.urdf")
         self.urdf_model = None
         if os.path.exists(urdf_file_path):
             try:
@@ -426,7 +433,7 @@ class ViserServerManager:
         )
 
         # 6. Ouster-SR-128 Point Cloud visualization attached to Mission Module ouster_link frame (URDF Link Frame)
-        ouster_frame_path = "/robot/visual/base_link/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
+        ouster_frame_path = "/robot/visual/base_link/upper_chassis_link/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
         self.ouster_pc_handle = self.server.scene.add_point_cloud(
             name=ouster_frame_path,
             points=np.zeros((1, 3), dtype=np.float32),
@@ -469,13 +476,12 @@ class ViserServerManager:
             visible=True
         )
 
-        # 9. DWA Local Planner Path Handle (Vivid Neon Green/Cyan thick line on ground plane)
-        self.local_path_handle = self.server.scene.add_line_segments(
+        # Local planner footprint corridor, sized to the robot width and placed on the ground.
+        self.local_path_handle = self.server.scene.add_mesh_simple(
             name="/world/local_planner_path",
-            points=np.zeros((1, 2, 3), dtype=np.float32),
-            colors=np.zeros((1, 2, 3), dtype=np.uint8),
-            line_width=12.0,
-            visible=True
+            vertices=np.array([[0, 0, 0.015], [0, 0, 0.015], [0.01, 0, 0.015], [0.01, 0, 0.015]], dtype=np.float32),
+            faces=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.uint32),
+            color=(0, 220, 80), opacity=0.38, side="double", visible=False
         )
 
         # 10. Corridor Boundary Handle (Orange boundary lines on ground plane)
@@ -718,16 +724,33 @@ class ViserServerManager:
         client.camera.position = (init_x - 6.0, init_y - 3.5, 3.5)
         client.camera.look_at = (init_x, init_y, 0.5)
 
-        # Create Tab Group for multiple GUI windows
+        # Left dock: live vehicle and camera status. The main control center remains on the right.
+        status_panel = client.gui.add_panel()
+        with status_panel.add_tab("Status Monitor", viser.Icon.CHART_BAR):
+            with client.gui.add_folder("🚘 Robot Drive Status", expand_by_default=True):
+                robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
+
+            with client.gui.add_folder("📷 Basler GigE Camera Stream", expand_by_default=True):
+                init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
+                init_cam_img[::20, :] = [30, 30, 45]
+                init_cam_img[:, ::20] = [30, 30, 45]
+                gui_cam_image = client.gui.add_image(image=init_cam_img, label="Live Camera Stream", format="jpeg")
+                reset_exposure_btn = client.gui.add_button(label="🔄 Reset Auto Exposure", color="blue")
+
+                @reset_exposure_btn.on_click
+                def _(_):
+                    cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if cam_dev and hasattr(cam_dev, "reset_auto_exposure"):
+                        cam_dev.reset_auto_exposure()
+        status_panel.dock_left()
+        status_panel.set_width(360)
+
+        # Create Tab Group for main APROS Control Center on the right
         tabs = client.gui.add_tab_group()
 
         # Window 1: APROS Control Tab
         with tabs.add_tab("APROS Dashboard", viser.Icon.SETTINGS):
-            # 1. Robot Drive Status Folder (Real-time Parsed CAN 0 Data)
-            with client.gui.add_folder("🚘 Robot Drive Status"):
-                robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
-
-            # 2. Remote Control & Mast GUI Folder (Integrated Remote Control & Mast)
+            # Remote Control & Mast GUI Folder (Integrated Remote Control & Mast)
             with client.gui.add_folder("🎮 Robot Remote Control"):
                 # Control Mode Group Buttons (Remote, Auto)
                 init_is_auto = self.robot.drive_mode.startswith("Auto")
@@ -798,30 +821,6 @@ class ViserServerManager:
                                 _is_processing_mode_change = False
                     else:
                         apply_control_mode(selected_mode)
-
-            # Basler GigE Camera Folder in APROS Control tab
-            with client.gui.add_folder("📷 Basler GigE Camera Stream", expand_by_default=True):
-                # Placeholder 320x240 image
-                init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
-                init_cam_img[::20, :] = [30, 30, 45]
-                init_cam_img[:, ::20] = [30, 30, 45]
-                
-                gui_cam_image = client.gui.add_image(
-                    image=init_cam_img,
-                    label="Live Camera Stream",
-                    format="jpeg"
-                )
-
-                reset_exposure_btn = client.gui.add_button(
-                    label="🔄 Reset Auto Exposure",
-                    color="blue"
-                )
-
-                @reset_exposure_btn.on_click
-                def _(_):
-                    cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if cam_dev and hasattr(cam_dev, "reset_auto_exposure"):
-                        cam_dev.reset_auto_exposure()
 
             estop_button = client.gui.add_button(
                 label="🚨 EMERGENCY STOP",
@@ -1551,7 +1550,8 @@ class ViserServerManager:
                     # Update RTK Route Builder recording logic
                     try:
                         if rtk_recording_state["is_recording"] and rtk_recording_state["file_handle"]:
-                            rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+                            rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                                            if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
                             if rtk_dev is not None:
                                 cur_lat = getattr(rtk_dev, "latitude", None)
                                 cur_lon = getattr(rtk_dev, "longitude", None)
@@ -1664,7 +1664,8 @@ class ViserServerManager:
         lines.append(f"- **Mast Height**: `{mast_height_str}`")
 
         # 5. Synerex RTK GNSS
-        rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+        rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                        if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
         rtk_data = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else (getattr(self.robot, "last_rtk_data", {}) or {})
         
         is_rtk_conn = rtk_data.get("connected", False) if rtk_data else False
@@ -1749,7 +1750,8 @@ class ViserServerManager:
             self.robot.update_simulation_step(dt=dt)
 
             # Update real-time RTK TM Position & Heading pose of /robot node in Viser 3D scene
-            rtk_dev = self.robot.devices.get("synerex_rtk") if hasattr(self.robot, "devices") and self.robot.devices else None
+            rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                            if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
             lat_val = getattr(rtk_dev, "latitude", None) if rtk_dev else None
             lon_val = getattr(rtk_dev, "longitude", None) if rtk_dev else None
             heading_val = getattr(rtk_dev, "heading", None) if rtk_dev else None
@@ -1758,6 +1760,15 @@ class ViserServerManager:
             if lon_val is None: lon_val = self.default_lon
             if heading_val is None: heading_val = self.default_heading
 
+            drive_exec = getattr(self.robot, "drive_executor", None)
+            simulation_origin_lat = getattr(drive_exec, "origin_lat", None) if drive_exec else None
+            simulation_origin_lon = getattr(drive_exec, "origin_lon", None) if drive_exec else None
+            if getattr(self.robot, "simulation_mode", False) and drive_exec and simulation_origin_lat is not None and simulation_origin_lon is not None:
+                lat_val = simulation_origin_lat + float(self.robot.simulated_x) / 111000.0
+                lon_scale = max(0.1, math.cos(math.radians(simulation_origin_lat)))
+                lon_val = simulation_origin_lon - float(self.robot.simulated_y) / (111000.0 * lon_scale)
+                heading_val = -math.degrees(float(self.robot.simulated_heading))
+
             if not getattr(self, "_origin_set", False) and lat_val is not None and lon_val is not None:
                 self.default_lat = lat_val
                 self.default_lon = lon_val
@@ -1765,7 +1776,11 @@ class ViserServerManager:
                 self._origin_set = True
 
             rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
-            rwxyz = self._heading_to_wxyz(heading_val)
+            if getattr(self.robot, "simulation_mode", False) and drive_exec and simulation_origin_lat is not None and simulation_origin_lon is not None:
+                sim_h = float(self.robot.simulated_heading)
+                rwxyz = (math.cos(sim_h / 2.0), 0.0, 0.0, math.sin(sim_h / 2.0))
+            else:
+                rwxyz = self._heading_to_wxyz(heading_val)
 
             if self.robot_frame_handle:
                 self.robot_frame_handle.position = (rx, ry, 0.0)
@@ -1790,10 +1805,12 @@ class ViserServerManager:
             steer_angle_rad = np.radians(getattr(self.robot, "steer_angle", 0.0))
 
             if self.urdf_model is not None:
-                # Deduct 1.1m robot ground height to get pure mast height (1.8m ~ 8.0m)
-                pure_mast_height_m = max(1.8, mast_height_m - 1.1)
-                # Master mast_joint extension stroke (0.0m ~ 6.2m)
-                mast_extension = max(0.0, pure_mast_height_m - 1.8)
+                # Convert ground-relative total height into extension beyond the
+                # upper chassis, collapsed mast (1.87m), and PTU body top (0.19686m).
+                mast_extension = max(
+                    0.0,
+                    min(6.2, mast_height_m - self.robot_height - 1.87 - 0.19686),
+                )
                 self.urdf_model.update_cfg({
                     "mast_joint": mast_extension,
                     "front_steer_joint": steer_angle_rad,
@@ -1838,21 +1855,34 @@ class ViserServerManager:
                     self.ouster_pc_handle.points = xyz
                     self.ouster_pc_handle.colors = colors
 
-            # Real-time Local Planner Planned Trajectory visualization on ground plane
+            # Real-time local planner path as a translucent robot-width green strip.
             local_planner = getattr(self.robot, "local_planner", None)
             if local_planner is None and hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
                 local_planner = getattr(self.robot.drive_executor, "local_planner", None)
             if local_planner and hasattr(local_planner, "best_local_path") and local_planner.best_local_path:
                 lpath = local_planner.best_local_path
                 if len(lpath) >= 2:
-                    lpts = np.array([[pt["x"], pt["y"], 0.03] for pt in lpath], dtype=np.float32)
-                    lsegments = np.stack((lpts[:-1], lpts[1:]), axis=1)  # (N, 2, 3)
-                    lcolors = np.zeros((len(lsegments), 2, 3), dtype=np.uint8)
-                    lcolors[:, :, 0] = 0     # Red
-                    lcolors[:, :, 1] = 255   # Green (High-contrast Vivid Lime Green)
-                    lcolors[:, :, 2] = 128   # Blue
-                    self.local_path_handle.points = lsegments
-                    self.local_path_handle.colors = lcolors
+                    drive_exec = getattr(self.robot, "drive_executor", None)
+                    route_lat = getattr(drive_exec, "origin_lat", None) if drive_exec else None
+                    route_lon = getattr(drive_exec, "origin_lon", None) if drive_exec else None
+                    if route_lat is not None and route_lon is not None:
+                        anchor_x, anchor_y = self._wgs84_to_tm_viser(route_lat, route_lon)
+                    else:
+                        anchor_x, anchor_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
+                    half_width = self.robot_width / 2.0
+                    vertices = []
+                    for pt in lpath:
+                        h = float(pt.get("heading", 0.0))
+                        nx, ny = -math.sin(h), math.cos(h)
+                        cx, cy = anchor_x + float(pt["x"]), anchor_y + float(pt["y"])
+                        vertices.append([cx - nx * half_width, cy - ny * half_width, 0.015])
+                        vertices.append([cx + nx * half_width, cy + ny * half_width, 0.015])
+                    faces = []
+                    for i in range(len(lpath) - 1):
+                        a = 2 * i
+                        faces.extend(([a, a + 1, a + 2], [a + 1, a + 3, a + 2]))
+                    self.local_path_handle.vertices = np.asarray(vertices, dtype=np.float32)
+                    self.local_path_handle.faces = np.asarray(faces, dtype=np.uint32)
                     self.local_path_handle.visible = True
                 else:
                     self.local_path_handle.visible = False
