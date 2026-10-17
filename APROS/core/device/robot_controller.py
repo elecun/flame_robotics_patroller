@@ -14,7 +14,7 @@ class RobotController(BaseDevice):
         self.lat = 37.5665  # Default latitude (Seoul)
         self.lon = 126.9780  # Default longitude (Seoul)
         self.gear = "P"
-        self.drive_mode = "Auto"
+        self.drive_mode = "Remote Control Mode"
         self.simulated_heading = 0.0  # in radians
 
     def connect(self) -> bool:

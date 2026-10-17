@@ -8,12 +8,12 @@ import importlib
 import time
 from datetime import datetime
 import threading
+import cv2
 import numpy as np
 import viser
 import viser.transforms as tf
 from typing import Any, Optional
 from pyproj import Transformer
-from resource.tile_server import TileServerManager
 from core.data_logger import DataLogger
 from util.logger.console import ConsoleLogger
 
@@ -31,9 +31,9 @@ class ViserServerManager:
         # Viser server
         self.server = viser.ViserServer(host=self.host, port=self.port)
 
-        # Default WGS84 coordinates & heading (Korean Central Belt Origin)
-        self.default_lat = 34.7971754
-        self.default_lon = 127.6607499
+        # Fixed WGS84 scene origin used to anchor the ground tile map.
+        self.default_lat = 34.824628
+        self.default_lon = 127.661044
         self.default_heading = 0.0
 
         # Pyproj Transformer: WGS84 (EPSG:4326) -> Korean Central Belt TM (EPSG:5186)
@@ -53,17 +53,11 @@ class ViserServerManager:
             show_logo=False,
             brand_color=(30, 144, 255)
         )
-        self.server.gui.set_panel_label("APROS Control Center")
+        self.server.gui.set_panel_label("Control Center")
 
-        # Tile Server for Leaflet JS/CSS and maptiles
-        self.tile_server = TileServerManager(host=self.host, port=8082)
-        self.tile_server.start()
-
-        # Read platform IP & default coordinates from apros.cfg [PLATFORM] section
-        self.platform_ip = "127.0.0.1"
+        # Read the configured fixed scene origin from apros.cfg [PLATFORM] section.
         if hasattr(self.robot, 'config') and self.robot.config and self.robot.config.has_section("PLATFORM"):
             plat_sec = self.robot.config["PLATFORM"]
-            self.platform_ip = plat_sec.get("ip", fallback="127.0.0.1")
             if "default_lat" in plat_sec:
                 try:
                     self.default_lat = float(plat_sec["default_lat"])
@@ -82,11 +76,12 @@ class ViserServerManager:
 
         # Compute origin TM coordinates for relative Viser 3D local scene (centered at site origin)
         self.origin_easting, self.origin_northing = self.tm_transformer.transform(self.default_lon, self.default_lat)
-        self._origin_set = False
+        self.ground_tile_map_handle = None
+        self.ground_tile_map_tile_key = None
+        self.ground_tile_map_retry_after = 0.0
+        self.ground_grid_handle = None
 
-        map_host = "127.0.0.1" if self.platform_ip in ("0.0.0.0", "") else self.platform_ip
-
-        # Custom Top Titlebar Header & Floating Map Panel Window (Left: APROS, Right: Map Window Button)
+        # Custom APROS titlebar. The former floating map panel has been removed.
         titlebar_html = f"""
         <div id="apros-top-titlebar" style="
             position: fixed;
@@ -99,7 +94,7 @@ class ViserServerManager:
             border-bottom: 1px solid rgba(30, 144, 255, 0.3);
             backdrop-filter: blur(10px);
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             padding: 0 20px;
             box-sizing: border-box;
@@ -116,127 +111,17 @@ class ViserServerManager:
                 ">APROS</span>
                 <span style="color: #78909C; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot Operating System</span>
             </div>
-
-            <!-- Right: Map Window Button -->
-            <button id="apros-titlebar-btn" onclick="
-                var modal = document.getElementById('apros-custom-modal');
-                if(modal) {{
-                    var isHidden = modal.style.display === 'none' || modal.style.display === '';
-                    modal.style.display = isHidden ? 'flex' : 'none';
-                }}
-            " style="
-                background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
-                color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                padding: 7px 16px;
-                border-radius: 6px;
-                font-size: 13px;
-                font-weight: 600;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-                transition: all 0.2s ease;
-            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(30,144,255,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.3)';"">
-                🗺️ Map Window
-            </button>
-        </div>
-
-        <!-- Custom Floating Draggable Map Panel Window (Initially Hidden, Toggled by Titlebar Button) -->
-        <div id="apros-custom-modal" style="
-            display: none;
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            width: 640px;
-            height: 480px;
-            z-index: 9999;
-            background: rgba(16, 20, 31, 0.95);
-            border: 1px solid rgba(30, 144, 255, 0.4);
-            border-radius: 12px;
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(12px);
-            flex-direction: column;
-            overflow: hidden;
-            resize: both;
-        ">
-
-            <!-- Window Header (Draggable Handle & Controls) -->
-            <div id="apros-modal-header" style="
-                padding: 10px 16px;
-                background: rgba(255, 255, 255, 0.05);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                cursor: move;
-                user-select: none;
-            ">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #00E676; font-weight: bold; font-size: 14px;">🗺️ Map Panel</span>
-                </div>
-                <!-- Close Button -->
-                <button onclick="document.getElementById('apros-custom-modal').style.display='none'" title="닫기" style="
-                    background: transparent;
-                    border: none;
-                    color: #FF5252;
-                    font-weight: bold;
-                    font-size: 16px;
-                    cursor: pointer;
-                    padding: 0 4px;
-                    border-radius: 4px;
-                    transition: background 0.2s;
-                " onmouseover="this.style.background='rgba(255,82,82,0.2)'" onmouseout="this.style.background='transparent'">✕</button>
-            </div>
-
-            <!-- Leaflet Map Container (Embedded map.html using configured IP: {map_host}) -->
-            <div style="position: relative; flex: 1; width: 100%; height: 100%;">
-                <iframe id="apros-map-iframe" style="width: 100%; height: 100%; border: none; background: #10141f;" src="http://{map_host}:8082/resource/map.html?lat={self.default_lat}&lon={self.default_lon}&zoom=18"></iframe>
-            </div>
         </div>
 
         <script>
         (function() {{
-            function relocate() {{
-                var tb = document.getElementById('apros-top-titlebar');
-                var md = document.getElementById('apros-custom-modal');
-                if (tb && tb.parentElement !== document.body) document.body.appendChild(tb);
-                if (md && md.parentElement !== document.body) document.body.appendChild(md);
-
-                if (md) {{
-                    var header = document.getElementById('apros-modal-header');
-                    if (header && !md.dataset.dragInit) {{
-                        md.dataset.dragInit = "true";
-                        var isDragging = false, startX, startY, initialLeft, initialTop;
-                        header.addEventListener('mousedown', function(e) {{
-                            // Disable drag when clicked on header buttons
-                            if (e.target.tagName === 'BUTTON') return;
-
-                            isDragging = true;
-                            startX = e.clientX;
-                            startY = e.clientY;
-                            var rect = md.getBoundingClientRect();
-                            initialLeft = rect.left;
-                            initialTop = rect.top;
-                            md.style.right = 'auto';
-                            md.style.bottom = 'auto';
-                            md.style.left = initialLeft + 'px';
-                            md.style.top = initialTop + 'px';
-                        }});
-                        document.addEventListener('mousemove', function(e) {{
-                            if (!isDragging) return;
-                            md.style.left = (initialLeft + (e.clientX - startX)) + 'px';
-                            md.style.top = (initialTop + (e.clientY - startY)) + 'px';
-                        }});
-                        document.addEventListener('mouseup', function() {{ isDragging = false; }});
-                    }}
-                }}
+            function attachTitlebar() {{
+                var titlebar = document.getElementById('apros-top-titlebar');
+                if (titlebar && titlebar.parentElement !== document.body) document.body.appendChild(titlebar);
             }}
-
-            relocate();
-            setTimeout(relocate, 50);
-            setTimeout(relocate, 300);
+            attachTitlebar();
+            setTimeout(attachTitlebar, 50);
+            setTimeout(attachTitlebar, 300);
         }})();
         </script>
 
@@ -316,20 +201,103 @@ class ViserServerManager:
         z = math.sin(rad / 2.0)
         return (w, 0.0, 0.0, z)
 
+    def _add_ground_tile_map(self, center_lat: float, center_lon: float) -> bool:
+        """Keep a north-up tile mosaic centered under the current geodetic position."""
+        zoom = 18
+        tile_px = 256
+        tile_count = 2 ** zoom
+        center_tile_x = (center_lon + 180.0) / 360.0 * tile_count
+        lat_rad = math.radians(center_lat)
+        center_tile_y = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * tile_count
+        meters_per_pixel = (math.cos(lat_rad) * 2.0 * math.pi * 6378137.0) / (tile_count * tile_px)
+        tile_x = math.floor(center_tile_x)
+        tile_y = math.floor(center_tile_y)
+        tile_key = (tile_x, tile_y)
+        min_x, min_y = tile_x - 1, tile_y - 1
+        mosaic_width = tile_px * 3
+
+        if tile_key != self.ground_tile_map_tile_key:
+            if time.monotonic() < self.ground_tile_map_retry_after:
+                if self.ground_tile_map_handle is not None:
+                    self.ground_tile_map_handle.visible = False
+                return False
+
+            mosaic = np.full((mosaic_width, mosaic_width, 3), (42, 48, 58), dtype=np.uint8)
+            tile_root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maptile", str(zoom))
+            try:
+                for tile_x in range(min_x, min_x + 3):
+                    for tile_y in range(min_y, min_y + 3):
+                        tile_path = os.path.join(tile_root, str(tile_x), f"{tile_y}.png")
+                        tile_bgr = cv2.imread(tile_path, cv2.IMREAD_COLOR)
+                        if tile_bgr is None:
+                            raise OSError(f"Local map tile is missing or invalid: {tile_path}")
+                        if tile_bgr.shape[:2] != (tile_px, tile_px):
+                            tile_bgr = cv2.resize(tile_bgr, (tile_px, tile_px), interpolation=cv2.INTER_AREA)
+                        tile_rgb = cv2.cvtColor(tile_bgr, cv2.COLOR_BGR2RGB)
+                        x0 = (tile_x - min_x) * tile_px
+                        y0 = (tile_y - min_y) * tile_px
+                        mosaic[y0:y0 + tile_px, x0:x0 + tile_px] = tile_rgb
+            except OSError as exc:
+                self.ground_tile_map_retry_after = time.monotonic() + 10.0
+                if self.ground_tile_map_handle is not None:
+                    self.ground_tile_map_handle.visible = False
+                logger.warning(f"[ViserServerManager] Ground tile map unavailable: {exc}")
+                return False
+
+            # Viser's image plane applies an internal 180-degree X rotation, which
+            # reverses its vertical image axis. Flip the raster to keep north at +X.
+            image = cv2.flip(mosaic, 0)
+            if self.ground_tile_map_handle is None:
+                self.ground_tile_map_handle = self.server.scene.add_image(
+                    name="/world/ground_tile_map",
+                    image=image,
+                    render_width=mosaic_width * meters_per_pixel,
+                    render_height=mosaic_width * meters_per_pixel,
+                    format="jpeg",
+                    jpeg_quality=90,
+                    wxyz=(math.sqrt(0.5), 0.0, 0.0, -math.sqrt(0.5)),
+                    cast_shadow=False,
+                    receive_shadow=False,
+                )
+            else:
+                self.ground_tile_map_handle.image = image
+
+            self.ground_tile_map_tile_key = tile_key
+            self.ground_tile_map_retry_after = 0.0
+            logger.info(f"[ViserServerManager] Ground tiles refreshed at {center_lat:.6f}, {center_lon:.6f} (z{zoom})")
+
+        # Update on every RTK pose while keeping expensive tile fetches limited to
+        # crossing a Web Mercator tile boundary. Scene axes are +X north, +Y west.
+        pixel_x = (center_tile_x - min_x) * tile_px
+        pixel_y = (center_tile_y - min_y) * tile_px
+        image_center_x = (pixel_y - mosaic_width / 2.0) * meters_per_pixel
+        image_center_y = (pixel_x - mosaic_width / 2.0) * meters_per_pixel
+        robot_x, robot_y = self._wgs84_to_tm_viser(center_lat, center_lon)
+        image_position = (robot_x + image_center_x, robot_y + image_center_y, 0.001)
+        image_width = mosaic_width * meters_per_pixel
+
+        self.ground_tile_map_handle.position = image_position
+        self.ground_tile_map_handle.render_width = image_width
+        self.ground_tile_map_handle.render_height = image_width
+        self.ground_tile_map_handle.visible = True
+        return True
+
     def _setup_scene(self):
         """Build environment scene in Korean Central Belt TM Coordinate System (EPSG:5186)."""
         init_x, init_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
         init_wxyz = self._heading_to_wxyz(self.default_heading)
 
-        # 1. Ground Grid centered at initial TM position
-        self.server.scene.add_grid(
+        # 1. Ground tile image centered at the fixed scene origin; keep the grid as fallback.
+        tile_map_loaded = self._add_ground_tile_map(self.default_lat, self.default_lon)
+        self.ground_grid_handle = self.server.scene.add_grid(
             name="/ground_grid",
             width=200.0,
             height=200.0,
             position=(init_x, init_y, 0.0),
             plane="xy",
             cell_color=(80, 90, 100),
-            section_color=(140, 150, 160)
+            section_color=(140, 150, 160),
+            visible=not tile_map_loaded,
         )
 
         # 2. World Axes Frame in TM Space (+X=North, -Y=East, Z=Up)
@@ -363,19 +331,6 @@ class ViserServerManager:
             name="/robot",
             position=(init_x, init_y, 0.0),
             wxyz=init_wxyz
-        )
-
-        # 4. Floating 3D Text Label displaying live WGS84 & EPSG:5186 TM Origin Coordinates (World Aligned)
-        init_e, init_n = self.tm_transformer.transform(self.default_lon, self.default_lat)
-        init_label_text = (
-            f"📍 Robot Origin\n"
-            f"WGS84: N {self.default_lat:.6f}°, E {self.default_lon:.6f}°\n"
-            f"TM (EPSG:5186): E {init_e:.2f}m, N {init_n:.2f}m"
-        )
-        self.robot_origin_label_handle = self.server.scene.add_label(
-            name="/world/robot_origin_text_label",
-            text=init_label_text,
-            position=(init_x, init_y, self.robot_height + 0.6)
         )
 
         # 3. Load URDF Robot Model into Viser Scene
@@ -727,108 +682,85 @@ class ViserServerManager:
         # Left dock: live vehicle and camera status. The main control center remains on the right.
         status_panel = client.gui.add_panel()
         with status_panel.add_tab("Status Monitor", viser.Icon.CHART_BAR):
-            with client.gui.add_folder("🚘 Robot Drive Status", expand_by_default=True):
+            with client.gui.add_folder("Robot Drive Status", expand_by_default=True):
                 robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
 
-            with client.gui.add_folder("📷 Basler GigE Camera Stream", expand_by_default=True):
+            with client.gui.add_folder("Camera Stream", expand_by_default=True):
                 init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
                 init_cam_img[::20, :] = [30, 30, 45]
                 init_cam_img[:, ::20] = [30, 30, 45]
-                gui_cam_image = client.gui.add_image(image=init_cam_img, label="Live Camera Stream", format="jpeg")
-                reset_exposure_btn = client.gui.add_button(label="🔄 Reset Auto Exposure", color="blue")
+                gui_cam_image = client.gui.add_image(image=init_cam_img, format="jpeg")
+                auto_exposure_checkbox = client.gui.add_checkbox(
+                    label="Auto Exposure",
+                    initial_value=True,
+                )
 
-                @reset_exposure_btn.on_click
-                def _(_):
+                @auto_exposure_checkbox.on_update
+                def _(event):
                     cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if cam_dev and hasattr(cam_dev, "reset_auto_exposure"):
-                        cam_dev.reset_auto_exposure()
+                    if cam_dev and hasattr(cam_dev, "set_auto_exposure"):
+                        cam_dev.set_auto_exposure(bool(event.target.value))
         status_panel.dock_left()
         status_panel.set_width(360)
 
-        # Create Tab Group for main APROS Control Center on the right
+        # Start in Manual mode; live drive status can update the display afterward.
+        init_is_auto = False
+        self._current_control_mode = "Remote"
+        mode_button_group = client.gui.add_button_group(
+            label="Mode",
+            options=("Auto", "Manual"),
+        )
+        mode_button_group.value = "Auto" if init_is_auto else "Manual"
+        _is_processing_mode_change = False
+
+        def update_mode_button_colors(selected_mode: str):
+            mode_button_group.value = "Auto" if selected_mode == "Auto" else "Manual"
+
+        def apply_control_mode(selected_mode: str):
+            self._current_control_mode = selected_mode
+            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
+            if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
+                mobile_drive_dev.change_drive_mode(selected_mode)
+            elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
+                self.robot.set_mode_remote()
+            elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
+                self.robot.set_mode_auto()
+            update_mode_button_colors(selected_mode)
+            logger.info(f"[ViserUI] Control mode changed to {selected_mode}.")
+
+        def request_control_mode(selected_mode: str):
+            nonlocal _is_processing_mode_change
+            if _is_processing_mode_change or selected_mode == self._current_control_mode:
+                return
+            if selected_mode == "Auto" and self._current_control_mode == "Remote":
+                _is_processing_mode_change = True
+                modal = client.gui.add_modal("Auto 모드 전환 확인")
+                with modal:
+                    client.gui.add_markdown("Auto 모드로 전환합니다.")
+                    confirm_btn = client.gui.add_button("확인", color="green")
+                    cancel_btn = client.gui.add_button("취소", color="red")
+
+                    @confirm_btn.on_click
+                    def _(_):
+                        nonlocal _is_processing_mode_change
+                        modal.close()
+                        apply_control_mode("Auto")
+                        _is_processing_mode_change = False
+
+                    @cancel_btn.on_click
+                    def _(_):
+                        nonlocal _is_processing_mode_change
+                        modal.close()
+                        _is_processing_mode_change = False
+            else:
+                apply_control_mode(selected_mode)
+
+        @mode_button_group.on_click
+        def _(event):
+            request_control_mode("Auto" if event.target.value == "Auto" else "Remote")
+
+        # Tab group for the APROS Control Center panels.
         tabs = client.gui.add_tab_group()
-
-        # Window 1: APROS Control Tab
-        with tabs.add_tab("APROS Dashboard", viser.Icon.SETTINGS):
-            # Remote Control & Mast GUI Folder (Integrated Remote Control & Mast)
-            with client.gui.add_folder("🎮 Robot Remote Control"):
-                # Control Mode Group Buttons (Remote, Auto)
-                init_is_auto = self.robot.drive_mode.startswith("Auto")
-                options = ("🤖 Auto", "🕹️ Remote") if init_is_auto else ("🕹️ Remote", "🤖 Auto")
-                control_mode_group = client.gui.add_button_group(
-                    label="Control Mode",
-                    options=options
-                )
-
-                self._current_control_mode = "Auto" if init_is_auto else "Remote"
-                _is_processing_mode_change = False
-
-                def set_group_value_silently(val: str):
-                    # Update internal value and notify client GUI without calling update_cb (avoids recursion)
-                    control_mode_group._impl.value = val
-                    client._websock_interface.queue_message(
-                        viser._messages.GuiUpdateMessage(control_mode_group._impl.uuid, {"value": val})
-                    )
-
-                def apply_control_mode(selected_mode: str):
-                    self._current_control_mode = selected_mode
-                    print(f"[Control Mode Event] Mode applied: {selected_mode}")
-                    mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
-                    if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
-                        mobile_drive_dev.change_drive_mode(selected_mode)
-                    elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
-                        self.robot.set_mode_remote()
-                    elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
-                        self.robot.set_mode_auto()
-
-                    if selected_mode == "Remote":
-                        set_group_value_silently("🕹️ Remote")
-                    else:
-                        set_group_value_silently("🤖 Auto")
-
-                @control_mode_group.on_click
-                def _(_):
-                    nonlocal _is_processing_mode_change
-                    if _is_processing_mode_change:
-                        return
-                    
-                    val = control_mode_group.value
-                    selected_mode = "Remote" if "Remote" in val or "Manual" in val else "Auto"
-                    print(f"[Control Mode Event] Button clicked: {selected_mode} (Value: '{val}')")
-
-                    if selected_mode == "Auto" and self._current_control_mode == "Remote":
-                        _is_processing_mode_change = True
-                        # Revert group button visual selection until user confirms
-                        set_group_value_silently("🕹️ Remote")
-                        modal = client.gui.add_modal("Auto 모드 전환 확인")
-                        with modal:
-                            client.gui.add_markdown("Auto 모드로 전환합니다.")
-                            confirm_btn = client.gui.add_button("확인", color="green")
-                            cancel_btn = client.gui.add_button("취소", color="red")
-
-                            @confirm_btn.on_click
-                            def _(_):
-                                nonlocal _is_processing_mode_change
-                                modal.close()
-                                apply_control_mode("Auto")
-                                _is_processing_mode_change = False
-
-                            @cancel_btn.on_click
-                            def _(_):
-                                nonlocal _is_processing_mode_change
-                                modal.close()
-                                print("[Control Mode Event] Auto mode transition cancelled by user.")
-                                _is_processing_mode_change = False
-                    else:
-                        apply_control_mode(selected_mode)
-
-            estop_button = client.gui.add_button(
-                label="🚨 EMERGENCY STOP",
-                color="red",
-                disabled=not init_is_auto
-            )
-
-            # estop_button disabled state updated dynamically in ui_update_loop
 
         # Helper function to list route files from APROS/route directory
         def get_route_files() -> list:
@@ -856,9 +788,9 @@ class ViserServerManager:
                 return self.robot.devices["mobile_drive_s1"]
             return None
 
-        # Tab 2: AD Control Tab (Autonomous Drive Control & Lighting GUI Window)
-        with tabs.add_tab("AD Control", viser.Icon.ADJUSTMENTS):
-            with client.gui.add_folder("⚡ Vehicle Control", expand_by_default=True):
+        # Control Tab (Vehicle, lighting, and mast controls)
+        with tabs.add_tab("Control", viser.Icon.ADJUSTMENTS):
+            with client.gui.add_folder("Vehicle Control", expand_by_default=True):
                 drive_dev = get_mobile_drive_dev()
                 min_vel = getattr(drive_dev, "MIN_VELOCITY_KMH", -1.0) if drive_dev else -1.0
                 max_vel = getattr(drive_dev, "MAX_VELOCITY_KMH", 3.0) if drive_dev else 3.0
@@ -960,10 +892,76 @@ class ViserServerManager:
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(brake=brake_light_cb.value)
 
-            # AD Control UI enablement state is dynamically updated in background ui_update_loop
+            # Control UI enablement state is dynamically updated in background ui_update_loop
             ad_controls = [vel_slider, steer_slider, brake_slider, left_turn_cb, right_turn_cb, head_light_cb, brake_light_cb]
 
-        # Tab 3: Mission Control Tab (Native Viser GUI Window)
+            # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
+            with client.gui.add_folder("DES Control", expand_by_default=True):
+                mast_target_number = client.gui.add_number(
+                    label="Target Height (mm)",
+                    initial_value=2900,
+                    min=2900,
+                    max=9100,
+                    step=100
+                )
+                mast_current_height_md = client.gui.add_markdown("**Current Height**: `2900 mm` (2.90 m)")
+                des_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+
+                des_action_group = client.gui.add_button_group(
+                    "Action",
+                    options=["⬆️ Extend", "⬇️ Retract"]
+                )
+                des_stop_btn = client.gui.add_button("⏹️ Stop", color="red")
+
+                @des_action_group.on_click
+                def _(_):
+                    selected = des_action_group.value
+                    target_val = float(mast_target_number.value)
+
+                    # Validate target mast height range (2900 ~ 9100 mm)
+                    if target_val < 2900.0 or target_val > 9100.0:
+                        modal = client.gui.add_modal("⚠️ Target Height 범위 오류")
+                        with modal:
+                            client.gui.add_markdown(
+                                "### ⚠️ Target Mast Height 범위 오류\n\n"
+                                "Target Mast Height 범위는 **2900 ~ 9100 mm** 입니다.\n\n"
+                                "유효한 높이(2900 ~ 9100 mm)를 입력한 후 다시 시도하십시오."
+                            )
+                            close_btn = client.gui.add_button("확인", color="red")
+                            @close_btn.on_click
+                            def _(_):
+                                modal.close()
+                        logger.warning(f"[ViserUI] Invalid target mast height {target_val} mm. Range must be 2900~9100 mm.")
+                        return
+
+                    mast_exec = getattr(self.robot, "mast_executor", None)
+                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+
+                    if "Extend" in selected:
+                        if mast_exec and hasattr(mast_exec, "start_target_extend"):
+                            mast_exec.start_target_extend(target_val)
+                        elif mast_dev and hasattr(mast_dev, "move_up"):
+                            mast_dev.move_up()
+                        logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
+                    elif "Retract" in selected:
+                        if mast_exec and hasattr(mast_exec, "start_target_retract"):
+                            mast_exec.start_target_retract(target_val)
+                        elif mast_dev and hasattr(mast_dev, "move_down"):
+                            mast_dev.move_down()
+                        logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
+
+                @des_stop_btn.on_click
+                def _(_):
+                    mast_exec = getattr(self.robot, "mast_executor", None)
+                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if mast_exec and hasattr(mast_exec, "stop_target_control"):
+                        mast_exec.stop_target_control()
+                    elif mast_dev and hasattr(mast_dev, "move_stop"):
+                        mast_dev.move_stop()
+                    des_status_md.content = "**Status**: ⏹️ Stopped"
+                    logger.info("[ViserUI] DES Control -> Stop clicked.")
+
+        # Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission", viser.Icon.TARGET):
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
                 # Mission Status (reads from drive_executor, persists across browser refresh)
@@ -1085,72 +1083,6 @@ class ViserServerManager:
                         drive_exec.abort_mission()
                     mission_status_md.content = "**Mission Status**: `Aborted`"
                     logger.info("[ViserUI] Abort Mission clicked -> Aborted MissionManager / DriveExecutor.")
-
-            # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
-            with client.gui.add_folder("🏗️ DES Control", expand_by_default=True):
-                mast_target_number = client.gui.add_number(
-                    label="Target Height (mm)",
-                    initial_value=2900,
-                    min=2900,
-                    max=9100,
-                    step=100
-                )
-                mast_current_height_md = client.gui.add_markdown("**Current Height**: `2900 mm` (2.90 m)")
-                des_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
-
-                des_action_group = client.gui.add_button_group(
-                    "Action",
-                    options=["⬆️ Extend", "⬇️ Retract"]
-                )
-                des_stop_btn = client.gui.add_button("⏹️ Stop", color="red")
-
-                @des_action_group.on_click
-                def _(_):
-                    selected = des_action_group.value
-                    target_val = float(mast_target_number.value)
-
-                    # Validate target mast height range (2900 ~ 9100 mm)
-                    if target_val < 2900.0 or target_val > 9100.0:
-                        modal = client.gui.add_modal("⚠️ Target Height 범위 오류")
-                        with modal:
-                            client.gui.add_markdown(
-                                "### ⚠️ Target Mast Height 범위 오류\n\n"
-                                "Target Mast Height 범위는 **2900 ~ 9100 mm** 입니다.\n\n"
-                                "유효한 높이(2900 ~ 9100 mm)를 입력한 후 다시 시도하십시오."
-                            )
-                            close_btn = client.gui.add_button("확인", color="red")
-                            @close_btn.on_click
-                            def _(_):
-                                modal.close()
-                        logger.warning(f"[ViserUI] Invalid target mast height {target_val} mm. Range must be 2900~9100 mm.")
-                        return
-
-                    mast_exec = getattr(self.robot, "mast_executor", None)
-                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-
-                    if "Extend" in selected:
-                        if mast_exec and hasattr(mast_exec, "start_target_extend"):
-                            mast_exec.start_target_extend(target_val)
-                        elif mast_dev and hasattr(mast_dev, "move_up"):
-                            mast_dev.move_up()
-                        logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
-                    elif "Retract" in selected:
-                        if mast_exec and hasattr(mast_exec, "start_target_retract"):
-                            mast_exec.start_target_retract(target_val)
-                        elif mast_dev and hasattr(mast_dev, "move_down"):
-                            mast_dev.move_down()
-                        logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
-
-                @des_stop_btn.on_click
-                def _(_):
-                    mast_exec = getattr(self.robot, "mast_executor", None)
-                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if mast_exec and hasattr(mast_exec, "stop_target_control"):
-                        mast_exec.stop_target_control()
-                    elif mast_dev and hasattr(mast_dev, "move_stop"):
-                        mast_dev.move_stop()
-                    des_status_md.content = "**Status**: ⏹️ Stopped"
-                    logger.info("[ViserUI] DES Control -> Stop clicked.")
 
             # Data Logger Folder (bottom of Mission Control tab)
             with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
@@ -1444,19 +1376,6 @@ class ViserServerManager:
             client.gui.add_image(dummy_cam_img, label="Front Camera Stream")
 
 
-
-
-
-        def execute_emergency_stop():
-            self.robot.speed = 1.0
-            # self.robot.set_steering_angle(0.0)
-            self.robot.gear = "D"
-            # self.robot.drive_mode = "Emergency Stop"
-
-        @estop_button.on_click
-        def _(_):
-            execute_emergency_stop()
-
         # Background update loop for UI Markdown refresh and Camera Stream
         def ui_update_loop():
             last_img_ts = 0.0
@@ -1465,7 +1384,7 @@ class ViserServerManager:
                 try:
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
 
-                    # Dynamically enable/disable AD Control, Mission Start/Abort & ESTOP UI based on system Drive Mode State (Auto/AD)
+                    # Dynamically enable/disable Control and mission actions based on system Drive Mode State (Auto/AD)
                     try:
                         drive_dev = get_mobile_drive_dev()
                         drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
@@ -1473,7 +1392,9 @@ class ViserServerManager:
                         drive_mode_state = str(parsed_can.get("drive_state_mode", drive_status.get("drive_mode", getattr(self.robot, "drive_mode", "Remote")))).strip()
                         is_ad_active = drive_mode_state.startswith("Auto") or drive_mode_state.startswith("AD") or drive_mode_state == "1"
 
-                        estop_button.disabled = not is_ad_active
+                        reported_mode = "Auto" if is_ad_active else "Remote"
+                        self._current_control_mode = reported_mode
+                        update_mode_button_colors(reported_mode)
                         start_mission_btn.disabled = not is_ad_active
                         abort_mission_btn.disabled = not is_ad_active
                         for ctrl in ad_controls:
@@ -1512,7 +1433,7 @@ class ViserServerManager:
                     except Exception:
                         pass
 
-                    # Update DES Control status and current mast height from telescopic_mast device
+                    # Update Control tab mast status and current height from telescopic_mast device
                     try:
                         mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
                         if mast_dev:
@@ -1769,12 +1690,6 @@ class ViserServerManager:
                 lon_val = simulation_origin_lon - float(self.robot.simulated_y) / (111000.0 * lon_scale)
                 heading_val = -math.degrees(float(self.robot.simulated_heading))
 
-            if not getattr(self, "_origin_set", False) and lat_val is not None and lon_val is not None:
-                self.default_lat = lat_val
-                self.default_lon = lon_val
-                self.origin_easting, self.origin_northing = self.tm_transformer.transform(lon_val, lat_val)
-                self._origin_set = True
-
             rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
             if getattr(self.robot, "simulation_mode", False) and drive_exec and simulation_origin_lat is not None and simulation_origin_lon is not None:
                 sim_h = float(self.robot.simulated_heading)
@@ -1786,15 +1701,9 @@ class ViserServerManager:
                 self.robot_frame_handle.position = (rx, ry, 0.0)
                 self.robot_frame_handle.wxyz = rwxyz
 
-            if hasattr(self, "robot_origin_label_handle") and self.robot_origin_label_handle:
-                easting, northing = self.tm_transformer.transform(lon_val, lat_val)
-                label_text = (
-                    f"📍 Robot Origin\n"
-                    f"WGS84: N {lat_val:.6f}°, E {lon_val:.6f}°\n"
-                    f"TM (EPSG:5186): E {easting:.2f}m, N {northing:.2f}m"
-                )
-                self.robot_origin_label_handle.position = (rx, ry, self.robot_height + 0.6)
-                self.robot_origin_label_handle.text = label_text
+            ground_map_available = self._add_ground_tile_map(lat_val, lon_val)
+            if self.ground_grid_handle is not None:
+                self.ground_grid_handle.visible = not ground_map_available
 
             # Update URDF Joint States (Mast height & Steering angle)
             mast_height_m = 2.9  # Ground-relative height in meters (default 2.9m = 2900mm)
@@ -1903,7 +1812,5 @@ class ViserServerManager:
         self._running = False
         if self._data_logger and self._data_logger.is_recording:
             self._data_logger.stop_recording()
-        if hasattr(self, 'tile_server') and self.tile_server:
-            self.tile_server.stop()
         if self._thread:
             self._thread.join(timeout=1.0)

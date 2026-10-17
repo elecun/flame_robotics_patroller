@@ -1,0 +1,591 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-10-08T03:01:00.000+00:00",
+  "system": {
+    "control_mode": "PROGRAM",
+    "control_state": "PROGRAM",
+    "program_control": "ACQUIRED",
+    "lease_client_instance_id": "5f2c0d1e9a8b4c3d",
+    "manual_authorization": "LOCKED",
+    "health": "DEGRADED",
+    "emergency_stop_latched": false
+  },
+  "links": {
+    "digital_counter_bus": {
+      "state": "CONNECTING"
+    },
+    "actuator_bus": {
+      "state": "CONNECTING"
+    },
+    "bmu": {
+      "state": "READY"
+    },
+    "nport": {
+      "state": "READY"
+    }
+  },
+  "remote": {
+    "nport_link": "CONNECTED",
+    "nport_connection_epoch": 1,
+    "activity": "RECENT"
+  },
+  "devices": {
+    "ptu": {
+      "configuration": {
+        "enabled": true,
+        "complete": true,
+        "missing": []
+      },
+      "link": "actuator_bus",
+      "response": {
+        "supported": true,
+        "state": "OFFLINE"
+      },
+      "measurements": {
+        "pan_deg": {
+          "supported": true,
+          "value": 12.5,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.950+00:00",
+          "source": {
+            "device": "ptu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "deg",
+          "error": "link actuator_bus disconnected"
+        },
+        "tilt_deg": {
+          "supported": true,
+          "value": -3.2,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.950+00:00",
+          "source": {
+            "device": "ptu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "deg",
+          "error": "link actuator_bus disconnected"
+        }
+      },
+      "states": {
+        "at_home": {
+          "supported": true,
+          "value": null,
+          "valid": false,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.950+00:00",
+          "source": {
+            "device": "ptu",
+            "method": "DERIVED"
+          },
+          "unit": null,
+          "error": "source not fresh"
+        }
+      },
+      "motion": {
+        "supported": true,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": "2026-10-08T03:00:59.950+00:00",
+        "source": {
+          "device": "ptu",
+          "method": "POSITION_INFERRED"
+        },
+        "unit": null,
+        "error": "source not fresh"
+      },
+      "faults": {
+        "supported": false,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": null,
+        "source": {
+          "device": "ptu",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "readiness": {
+        "motion": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready",
+            "device_offline"
+          ]
+        },
+        "speed": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready"
+          ]
+        },
+        "stop": {
+          "supported": true,
+          "available": true,
+          "reasons": []
+        }
+      },
+      "details": {
+        "speed_code": 32
+      }
+    },
+    "mast": {
+      "configuration": {
+        "enabled": true,
+        "complete": true,
+        "missing": []
+      },
+      "link": "actuator_bus",
+      "response": {
+        "supported": false,
+        "state": "UNSUPPORTED"
+      },
+      "measurements": {
+        "height_mm": {
+          "supported": true,
+          "value": 4520,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.960+00:00",
+          "source": {
+            "device": "digital_counter",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "mm",
+          "error": "no response"
+        }
+      },
+      "states": {
+        "at_home": {
+          "supported": true,
+          "value": null,
+          "valid": false,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.960+00:00",
+          "source": {
+            "device": "mast",
+            "method": "DERIVED"
+          },
+          "unit": null,
+          "error": "source not fresh"
+        }
+      },
+      "motion": {
+        "supported": true,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": "2026-10-08T03:00:59.960+00:00",
+        "source": {
+          "device": "mast",
+          "method": "POSITION_INFERRED"
+        },
+        "unit": null,
+        "error": "source not fresh"
+      },
+      "faults": {
+        "supported": false,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": null,
+        "source": {
+          "device": "mast",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "readiness": {
+        "manual_motion": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready"
+          ]
+        },
+        "target_motion": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready",
+            "device_offline"
+          ]
+        },
+        "stop": {
+          "supported": true,
+          "available": true,
+          "reasons": []
+        }
+      },
+      "details": {}
+    },
+    "erector": {
+      "configuration": {
+        "enabled": true,
+        "complete": true,
+        "missing": []
+      },
+      "link": "actuator_bus",
+      "response": {
+        "supported": true,
+        "state": "OFFLINE"
+      },
+      "measurements": {
+        "position_mm": {
+          "supported": true,
+          "value": 632.4,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.900+00:00",
+          "source": {
+            "device": "erector",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "mm",
+          "error": "link actuator_bus disconnected"
+        }
+      },
+      "states": {
+        "at_home": {
+          "supported": true,
+          "value": false,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.900+00:00",
+          "source": {
+            "device": "erector",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": null,
+          "error": "link actuator_bus disconnected"
+        },
+        "at_erect": {
+          "supported": true,
+          "value": true,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.900+00:00",
+          "source": {
+            "device": "erector",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": null,
+          "error": "link actuator_bus disconnected"
+        },
+        "calibration_valid": {
+          "supported": true,
+          "value": true,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.900+00:00",
+          "source": {
+            "device": "erector",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": null,
+          "error": "link actuator_bus disconnected"
+        },
+        "soft_limit_reached": {
+          "supported": true,
+          "value": false,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.900+00:00",
+          "source": {
+            "device": "erector",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": null,
+          "error": "link actuator_bus disconnected"
+        }
+      },
+      "motion": {
+        "supported": true,
+        "value": "STOPPED",
+        "valid": true,
+        "fresh": false,
+        "updated_at": "2026-10-08T03:00:59.900+00:00",
+        "source": {
+          "device": "erector",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": "link actuator_bus disconnected"
+      },
+      "faults": {
+        "supported": true,
+        "value": [],
+        "valid": true,
+        "fresh": false,
+        "updated_at": "2026-10-08T03:00:59.900+00:00",
+        "source": {
+          "device": "erector",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": "link actuator_bus disconnected"
+      },
+      "readiness": {
+        "motion": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready",
+            "device_offline"
+          ]
+        },
+        "speed": {
+          "supported": true,
+          "available": false,
+          "reasons": [
+            "not_ready"
+          ]
+        },
+        "stop": {
+          "supported": true,
+          "available": true,
+          "reasons": []
+        }
+      },
+      "details": {}
+    },
+    "digital_counter": {
+      "configuration": {
+        "enabled": true,
+        "complete": true,
+        "missing": []
+      },
+      "link": "digital_counter_bus",
+      "response": {
+        "supported": true,
+        "state": "OFFLINE"
+      },
+      "measurements": {
+        "height_mm": {
+          "supported": true,
+          "value": 4520,
+          "valid": true,
+          "fresh": false,
+          "updated_at": "2026-10-08T03:00:59.960+00:00",
+          "source": {
+            "device": "digital_counter",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "mm",
+          "error": "no response"
+        }
+      },
+      "states": {},
+      "motion": {
+        "supported": false,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": null,
+        "source": {
+          "device": "digital_counter",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "faults": {
+        "supported": false,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": null,
+        "source": {
+          "device": "digital_counter",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "readiness": {},
+      "details": {}
+    },
+    "bmu": {
+      "configuration": {
+        "enabled": true,
+        "complete": true,
+        "missing": []
+      },
+      "link": "bmu",
+      "response": {
+        "supported": true,
+        "state": "ONLINE"
+      },
+      "measurements": {
+        "voltage_v": {
+          "supported": true,
+          "value": 25.3,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "V",
+          "error": null
+        },
+        "current_a": {
+          "supported": true,
+          "value": 0.0,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "A",
+          "error": null
+        },
+        "soc_percent": {
+          "supported": true,
+          "value": 35,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "%",
+          "error": null
+        },
+        "soh_percent": {
+          "supported": true,
+          "value": 98,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "%",
+          "error": null
+        },
+        "temperature_c": {
+          "supported": true,
+          "value": 22.2,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "°C",
+          "error": null
+        },
+        "remaining_capacity_ah": {
+          "supported": true,
+          "value": 11.98,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "Ah",
+          "error": null
+        },
+        "remaining_energy_wh": {
+          "supported": true,
+          "value": 284.2,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "Wh",
+          "error": null
+        },
+        "charge_complete_min": {
+          "supported": true,
+          "value": 0,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "min",
+          "error": null
+        },
+        "discharge_complete_min": {
+          "supported": true,
+          "value": 0,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "min",
+          "error": null
+        },
+        "cycle_count": {
+          "supported": true,
+          "value": 0,
+          "valid": true,
+          "fresh": true,
+          "updated_at": "2026-10-08T03:00:59.700+00:00",
+          "source": {
+            "device": "bmu",
+            "method": "DEVICE_REPORTED"
+          },
+          "unit": "count",
+          "error": null
+        }
+      },
+      "states": {},
+      "motion": {
+        "supported": false,
+        "value": null,
+        "valid": false,
+        "fresh": false,
+        "updated_at": null,
+        "source": {
+          "device": "bmu",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "faults": {
+        "supported": true,
+        "value": [],
+        "valid": true,
+        "fresh": true,
+        "updated_at": "2026-10-08T03:00:59.700+00:00",
+        "source": {
+          "device": "bmu",
+          "method": "DEVICE_REPORTED"
+        },
+        "unit": null,
+        "error": null
+      },
+      "readiness": {},
+      "details": {}
+    }
+  },
+  "active_commands": []
+}

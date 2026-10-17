@@ -158,12 +158,11 @@ class BaslerGigECamera(BaseDevice):
             except Exception as e:
                 logger.warning(f"[{self.name}] Could not set camera resolution: {e}")
 
-            # Exposure setting
+            # Enable continuous auto exposure by default.
             try:
-                self._camera.ExposureAuto.SetValue("Off")
-                self._camera.ExposureTime.SetValue(self._exposure_time)
+                self._camera.ExposureAuto.SetValue("Continuous")
             except Exception as e:
-                logger.warning(f"[{self.name}] Could not set exposure time: {e}")
+                logger.warning(f"[{self.name}] Could not enable auto exposure: {e}")
 
             # Mode setting
             if self.mode == "continuous":
@@ -179,6 +178,23 @@ class BaslerGigECamera(BaseDevice):
 
         self._start_thread()
         return self.is_connected
+
+    def set_auto_exposure(self, enabled: bool) -> bool:
+        """Enable continuous auto exposure or lock exposure at its current value."""
+        mode = "Continuous" if enabled else "Off"
+        if not self.is_connected or self._camera is None or not hasattr(self._camera, "ExposureAuto"):
+            logger.info(f"[{self.name}] Auto exposure set to {mode} (camera is not connected).")
+            return False
+        try:
+            exposure_auto = self._camera.ExposureAuto
+            if exposure_auto.CanSetValue(mode):
+                exposure_auto.SetValue(mode)
+                logger.info(f"[{self.name}] Camera ExposureAuto set to '{mode}'.")
+                return True
+            logger.warning(f"[{self.name}] Camera does not support ExposureAuto mode '{mode}'.")
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to set auto exposure to '{mode}': {e}")
+        return False
 
     def reset_auto_exposure(self) -> bool:
         """
