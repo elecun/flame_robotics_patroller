@@ -241,8 +241,8 @@ class ViserServerManager:
         </script>
 
         <style>
-            /* Adjust body & root top padding for custom 48px TitleBar */
-            body, #root, main {{
+            /* Reserve the fixed titlebar height once; padding nested roots stacks. */
+            body {{
                 padding-top: 48px !important;
             }}
             /* Hide default empty header if any */
