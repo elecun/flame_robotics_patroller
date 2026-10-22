@@ -410,7 +410,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             work_mode = 1 if self.ad_control_req_flag == 1 else 0  # 1: Speed Control Mode
             gear_code = 0  # 0: P Gear, 1: D Gear, 2: N Gear, 3: R Gear
             gear_str = str(self.target_gear).strip().upper()
-            curr_spd = max(abs(float(self.speed)), abs(float(self.cmd_speed)))
+            feedback_speed = self.parsed_can_status.get("vehicle_velocity_val", self.speed)
+            curr_spd = max(abs(float(self.speed)), abs(float(self.cmd_speed)), abs(float(feedback_speed)))
             if gear_str == "R":
                 gear_code = 3
             elif gear_str == "D":
@@ -498,16 +499,21 @@ class MobileDriveS1(BaseDevice, MobileS1API):
     def change_drive_mode(self, mode: str):
         """
         Change drive mode (Auto or Remote Control).
-        Resets target_gear to 'P' on mode transition.
+        Resets speed and steering commands to zero and target gear to P on mode transition.
         Starts 20ms AD CAN TX thread when switching to Auto mode; stops thread when switching to Remote mode.
         """
         clean_mode = str(mode).strip()
         is_auto = clean_mode.lower().startswith("auto")
+        self.cmd_speed = 0.0
+        self.cmd_steering_angle = 0.0
+        self.speed = 0.0
+        if "vehicle_steer_angle_val" not in self.parsed_can_status:
+            self.steer_angle = 0.0
+        self.target_gear = "P"
+        self.gear = "P"
         self.ad_control_req_flag = 1 if is_auto else 0
         self.drive_mode = "Auto Mode" if is_auto else "Remote Control Mode"
-        self.target_gear = "D"  # Reset commanded gear to P on mode transition
-        self.gear = "D"
-        logger.info(f"[{self.name}] Drive mode changed to '{self.drive_mode}' (AD_Control_Request_Flag={self.ad_control_req_flag}, Target Gear=P)")
+        logger.info(f"[{self.name}] Drive mode changed to '{self.drive_mode}' (AD_Control_Request_Flag={self.ad_control_req_flag}, Target Speed=0, Target Steer=0, Target Gear=P)")
 
         if is_auto:
             self.start_ad_tx_thread()
@@ -521,7 +527,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         """
         target_g = str(gear_str).strip().upper()
         if target_g == "P":
-            curr_speed_mag = max(abs(float(self.speed)), abs(float(self.cmd_speed)))
+            feedback_speed = self.parsed_can_status.get("vehicle_velocity_val", self.speed)
+            curr_speed_mag = max(abs(float(self.speed)), abs(float(self.cmd_speed)), abs(float(feedback_speed)))
             if curr_speed_mag > 0.01:
                 logger.warning(f"[{self.name}] Safety Block: Cannot change gear to 'P' while vehicle is moving ({curr_speed_mag:.2f} km/h). Speed must be 0 km/h.")
                 return False
@@ -532,24 +539,25 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         return True
 
     def set_speed(self, speed_kmh: float):
-        """Set control target velocity clamped between min_velocity and max_velocity. Automatically sets target_gear to R if negative or D if positive/zero."""
-        clamped_speed = max(self.MIN_VELOCITY_KMH, min(float(speed_kmh), self.MAX_VELOCITY_KMH))
+        """Set target velocity; zero remains zero and preserves the current gear."""
+        requested_speed = float(speed_kmh)
+        clamped_speed = 0.0 if abs(requested_speed) <= 0.01 else max(self.MIN_VELOCITY_KMH, min(requested_speed, self.MAX_VELOCITY_KMH))
         self.cmd_speed = clamped_speed
         self.speed = clamped_speed
         if clamped_speed < -0.01:
             self.target_gear = "R"
             self.gear = "R"
-            self.ad_dbs_valid = 0  # Release active brake flag when moving
-        else:
+        elif clamped_speed > 0.01:
             self.target_gear = "D"
             self.gear = "D"
-            self.ad_dbs_valid = 0  # Release active brake flag when moving
+        self.ad_dbs_valid = 0  # Release active brake flag when setting velocity
 
     def set_steering_angle(self, angle_deg: float):
         """Set control target steering angle with soft limit applied (must stay within [min_steering_angle, max_steering_angle])."""
         clamped_angle = max(self.min_steering_angle, min(float(angle_deg), self.max_steering_angle))
         self.cmd_steering_angle = clamped_angle
-        self.steer_angle = clamped_angle
+        if "vehicle_steer_angle_val" not in self.parsed_can_status:
+            self.steer_angle = clamped_angle
 
     def set_mode_remote(self):
         """Switch control mode to Remote Control Mode (ad_control_req_flag=0)."""
@@ -598,6 +606,11 @@ class MobileDriveS1(BaseDevice, MobileS1API):
             "connected": self.is_connected,
             "speed": self.speed,
             "steer_angle": self.steer_angle,
+            "brake_pressure_cmd": self.cmd_brake,
+            "left_turn_light": self.left_turn_light,
+            "right_turn_light": self.right_turn_light,
+            "head_light": self.head_light,
+            "brake_light": self.brake_light,
             "vehicle_velocity": f"{self.speed:.1f} km/h",
             "vehicle_steer_angle": f"{self.steer_angle:.1f} deg",
             "can_cmd_val": self.degree_to_can_cmd(self.steer_angle),

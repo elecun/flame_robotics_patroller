@@ -4,6 +4,7 @@ RS232 mode reads MTData2 Xbus frames. CAN mode receives an already configured
 MT CAN Euler-angle frame (data identifier 0x22); configure CAN output and its
 CAN arbitration ID on the sensor before using this mode.
 """
+import math
 import struct
 import threading
 import time
@@ -80,6 +81,17 @@ class XsensMTi630R(BaseDevice):
             return
         with self._lock:
             euler = values.get("euler")
+            quaternion = values.get("quaternion")
+            if euler is None and quaternion is not None:
+                w, x, y, z = quaternion
+                norm = math.sqrt(w * w + x * x + y * y + z * z)
+                if norm > 0:
+                    w, x, y, z = (value / norm for value in quaternion)
+                    euler = (
+                        math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+                        math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
+                        math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+                    )
             if euler:
                 self.telemetry.update(roll=euler[0], pitch=euler[1], yaw=euler[2])
             for key in ("quaternion", "acceleration", "rate_of_turn"):
@@ -204,4 +216,6 @@ class XsensMTi630R(BaseDevice):
         with self._lock:
             return {"name": self.name, "enabled": self.enable,
                     "connected": self.is_connected, "interface": self.interface,
+                    "port": self.port if self.interface == "rs232" else None,
+                    "baudrate": self.baudrate if self.interface == "rs232" else None,
                     **self.telemetry.copy()}

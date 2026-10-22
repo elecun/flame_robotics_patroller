@@ -111,6 +111,8 @@ class VLP16(BaseDevice):
 
         self.sock: Optional[socket.socket] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
+        self.packet_count = 0
+        self.last_packet_time = None
 
         # AsyncZSocket for publishing IPC
         self.pub_socket: Optional[AsyncZSocket] = None
@@ -248,7 +250,11 @@ class VLP16(BaseDevice):
 
             try:
                 packet, addr = self.sock.recvfrom(2048)
+                if addr[0] != self.ip:
+                    continue
                 if len(packet) == 1206:
+                    self.packet_count += 1
+                    self.last_packet_time = time.time()
                     # Check first block azimuth (0.01 deg units) for revolution wrap-around detection
                     azimuth_raw = struct.unpack_from("<H", packet, 2)[0]
                     
@@ -392,6 +398,8 @@ class VLP16(BaseDevice):
 
         try:
             packet, addr = self.sock.recvfrom(2048)
+            if addr[0] != self.ip:
+                return np.empty((0, 4), dtype=np.float32)
             return self.parse_packet(packet)
         except socket.timeout:
             return np.empty((0, 4), dtype=np.float32)
@@ -433,7 +441,9 @@ class VLP16(BaseDevice):
             "min_angle": self.min_angle,
             "max_angle": self.max_angle,
             "ipc_address": self.ipc_address,
-            "last_point_count": len(self._last_points) if self._last_points is not None else 0
+            "last_point_count": len(self._last_points) if self._last_points is not None else 0,
+            "packet_count": self.packet_count,
+            "last_packet_time": self.last_packet_time,
         }
 
 

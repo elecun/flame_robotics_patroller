@@ -50,7 +50,8 @@ class BaslerGigECamera(BaseDevice):
         fps: float = 15.0,
         mode: str = "continuous",
         rotate: str = "",
-        resolution: Optional[List[int]] = None,
+        w_resolution: int = 2448,
+        h_resolution: int = 2048,
         roi_resolution: Optional[List[int]] = None,
         exposure_time: int = 5000,
         device_index: int = 0,
@@ -65,12 +66,17 @@ class BaslerGigECamera(BaseDevice):
         self.rotate = rotate
         self.device_index = int(device_index)
 
-        resolution = resolution or [1920, 1200]
-        roi_resolution = roi_resolution or [1920, 1200]
-        self._hw_w = int(resolution[0]) if len(resolution) >= 2 else 1920
-        self._hw_h = int(resolution[1]) if len(resolution) >= 2 else 1200
-        self._emit_w = int(roi_resolution[0]) if len(roi_resolution) >= 2 else self._hw_w
-        self._emit_h = int(roi_resolution[1]) if len(roi_resolution) >= 2 else self._hw_h
+        self._hw_w, self._hw_h = int(w_resolution), int(h_resolution)
+        if self._hw_w <= 0 or self._hw_h <= 0:
+            raise ValueError("Camera resolution must be positive")
+        if roi_resolution is not None:
+            if len(roi_resolution) != 2:
+                raise ValueError("ROI resolution must contain width and height")
+            self._emit_w, self._emit_h = (int(value) for value in roi_resolution)
+            if self._emit_w <= 0 or self._emit_h <= 0:
+                raise ValueError("ROI resolution must be positive")
+        else:
+            self._emit_w, self._emit_h = self._hw_w, self._hw_h
         self._exposure_time = int(exposure_time)
 
         self._camera: Optional[Any] = None
@@ -96,6 +102,8 @@ class BaslerGigECamera(BaseDevice):
         # Frame statistics
         self.frame_count = 0
         self.last_frame_timestamp = 0.0
+        self.last_frame_resolution: Optional[tuple[int, int]] = None
+        self.latest_frame: Optional[tuple[Dict[str, Any], bytes]] = None
 
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish socket."""
@@ -197,38 +205,8 @@ class BaslerGigECamera(BaseDevice):
         return False
 
     def reset_auto_exposure(self) -> bool:
-        """
-        Trigger 1-shot (Once) auto exposure reset on the camera.
-        Recalibrates auto exposure once when clicked, without continuous adjustment.
-        """
-        logger.info(f"[{self.name}] Resetting camera auto exposure (Once)...")
-        if self.is_connected and self._camera is not None and hasattr(self._camera, "ExposureAuto"):
-            try:
-                # Try setting ExposureAuto to 'Once' for one-shot auto exposure calibration
-                if self._camera.ExposureAuto.CanSetValue("Once"):
-                    self._camera.ExposureAuto.SetValue("Once")
-                    logger.info(f"[{self.name}] Camera ExposureAuto set to 'Once'. Auto exposure recalibrated.")
-                    return True
-                elif self._camera.ExposureAuto.CanSetValue("Continuous"):
-                    self._camera.ExposureAuto.SetValue("Continuous")
-                    threading.Thread(target=self._auto_exposure_once_fallback, daemon=True).start()
-                    logger.info(f"[{self.name}] Camera ExposureAuto triggered via Continuous fallback.")
-                    return True
-            except Exception as e:
-                logger.warning(f"[{self.name}] Failed to reset auto exposure via Pylon API: {e}")
-                return False
-        else:
-            logger.info(f"[{self.name}] Auto exposure reset requested (Camera hardware not connected or standalone).")
-            return True
-
-    def _auto_exposure_once_fallback(self):
-        try:
-            time.sleep(1.0)
-            if self._camera is not None and hasattr(self._camera, "ExposureAuto") and self._camera.ExposureAuto.CanSetValue("Off"):
-                self._camera.ExposureAuto.SetValue("Off")
-                logger.info(f"[{self.name}] Camera ExposureAuto fallback turned back Off.")
-        except Exception:
-            pass
+        """Keep the legacy reset entry point in continuous auto exposure mode."""
+        return self.set_auto_exposure(True)
 
     def disconnect(self) -> bool:
         """Stop background capture thread and release camera resources."""
@@ -322,6 +300,7 @@ class BaslerGigECamera(BaseDevice):
             if got_frame and frame_data is not None:
                 self.frame_count += 1
                 self.last_frame_timestamp = time.time()
+                self.last_frame_resolution = (frame_data.shape[1], frame_data.shape[0])
                 self._publish_frame(frame_data)
 
             elapsed = time.time() - start_time
@@ -331,30 +310,30 @@ class BaslerGigECamera(BaseDevice):
 
     def _publish_frame(self, frame: Any):
         """Encode image to JPEG and dispatch over ZPipe IPC AsyncZSocket."""
-        if self.pub_socket and self.pub_socket.is_joined:
-            try:
-                jpeg_bytes = b""
-                if cv2 is not None:
-                    # RGB to BGR for OpenCV JPEG encoding if needed
-                    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) if frame.ndim == 3 and frame.shape[2] == 3 else frame
-                    ret, buf = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                    if ret:
-                        jpeg_bytes = buf.tobytes()
-
-                header = {
-                    "name": self.name,
-                    "timestamp": self.last_frame_timestamp,
-                    "frame_id": self.frame_count,
-                    "width": frame.shape[1],
-                    "height": frame.shape[0],
-                    "channels": frame.shape[2] if frame.ndim == 3 else 1,
-                    "format": "jpeg"
-                }
-
+        try:
+            if cv2 is None:
+                return
+            # RGB to BGR for OpenCV JPEG encoding if needed.
+            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) if frame.ndim == 3 and frame.shape[2] == 3 else frame
+            ret, buf = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            if not ret:
+                return
+            jpeg_bytes = buf.tobytes()
+            header = {
+                "name": self.name,
+                "timestamp": self.last_frame_timestamp,
+                "frame_id": self.frame_count,
+                "width": frame.shape[1],
+                "height": frame.shape[0],
+                "channels": frame.shape[2] if frame.ndim == 3 else 1,
+                "format": "jpeg"
+            }
+            self.latest_frame = (header, jpeg_bytes)
+            if self.pub_socket and self.pub_socket.is_joined:
                 header_bytes = json.dumps(header, ensure_ascii=False).encode('utf-8')
                 self.pub_socket.dispatch([b"basler_gige_camera_data", header_bytes, jpeg_bytes])
-            except Exception as e:
-                logger.error(f"[{self.name}] Publish frame error: {e}")
+        except Exception as e:
+            logger.error(f"[{self.name}] Publish frame error: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         """Return status dictionary of the camera device."""
@@ -365,6 +344,8 @@ class BaslerGigECamera(BaseDevice):
             "connected": self.is_connected,
             "frame_count": self.frame_count,
             "last_frame_timestamp": self.last_frame_timestamp,
+            "timestamp": self.last_frame_timestamp,
+            "resolution": self.last_frame_resolution,
             "ipc_address": self.ipc_address
         }
 

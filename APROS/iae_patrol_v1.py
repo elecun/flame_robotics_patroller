@@ -229,6 +229,8 @@ class IAEPatrolV1:
         if self.config and self.config.has_section(dev_name):
             section = self.config[dev_name]
             for key, val in section.items():
+                if key == "status":
+                    continue
                 if val.lower() in ("true", "yes", "1"):
                     kwargs[key] = True
                 elif val.lower() in ("false", "no", "0"):

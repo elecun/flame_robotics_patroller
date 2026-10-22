@@ -679,6 +679,21 @@ class ViserServerManager:
                     label="Auto Exposure",
                     initial_value=True,
                 )
+                checkbox_id = auto_exposure_checkbox._impl.uuid
+                client.gui.add_html(f"""
+                    <style>
+                    .mantine-Flex-root:has(input[id="{checkbox_id}"]) > .mantine-Box-root:first-child {{
+                        order: 2;
+                        width: auto !important;
+                        padding-left: 8px;
+                        padding-right: 0;
+                    }}
+                    .mantine-Flex-root:has(input[id="{checkbox_id}"]) > .mantine-Box-root:last-child {{
+                        order: 1;
+                        flex-grow: 0 !important;
+                    }}
+                    </style>
+                """)
 
                 @auto_exposure_checkbox.on_update
                 def _(event):
@@ -687,62 +702,6 @@ class ViserServerManager:
                         cam_dev.set_auto_exposure(bool(event.target.value))
         status_panel.dock_left()
         status_panel.set_width(360)
-
-        # Start in Manual mode; live drive status can update the display afterward.
-        init_is_auto = False
-        self._current_control_mode = "Remote"
-        mode_button_group = client.gui.add_button_group(
-            label="Mode",
-            options=("Auto", "Manual"),
-        )
-        mode_button_group.value = "Auto" if init_is_auto else "Manual"
-        _is_processing_mode_change = False
-
-        def update_mode_button_colors(selected_mode: str):
-            mode_button_group.value = "Auto" if selected_mode == "Auto" else "Manual"
-
-        def apply_control_mode(selected_mode: str):
-            self._current_control_mode = selected_mode
-            mobile_drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") else None
-            if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
-                mobile_drive_dev.change_drive_mode(selected_mode)
-            elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
-                self.robot.set_mode_remote()
-            elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
-                self.robot.set_mode_auto()
-            update_mode_button_colors(selected_mode)
-            logger.info(f"[ViserUI] Control mode changed to {selected_mode}.")
-
-        def request_control_mode(selected_mode: str):
-            nonlocal _is_processing_mode_change
-            if _is_processing_mode_change or selected_mode == self._current_control_mode:
-                return
-            if selected_mode == "Auto" and self._current_control_mode == "Remote":
-                _is_processing_mode_change = True
-                modal = client.gui.add_modal("Auto 모드 전환 확인")
-                with modal:
-                    client.gui.add_markdown("Auto 모드로 전환합니다.")
-                    confirm_btn = client.gui.add_button("확인", color="green")
-                    cancel_btn = client.gui.add_button("취소", color="red")
-
-                    @confirm_btn.on_click
-                    def _(_):
-                        nonlocal _is_processing_mode_change
-                        modal.close()
-                        apply_control_mode("Auto")
-                        _is_processing_mode_change = False
-
-                    @cancel_btn.on_click
-                    def _(_):
-                        nonlocal _is_processing_mode_change
-                        modal.close()
-                        _is_processing_mode_change = False
-            else:
-                apply_control_mode(selected_mode)
-
-        @mode_button_group.on_click
-        def _(event):
-            request_control_mode("Auto" if event.target.value == "Auto" else "Remote")
 
         # Tab group for the APROS Control Center panels.
         tabs = client.gui.add_tab_group()
@@ -775,6 +734,70 @@ class ViserServerManager:
 
         # Control Tab (Vehicle, lighting, and mast controls)
         with tabs.add_tab("Control", viser.Icon.ADJUSTMENTS):
+            # The UI starts in Manual (Remote Control) until a mode change is requested.
+            self._current_control_mode = "Remote"
+            _is_processing_mode_change = False
+            reset_motion_controls_on_auto = False
+            current_mode_md = client.gui.add_markdown("**Current Mode:** 🟢 Manual")
+            mode_button_group = client.gui.add_button_group(
+                label="Mode",
+                options=("Auto", "Manual"),
+            )
+            mode_button_group.value = "Manual"
+
+            def update_mode_display(selected_mode: str):
+                label = "Auto" if selected_mode == "Auto" else "Manual"
+                mode_button_group.value = label
+                current_mode_md.content = f"**Current Mode:** 🟢 {label}"
+
+            def apply_control_mode(selected_mode: str):
+                nonlocal reset_motion_controls_on_auto
+                self._current_control_mode = selected_mode
+                mobile_drive_dev = get_mobile_drive_dev()
+                if mobile_drive_dev and hasattr(mobile_drive_dev, "change_drive_mode"):
+                    mobile_drive_dev.change_drive_mode(selected_mode)
+                elif hasattr(self.robot, "set_mode_remote") and selected_mode == "Remote":
+                    self.robot.set_mode_remote()
+                elif hasattr(self.robot, "set_mode_auto") and selected_mode == "Auto":
+                    self.robot.set_mode_auto()
+                reset_motion_controls_on_auto = selected_mode == "Auto"
+                update_mode_display(selected_mode)
+                logger.info(f"[ViserUI] Control mode changed to {selected_mode}.")
+
+            def request_control_mode(selected_mode: str):
+                nonlocal _is_processing_mode_change
+                if _is_processing_mode_change or selected_mode == self._current_control_mode:
+                    return
+                if selected_mode == "Auto" and self._current_control_mode == "Remote":
+                    _is_processing_mode_change = True
+                    modal = client.gui.add_modal("Auto 모드 전환 확인")
+                    with modal:
+                        client.gui.add_markdown("Auto 모드로 전환합니다.")
+                        confirm_btn = client.gui.add_button("확인", color="green")
+                        cancel_btn = client.gui.add_button("취소", color="red")
+
+                        @confirm_btn.on_click
+                        def _(_):
+                            nonlocal _is_processing_mode_change
+                            modal.close()
+                            apply_control_mode("Auto")
+                            _is_processing_mode_change = False
+
+                        @cancel_btn.on_click
+                        def _(_):
+                            nonlocal _is_processing_mode_change
+                            modal.close()
+                            update_mode_display(self._current_control_mode)
+                            _is_processing_mode_change = False
+                else:
+                    apply_control_mode(selected_mode)
+
+            @mode_button_group.on_click
+            def _(event):
+                request_control_mode("Auto" if event.target.value == "Auto" else "Remote")
+
+            vehicle_controls_enabled = False
+            syncing_vehicle_controls = False
             with client.gui.add_folder("Vehicle Control", expand_by_default=True):
                 drive_dev = get_mobile_drive_dev()
                 min_vel = getattr(drive_dev, "MIN_VELOCITY_KMH", -1.0) if drive_dev else -1.0
@@ -790,7 +813,8 @@ class ViserServerManager:
                     min=slider_min_vel,
                     max=slider_max_vel,
                     step=0.1,
-                    initial_value=init_vel
+                    initial_value=init_vel,
+                    disabled=True,
                 )
                 slider_max_steer = max(0.1, abs(float(max_steer)))
                 steer_slider = client.gui.add_slider(
@@ -798,87 +822,121 @@ class ViserServerManager:
                     min=-slider_max_steer,
                     max=slider_max_steer,
                     step=0.1,
-                    initial_value=0.0
+                    initial_value=0.0,
+                    disabled=True,
                 )
                 brake_slider = client.gui.add_slider(
                     label="Brake Pressure (%)",
                     min=0.0,
                     max=100.0,
                     step=1.0,
-                    initial_value=0.0
+                    initial_value=0.0,
+                    disabled=True,
                 )
 
                 @vel_slider.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_speed"):
                         dev.set_speed(vel_slider.value)
 
                 @steer_slider.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_steering_angle"):
                         dev.set_steering_angle(steer_slider.value)
 
                 @brake_slider.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_brake"):
                         dev.set_brake(brake_slider.value)
 
-                stop_button_group = client.gui.add_button_group(
-                    label="Vehicle Stop Mode",
-                    options=["🐌 Slow Stop", "🛑 Brake Stop"]
-                )
+                slow_stop_btn = client.gui.add_button("🐌 Slow Stop", disabled=True)
+                brake_stop_btn = client.gui.add_button("🛑 Brake Stop", disabled=True)
 
-                @stop_button_group.on_click
+                @slow_stop_btn.on_click
                 def _(_):
-                    if self._current_control_mode != "Auto":
-                        logger.warning("[ViserUI] Vehicle Stop Mode clicked but vehicle is not in Auto mode.")
+                    if not vehicle_controls_enabled:
                         return
-                    selected = stop_button_group.value
                     dev = get_mobile_drive_dev()
-                    if dev:
-                        if "Slow" in selected and hasattr(dev, "slow_stop"):
-                            dev.slow_stop()
-                            vel_slider.value = 0.0
-                            brake_slider.value = 0.0
-                        elif "Brake" in selected and hasattr(dev, "brake_stop"):
-                            dev.brake_stop()
-                            brake_slider.value = 10.0
+                    if dev and hasattr(dev, "slow_stop"):
+                        dev.slow_stop()
+                        vel_slider.value = 0.0
+                        brake_slider.value = 0.0
+
+                @brake_stop_btn.on_click
+                def _(_):
+                    if not vehicle_controls_enabled:
+                        return
+                    dev = get_mobile_drive_dev()
+                    if dev and hasattr(dev, "brake_stop"):
+                        dev.brake_stop()
+                        brake_slider.value = 10.0
 
                 # Vehicle Lighting & Signal Controls (integrated into Vehicle Control folder)
-                left_turn_cb = client.gui.add_checkbox("Left Turn Light", initial_value=False)
-                right_turn_cb = client.gui.add_checkbox("Right Turn Light", initial_value=False)
-                head_light_cb = client.gui.add_checkbox("Head Light", initial_value=False)
-                brake_light_cb = client.gui.add_checkbox("Brake Light", initial_value=False)
+                left_turn_cb = client.gui.add_checkbox("Left Turn Light", initial_value=False, disabled=True)
+                right_turn_cb = client.gui.add_checkbox("Right Turn Light", initial_value=False, disabled=True)
+                head_light_cb = client.gui.add_checkbox("Head Light", initial_value=False, disabled=True)
+                brake_light_cb = client.gui.add_checkbox("Brake Light", initial_value=False, disabled=True)
 
                 @left_turn_cb.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(left_turn=left_turn_cb.value)
 
                 @right_turn_cb.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(right_turn=right_turn_cb.value)
 
                 @head_light_cb.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(head=head_light_cb.value)
 
                 @brake_light_cb.on_update
                 def _(_):
+                    if not vehicle_controls_enabled or syncing_vehicle_controls:
+                        return
                     dev = get_mobile_drive_dev()
                     if dev and hasattr(dev, "set_lights"):
                         dev.set_lights(brake=brake_light_cb.value)
 
-            # Control UI enablement state is dynamically updated in background ui_update_loop
-            ad_controls = [vel_slider, steer_slider, brake_slider, left_turn_cb, right_turn_cb, head_light_cb, brake_light_cb]
+            vehicle_controls = (
+                vel_slider, steer_slider, brake_slider, slow_stop_btn, brake_stop_btn,
+                left_turn_cb, right_turn_cb, head_light_cb, brake_light_cb,
+            )
+
+            def sync_vehicle_controls(drive_status: dict, parsed_can: dict):
+                nonlocal syncing_vehicle_controls
+                syncing_vehicle_controls = True
+                try:
+                    telemetry = self._vehicle_control_status(drive_status, parsed_can)
+                    vel_slider.value = max(vel_slider.min, min(vel_slider.max, telemetry["speed"]))
+                    steer_slider.value = max(steer_slider.min, min(steer_slider.max, telemetry["steer"]))
+                    brake_slider.value = max(brake_slider.min, min(brake_slider.max, telemetry["brake"]))
+                    left_turn_cb.value = telemetry["left_turn"]
+                    right_turn_cb.value = telemetry["right_turn"]
+                    head_light_cb.value = telemetry["head_light"]
+                    brake_light_cb.value = telemetry["brake_light"]
+                finally:
+                    syncing_vehicle_controls = False
 
             # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
             with client.gui.add_folder("DES Control", expand_by_default=True):
@@ -1363,13 +1421,14 @@ class ViserServerManager:
 
         # Background update loop for UI Markdown refresh and Camera Stream
         def ui_update_loop():
-            last_img_ts = 0.0
+            nonlocal vehicle_controls_enabled, syncing_vehicle_controls, reset_motion_controls_on_auto
+            last_camera_frame_id = None
             last_mission_done_state = False
             while self._running:
                 try:
                     robot_drive_status_md.content = self._format_robot_drive_status_text()
 
-                    # Dynamically enable/disable Control and mission actions based on system Drive Mode State (Auto/AD)
+                    # Update the selected mode and mission actions from drive status.
                     try:
                         drive_dev = get_mobile_drive_dev()
                         drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
@@ -1379,11 +1438,26 @@ class ViserServerManager:
 
                         reported_mode = "Auto" if is_ad_active else "Remote"
                         self._current_control_mode = reported_mode
-                        update_mode_button_colors(reported_mode)
+                        update_mode_display(reported_mode)
                         start_mission_btn.disabled = not is_ad_active
                         abort_mission_btn.disabled = not is_ad_active
-                        for ctrl in ad_controls:
-                            ctrl.disabled = not is_ad_active
+                        if not is_ad_active:
+                            vehicle_controls_enabled = False
+                            for ctrl in vehicle_controls:
+                                ctrl.disabled = True
+                            sync_vehicle_controls(drive_status, parsed_can)
+                        else:
+                            if reset_motion_controls_on_auto:
+                                syncing_vehicle_controls = True
+                                try:
+                                    vel_slider.value = 0.0
+                                    steer_slider.value = 0.0
+                                finally:
+                                    syncing_vehicle_controls = False
+                                reset_motion_controls_on_auto = False
+                            for ctrl in vehicle_controls:
+                                ctrl.disabled = False
+                            vehicle_controls_enabled = True
                     except Exception as gui_err:
                         pass
 
@@ -1474,21 +1548,23 @@ class ViserServerManager:
                     except Exception as rtk_err:
                         logger.error(f"[ViserUI] RTK Route Builder update loop error: {rtk_err}")
 
-                    # Update live camera stream in GUI folder if frame updated
-                    if hasattr(self.robot, "last_camera_frame") and self.robot.last_camera_frame is not None:
+                    # Show the Basler device's latest JPEG, with the IPC copy as fallback.
+                    cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if cam_dev is not None:
                         try:
-                            frame_bytes = self.robot.last_camera_frame
-                            cam_hdr = getattr(self.robot, "last_camera_header", {}) or {}
-                            ts = cam_hdr.get("timestamp", 0.0)
-                            if ts != last_img_ts:
-                                last_img_ts = ts
-                                if isinstance(frame_bytes, bytes) and len(frame_bytes) > 0:
-                                    import cv2
-                                    nparr = np.frombuffer(frame_bytes, np.uint8)
-                                    decoded_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            latest_frame = getattr(cam_dev, "latest_frame", None)
+                            if latest_frame is not None:
+                                cam_hdr, frame_bytes = latest_frame
+                            else:
+                                cam_hdr = getattr(self.robot, "last_camera_header", {}) or {}
+                                frame_bytes = getattr(self.robot, "last_camera_frame", None)
+                            if isinstance(frame_bytes, bytes) and frame_bytes:
+                                frame_id = cam_hdr.get("frame_id", cam_hdr.get("timestamp", id(frame_bytes)))
+                                if frame_id != last_camera_frame_id:
+                                    decoded_bgr = cv2.imdecode(np.frombuffer(frame_bytes, np.uint8), cv2.IMREAD_COLOR)
                                     if decoded_bgr is not None:
-                                        decoded_rgb = cv2.cvtColor(decoded_bgr, cv2.COLOR_BGR2RGB)
-                                        gui_cam_image.image = decoded_rgb
+                                        gui_cam_image.image = cv2.cvtColor(decoded_bgr, cv2.COLOR_BGR2RGB)
+                                        last_camera_frame_id = frame_id
                         except Exception as cam_err:
                             logger.error(f"[ViserUI] Camera image update error: {cam_err}")
 
@@ -1499,109 +1575,119 @@ class ViserServerManager:
 
         threading.Thread(target=ui_update_loop, daemon=True).start()
 
+    @staticmethod
+    def _vehicle_control_status(drive_status: dict, parsed_can: dict) -> dict:
+        """Values shared by the Manual controls and Robot Drive Status display."""
+        return {
+            "speed": float(parsed_can.get("vehicle_velocity_val", drive_status.get("speed", 0.0))),
+            "steer": float(parsed_can.get("vehicle_steer_angle_val", drive_status.get("steer_angle", 0.0))),
+            "brake": float(drive_status.get("brake_pressure_cmd", 0.0)),
+            "left_turn": bool(drive_status.get("left_turn_light", False)),
+            "right_turn": bool(drive_status.get("right_turn_light", False)),
+            "head_light": bool(drive_status.get("head_light", False)),
+            "brake_light": bool(drive_status.get("brake_light", False)),
+        }
+
     def _format_robot_drive_status_text(self) -> str:
+        devices = getattr(self.robot, "devices", {}) or {}
+        config = getattr(self.robot, "config", None)
+        configured = config.get("PLATFORM", "devices", fallback="") if config and config.has_section("PLATFORM") else ""
+        device_names = [name.strip() for name in configured.split(",") if name.strip()] if configured else list(devices)
         lines = []
 
-        drive_dev = self.robot.devices.get("mobile_drive_s1") if hasattr(self.robot, "devices") and self.robot.devices else None
-        incline_dev = self.robot.devices.get("baumer_incline") if hasattr(self.robot, "devices") and self.robot.devices else None
-        mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+        def formatted(value):
+            if value is None:
+                return "N/A"
+            if isinstance(value, bool):
+                return "ON" if value else "OFF"
+            if isinstance(value, float):
+                return f"{value:.2f}"
+            if isinstance(value, (tuple, list)):
+                return ", ".join(formatted(item) for item in value) if len(value) <= 8 else "N/A"
+            return str(value)
 
-        drive_status = drive_dev.get_status() if drive_dev and hasattr(drive_dev, "get_status") else {}
-        parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
-        incline_status = incline_dev.get_status() if incline_dev and hasattr(incline_dev, "get_status") else {}
+        for name in device_names:
+            device = devices.get(name)
+            status = device.get_status() if device and hasattr(device, "get_status") else {}
+            if not isinstance(status, dict):
+                status = {}
+            connected = bool(status.get("connected"))
+            if name == "vlp-16":
+                last_packet = status.get("last_packet_time")
+                connected = connected and last_packet is not None and time.time() - last_packet < 2.0
+            elif name == "xsens_mti_630r":
+                last_sample = status.get("timestamp")
+                connected = connected and last_sample is not None and time.time() - last_sample < 2.0
+            lines.append(f"### {'🟢' if connected else '🔴'} {name}")
+            if device is None:
+                continue
+            selected = config.get(name, "status", fallback="") if config and config.has_section(name) else ""
+            selected_keys = [key.strip().lower() for key in selected.split(",") if key.strip() and key.strip().lower() != "connected"]
+            if not selected_keys:
+                continue
 
-        # 1. Msg ID 0x303 & 0x0A0
-        drive_mode_state = parsed_can.get("drive_state_mode", drive_status.get("drive_mode", "N/A"))
-        lines.append(f"- **Drive Mode State**: `{drive_mode_state}`")
+            special = {}
+            if name == "mobile_drive_s1":
+                parsed = status.get("parsed_can_status") or {}
+                control = self._vehicle_control_status(status, parsed)
+                special = {
+                    "channel": ("CAN Channel", status.get("channel")),
+                    "drive_mode": ("Drive Mode State", parsed.get("drive_state_mode", status.get("drive_mode"))),
+                    "gear": ("Vehicle Gear", parsed.get("vehicle_gear", status.get("gear"))),
+                    "speed": ("Vehicle Speed", f"{control['speed']:.1f} km/h"),
+                    "steer_angle": ("Vehicle Steer Angle", f"{control['steer']:.1f} deg"),
+                    "brake_pressure_cmd": ("Brake Pressure Cmd", f"{control['brake']:.0f} %"),
+                    "left_turn_light": ("Left Turn Light Cmd", control["left_turn"]),
+                    "right_turn_light": ("Right Turn Light Cmd", control["right_turn"]),
+                    "head_light": ("Head Light Cmd", control["head_light"]),
+                    "brake_light": ("Brake Light Cmd", control["brake_light"]),
+                    "clamping_brake_status": ("Clamping Brake", parsed.get("clamping_brake_status")),
+                    "bms_battery_soc": ("Battery SOC", parsed.get("bms_battery_soc")),
+                    "emergency_button": ("Emergency Button", parsed.get("emergency_button")),
+                    "head_light_actual": ("Head Light Actual", parsed.get("head_light")),
+                    "brake_light_actual": ("Brake Light Actual", parsed.get("brake_light")),
+                }
+            elif name == "vlp-16":
+                last_packet = status.get("last_packet_time")
+                special = {
+                    "ip": ("Expected LiDAR IP", status.get("ip")),
+                    "port": ("UDP Port", status.get("port")),
+                    "packet_count": ("Received Packets", status.get("packet_count")),
+                    "last_packet_time": ("Last Packet", f"{time.time() - last_packet:.1f} s ago" if last_packet else "No packets"),
+                    "last_point_count": ("Last Point Count", status.get("last_point_count")),
+                }
+            elif name == "xsens_mti_630r":
+                sample_time = status.get("timestamp")
+                acceleration = status.get("acceleration")
+                rate_of_turn = status.get("rate_of_turn")
+                special = {
+                    "timestamp": ("Last Sample", f"{time.time() - sample_time:.1f} s ago" if sample_time else "No samples"),
+                    "roll": ("Roll", f"{status['roll']:.2f} deg" if status.get("roll") is not None else None),
+                    "pitch": ("Pitch", f"{status['pitch']:.2f} deg" if status.get("pitch") is not None else None),
+                    "yaw": ("Yaw", f"{status['yaw']:.2f} deg" if status.get("yaw") is not None else None),
+                    "acceleration": ("Accel. XYZ", ", ".join(f"{float(value):.3f}" for value in acceleration) + " m/s²" if acceleration else None),
+                    "rate_of_turn": ("Rate of Turn XYZ", ", ".join(f"{math.degrees(float(value)):.3f}" for value in rate_of_turn) + " deg/s" if rate_of_turn else None),
+                }
+            elif name == "basler_gige_camera":
+                timestamp = status.get("timestamp") or status.get("last_frame_timestamp")
+                resolution = status.get("resolution")
+                timestamp_text = datetime.fromtimestamp(timestamp).strftime("%y-%m-%d %H:%M:%S") if timestamp else None
+                special = {
+                    "timestamp": ("Timestamp", timestamp_text),
+                    "last_frame_timestamp": ("Timestamp", timestamp_text),
+                    "resolution": ("Resolution", f"{resolution[0]} × {resolution[1]}" if resolution else None),
+                }
 
-        vehicle_gear = parsed_can.get("vehicle_gear", drive_status.get("gear", "P"))
-        lines.append(f"- **Vehicle Gear**: `{vehicle_gear}`")
+            for key in selected_keys:
+                if key in special:
+                    label, value = special[key]
+                else:
+                    label, value = key.replace("_", " ").title(), status.get(key)
+                if isinstance(value, (dict, bytes, np.ndarray)):
+                    value = None
+                lines.append(f"- **{label}**: `{formatted(value)}`")
 
-        clamping_brake = parsed_can.get("clamping_brake_status", "Released")
-        lines.append(f"- **Clamping Brake**: `{clamping_brake}`")
-
-        bms_soc = parsed_can.get("bms_battery_soc", parsed_can.get("bms_battery_soc", "N/A"))
-        lines.append(f"- **Battery SOC**: `{bms_soc}`")
-
-        # 2. Msg ID 0x304
-        steer_angle = parsed_can.get("vehicle_steer_angle", f"{drive_status.get('steer_angle', 0.0):.1f} deg")
-        lines.append(f"- **Vehicle Steer Angle**: `{steer_angle}`")
-
-        speed = parsed_can.get("vehicle_velocity", f"{drive_status.get('speed', 0.0):.1f} km/h")
-        lines.append(f"- **Vehicle Speed**: `{speed}`")
-
-        # 3. Msg ID 0x301
-        emerg_button = parsed_can.get("emergency_button", "Not Pressed")
-        lines.append(f"- **Emergency Button**: `{emerg_button}`")
-
-        # 4. Baumer Incline
-        tx = incline_status.get("tilt_x", 0.0)
-        tz = incline_status.get("tilt_z", 0.0)
-        lines.append(f"- **Tilt X**: `{tx:.2f}°`")
-        lines.append(f"- **Tilt Z**: `{tz:.2f}°`")
-
-        # 5. Telescopic Mast Height
-        mast_height_val = None
-        if mast_dev:
-            if hasattr(mast_dev, "get_status"):
-                m_status = mast_dev.get_status()
-                if isinstance(m_status, dict):
-                    mast_height_val = m_status.get("current_height_m")
-                    if mast_height_val is None and "current_height_mm" in m_status:
-                        mast_height_val = m_status["current_height_mm"] / 1000.0
-            if mast_height_val is None and hasattr(mast_dev, "current_height_m"):
-                mast_height_val = mast_dev.current_height_m
-
-        if mast_height_val is None and hasattr(self.robot, "telescopic_mast_connector") and self.robot.telescopic_mast_connector:
-            last_mast = getattr(self.robot.telescopic_mast_connector, "last_mast_data", None)
-            if isinstance(last_mast, dict):
-                mast_height_val = last_mast.get("current_height_m")
-                if mast_height_val is None and "current_height_mm" in last_mast:
-                    mast_height_val = last_mast["current_height_mm"] / 1000.0
-
-        if mast_height_val is not None:
-            mast_height_str = f"{mast_height_val:.2f} m"
-            if not hasattr(self, "_last_logged_dash_mast_height") or self._last_logged_dash_mast_height != mast_height_str:
-                self._last_logged_dash_mast_height = mast_height_str
-                logger.info(f"[Viser UI Dashboard] Robot Drive Status -> Mast Height displayed: {mast_height_str} (raw: {mast_height_val:.3f} m)")
-        else:
-            mast_height_str = "N/A"
-
-        lines.append(f"- **Mast Height**: `{mast_height_str}`")
-
-        # 5. Synerex RTK GNSS
-        rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
-                        if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
-        rtk_data = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else (getattr(self.robot, "last_rtk_data", {}) or {})
-        
-        is_rtk_conn = rtk_data.get("connected", False) if rtk_data else False
-        is_updated = rtk_data.get("new_updated", False) if rtk_data else False
-        update_icon = "🟢" if is_updated else "🔴"
-
-        lat_val = rtk_data.get("latitude") if rtk_data else getattr(rtk_dev, "latitude", None)
-        lon_val = rtk_data.get("longitude") if rtk_data else getattr(rtk_dev, "longitude", None)
-        heading_val = rtk_data.get("heading") if rtk_data else getattr(rtk_dev, "heading", None)
-        fq = rtk_data.get("fix_quality") if rtk_data else getattr(rtk_dev, "fix_quality", 0)
-
-        # Fallback / Disconnected / Invalid status formatting
-        if not is_rtk_conn or lat_val is None or lon_val is None or fq == 0:
-            lat_str = "-"
-            lon_str = "-"
-            heading_str = "-"
-            quality_str = f"{update_icon} -"
-        else:
-            lat_str = f"{lat_val}"
-            lon_str = f"{lon_val}"
-            heading_str = f"{heading_val:.1f}°" if heading_val is not None else "-"
-            from core.device.synerex_rtk import SynerexRTK
-            quality_str = f"{update_icon} {SynerexRTK.quality2str(fq)}"
-
-        lines.append(f"- **GPS(Lat)**: `{lat_str}`")
-        lines.append(f"- **GPS(Lon)**: `{lon_str}`")
-        lines.append(f"- **GPS(Heading)**: `{heading_str}`")
-        lines.append(f"- **GPS(Quality)**: `{quality_str}`")
-
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else "No devices configured."
 
     def _format_mission_center_text(self) -> str:
         return (
@@ -1658,13 +1744,16 @@ class ViserServerManager:
             # Update real-time RTK TM Position & Heading pose of /robot node in Viser 3D scene
             rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
                             if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
-            lat_val = getattr(rtk_dev, "latitude", None) if rtk_dev else None
-            lon_val = getattr(rtk_dev, "longitude", None) if rtk_dev else None
-            heading_val = getattr(rtk_dev, "heading", None) if rtk_dev else None
-
-            if lat_val is None: lat_val = self.default_lat
-            if lon_val is None: lon_val = self.default_lon
-            if heading_val is None: heading_val = self.default_heading
+            rtk_status = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else {}
+            if rtk_status.get("connected") and rtk_status.get("fix_quality", 0) != 0:
+                self._last_valid_visual_pose = (
+                    rtk_status.get("latitude", self.default_lat),
+                    rtk_status.get("longitude", self.default_lon),
+                    rtk_status.get("heading", self.default_heading),
+                )
+            lat_val, lon_val, heading_val = getattr(
+                self, "_last_valid_visual_pose", (self.default_lat, self.default_lon, self.default_heading)
+            )
 
             drive_exec = getattr(self.robot, "drive_executor", None)
             simulation_origin_lat = getattr(drive_exec, "origin_lat", None) if drive_exec else None
@@ -1694,9 +1783,12 @@ class ViserServerManager:
             mast_height_m = 2.9  # Ground-relative height in meters (default 2.9m = 2900mm)
             if hasattr(self.robot, "devices") and "telescopic_mast" in self.robot.devices:
                 mast = self.robot.devices["telescopic_mast"]
-                mast_height_m = mast.current_height_m
+                mast_status = mast.get_status() if hasattr(mast, "get_status") else {}
+                mast_height_m = mast_status.get("current_height_m", mast_height_m)
 
-            steer_angle_rad = np.radians(getattr(self.robot, "steer_angle", 0.0))
+            drive_status = self.robot.get_status() if hasattr(self.robot, "get_status") else {}
+            parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
+            steer_angle_rad = np.radians(self._vehicle_control_status(drive_status, parsed_can)["steer"])
 
             if self.urdf_model is not None:
                 # Convert ground-relative total height into extension beyond the
