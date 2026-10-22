@@ -310,21 +310,6 @@ class ViserServerManager:
             origin_radius=0.04
         )
         
-        self.server.scene.add_label(
-            name="/world_axes/label_x",
-            text="X (North / TM Northing)",
-            position=(init_x + 1.7, init_y, 0.0)
-        )
-        self.server.scene.add_label(
-            name="/world_axes/label_y",
-            text="Y (-Y: East / +Y: West)",
-            position=(init_x, init_y + 1.7, 0.0)
-        )
-        self.server.scene.add_label(
-            name="/world_axes/label_z",
-            text="Z (Up)",
-            position=(init_x, init_y, 1.7)
-        )
 
         # 3. Add /robot Root Frame Node in TM Space
         self.robot_frame_handle = self.server.scene.add_frame(
