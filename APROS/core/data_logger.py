@@ -238,7 +238,7 @@ class DataLogger:
     # Ouster-SR-128 Logging (pcap + json)
     # ──────────────────────────────────────────────
     def _init_ouster_logging(self):
-        """Initialize Ouster pcap recording using live sensor metadata JSON and official ouster-sdk pcap binding."""
+        """Initialize Ouster pcap recording using receiver metadata and the SDK pcap binding."""
         ouster_dev = self.robot.devices.get("ouster-sr-128") if hasattr(self.robot, "devices") else None
         if ouster_dev is None or not ouster_dev.is_connected:
             self._ouster_pcap_handle = None
@@ -247,14 +247,14 @@ class DataLogger:
         try:
             pcap_prefix = os.path.join(self._session_dir, "ouster-sr-128")
 
-            # 1. Save LIVE sensor metadata JSON from connected sensor_info
+            # 1. Save the metadata used by the UDP receiver.
             sensor_info = getattr(ouster_dev, "_sensor_info", None)
             self._ouster_json_path = pcap_prefix + ".json"
             if sensor_info is not None:
                 json_str = sensor_info.to_json_string()
                 with open(self._ouster_json_path, "w") as f:
                     f.write(json_str)
-                logger.info(f"[DataLogger] Live Ouster metadata JSON saved: {self._ouster_json_path}")
+                logger.info(f"[DataLogger] Ouster metadata JSON saved: {self._ouster_json_path}")
             else:
                 meta_template_path = os.path.join(self.base_dir, "meta", "OS-0-128-SR.json")
                 if os.path.exists(meta_template_path):
@@ -282,7 +282,7 @@ class DataLogger:
                         with self._ouster_pcap_lock:
                             pcap_b.record_packet(
                                 self._ouster_pcap_handle,
-                                ouster_dev.ip, "192.168.100.2",
+                                ouster_dev.ip, ouster_dev.bind_ip,
                                 port, port,
                                 buf, now_ts
                             )

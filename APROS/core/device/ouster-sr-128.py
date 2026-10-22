@@ -1,9 +1,10 @@
+import os
 import socket
 import time
 import threading
 import pickle
 import numpy as np
-from typing import Optional, Tuple, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable
 from core.device.base import BaseDevice
 from core.zpipe import AsyncZSocket, ZPipe
 from util.logger.console import ConsoleLogger
@@ -23,8 +24,8 @@ logger = ConsoleLogger.get_logger()
 class OusterSR128(BaseDevice):
     """
     Ouster OS0 / OS1 128-channel LiDAR receiver device using official ouster-sdk bindings.
-    Connects to live sensor via cl.Sensor & cl.SensorFrameSetSource and computes
-    XYZ Cartesian point cloud using official intrinsic cl.XYZLut.
+    Receives UDP packets locally and computes XYZ point clouds using saved
+    sensor metadata and the official Ouster SDK.
     """
 
     def __init__(
@@ -32,10 +33,9 @@ class OusterSR128(BaseDevice):
         name: str = "ouster-sr-128",
         robot_model: str = "iae_patrol_v1",
         model: str = "OS0",
-        ip: str = "192.168.100.12",
+        bind_ip: str = "0.0.0.0",
         port: int = 7502,
-        min_angle: float = -90.0,
-        max_angle: float = 90.0,
+        metadata_path: str = "mapping/ouster-sr-128.json",
         vertical_fov: Optional[float] = None,
         enable: bool = True,
         **kwargs
@@ -43,10 +43,10 @@ class OusterSR128(BaseDevice):
         super().__init__(name, enable=enable)
         self.robot_model = robot_model
         self.model = model.upper() if isinstance(model, str) else "OS0"
-        self.ip = ip
+        self.bind_ip = bind_ip
         self.port = int(port)
-        self.min_angle = float(min_angle)
-        self.max_angle = float(max_angle)
+        self.metadata_path = metadata_path
+        self.ip = ""  # Last observed packet source; not needed to receive UDP.
 
         if vertical_fov is not None:
             self.vertical_fov = float(vertical_fov)
@@ -56,14 +56,13 @@ class OusterSR128(BaseDevice):
             else:
                 self.vertical_fov = 90.0
 
-        self._sensor: Optional[cl.Sensor] = None
         self._sensor_info = None
-        self._packet_source = None
-        self._source: Optional[cl.SensorFrameSetSource] = None
+        self.sock: Optional[socket.socket] = None
         self._xyz_lut: Optional[cl.XYZLut] = None
-        self._pw: Optional[cl.PacketWriter] = None
         self._pf: Optional[cl.PacketFormat] = None
         self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
+        self.packet_count = 0
+        self.last_packet_time: Optional[float] = None
 
         # AsyncZSocket for publishing IPC
         self.pub_socket: Optional[AsyncZSocket] = None
@@ -88,14 +87,9 @@ class OusterSR128(BaseDevice):
             except Exception as e:
                 logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
 
-    def set_angle_filter(self, min_angle: float, max_angle: float):
-        """Set azimuth angle filtering range in degrees."""
-        self.min_angle = float(min_angle)
-        self.max_angle = float(max_angle)
-
     def connect(self) -> bool:
         """
-        Connect to live Ouster sensor via ouster-sdk bindings and start background thread.
+        Bind the UDP receive port and start the point cloud worker.
         """
         if not self.enable:
             self.is_connected = False
@@ -103,43 +97,36 @@ class OusterSR128(BaseDevice):
             return False
 
         try:
-            logger.info(f"[{self.name}] Connecting to live Ouster LiDAR at {self.ip} via ouster-sdk...")
-            self._sensor = cl.Sensor(self.ip)
-            self._sensor_info = self._sensor.fetch_metadata(timeout=10)
-            
-            self._pkt_source = cl.SensorPacketSource([self._sensor], 10.0, 2.0)
+            metadata_path = self.metadata_path
+            if not os.path.isabs(metadata_path):
+                project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                metadata_path = os.path.join(project_dir, metadata_path)
+            with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+                self._sensor_info = cl.SensorInfo(metadata_file.read())
+            self._pf = cl.PacketFormat.from_info(self._sensor_info)
             self._xyz_lut = cl.XYZLut(self._sensor_info, use_extrinsics=False)
-            self._pw = getattr(cl, "PacketWriter", None).from_info(self._sensor_info) if hasattr(cl, "PacketWriter") else None
-            self._pf = getattr(cl, "PacketFormat", None).from_info(self._sensor_info) if hasattr(cl, "PacketFormat") else None
-            
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.bind((self.bind_ip, self.port))
+            self.sock.settimeout(0.1)
             self.is_connected = True
-            logger.info(f"[{self.name}] Connected to Ouster LiDAR (SN: {self._sensor_info.sn}, Mode: {self._sensor_info.prod_line}) via ouster-sdk")
+            logger.info(f"[{self.name}] Listening for Ouster UDP on {self.bind_ip}:{self.port} (SN: {self._sensor_info.sn})")
 
             self._start_thread()
             return True
         except Exception as e:
             self.is_connected = False
-            self._source = None
-            self._sensor = None
-            logger.error(f"[{self.name}] Failed to connect via ouster-sdk: {e}")
+            if self.sock is not None:
+                self.sock.close()
+                self.sock = None
+            logger.error(f"[{self.name}] Failed to open Ouster UDP receiver: {e}")
             return False
 
     def disconnect(self) -> bool:
-        """Stop worker thread and close ouster-sdk source & ZPipe socket."""
+        """Stop worker thread and close UDP and ZPipe sockets."""
         self._stop_thread()
-        if hasattr(self, "_pkt_source") and self._pkt_source is not None:
-            try:
-                self._pkt_source.close()
-            except Exception:
-                pass
-            self._pkt_source = None
-        if self._source is not None:
-            try:
-                self._source.close()
-            except Exception:
-                pass
-            self._source = None
-        self._sensor = None
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
         if self.pub_socket:
             try:
                 self.pub_socket.close()
@@ -165,12 +152,12 @@ class OusterSR128(BaseDevice):
 
     def _worker_loop(self):
         """
-        Worker thread reading raw packets from SensorPacketSource, invoking packet_recorder,
-        batching packets into LidarScan via ScanBatcher, projecting XYZ coordinates,
+        Worker thread reading local UDP packets, invoking packet_recorder,
+        batching packets into LidarFrame, projecting XYZ coordinates,
         and publishing processed points over ZPipe IPC.
         """
         logger.info(f"[{self.name}] ouster-sdk packet worker loop active.")
-        if self._pkt_source is None or self._sensor_info is None or self._xyz_lut is None:
+        if self.sock is None or self._sensor_info is None or self._xyz_lut is None or self._pf is None:
             return
 
         batcher_cls = getattr(cl, 'FrameBatcher', getattr(client_core, 'FrameBatcher', getattr(client_core, 'ScanBatcher', None)))
@@ -180,54 +167,51 @@ class OusterSR128(BaseDevice):
 
         while self._running:
             try:
-                ev = self._pkt_source.get_packet(timeout=0.1)
-                if ev is None or ev.packet is None:
-                    continue
-
                 try:
-                    pkt = ev.packet() if callable(ev.packet) else ev.packet
-                except (RuntimeError, ValueError, Exception):
+                    raw_packet, addr = self.sock.recvfrom(65535)
+                except socket.timeout:
                     continue
-
-                if pkt is None:
+                if len(raw_packet) != self._pf.lidar_packet_size:
                     continue
+                self.ip = addr[0]
+                self.packet_count += 1
+                self.last_packet_time = time.time()
+                pkt = cl.LidarPacket(self._pf)
+                pkt.buf[:] = np.frombuffer(raw_packet, dtype=np.uint8)
 
                 # 1. Forward raw packet buffer directly to registered packet recorder
                 if self.packet_recorder is not None:
                     try:
                         self.packet_recorder(pkt)
-                    except Exception as pe:
+                    except Exception:
                         pass
 
-                # 2. Batch packet into LidarScan for 3D visualization
-                if isinstance(pkt, cl.LidarPacket):
-                    is_batch_complete = batcher.batch(pkt, scan) if hasattr(batcher, 'batch') else batcher(pkt, scan)
-                    if is_batch_complete:
-                        # Complete scan revolution ready -> compute point cloud
-                        xyz_arr = self._xyz_lut(scan)
-                        points_xyz = xyz_arr.reshape(-1, 3).astype(np.float32)
+                # 2. Batch packet into a frame for 3D visualization
+                is_batch_complete = batcher.batch(pkt, scan) if hasattr(batcher, 'batch') else batcher(pkt, scan)
+                if is_batch_complete:
+                    # Complete frame ready -> compute point cloud
+                    xyz_arr = self._xyz_lut(scan)
+                    points_xyz = xyz_arr.reshape(-1, 3).astype(np.float32)
 
-                        field_class = getattr(client_core, 'ChanField', getattr(cl, 'FieldClass', None))
-                        field_refl = getattr(field_class, 'REFLECTIVITY', None) if field_class else None
-                        if field_refl is not None and scan.has_field(field_refl):
-                            refl_arr = scan.field(field_refl).reshape(-1, 1).astype(np.float32)
-                        else:
-                            refl_arr = np.zeros((len(points_xyz), 1), dtype=np.float32)
+                    field_class = getattr(client_core, 'ChanField', getattr(cl, 'FieldClass', None))
+                    field_refl = getattr(field_class, 'REFLECTIVITY', None) if field_class else None
+                    if field_refl is not None and scan.has_field(field_refl):
+                        refl_arr = scan.field(field_refl).reshape(-1, 1).astype(np.float32)
+                    else:
+                        refl_arr = np.zeros((len(points_xyz), 1), dtype=np.float32)
 
-                        norm_sq = np.sum(points_xyz ** 2, axis=1)
-                        valid_mask = norm_sq > 0.04
+                    norm_sq = np.sum(points_xyz ** 2, axis=1)
+                    valid_mask = norm_sq > 0.04
 
-                        valid_xyz = points_xyz[valid_mask]
-                        valid_refl = refl_arr[valid_mask]
+                    valid_xyz = points_xyz[valid_mask]
+                    valid_refl = refl_arr[valid_mask]
 
-                        if len(valid_xyz) > 0:
-                            points_4d = np.hstack((valid_xyz, valid_refl))
-                            filtered_points = self.filter_points(points_4d)
-                            if len(filtered_points) > 0:
-                                self._publish_points(filtered_points)
+                    if len(valid_xyz) > 0:
+                        points_4d = np.hstack((valid_xyz, valid_refl))
+                        self._publish_points(points_4d)
 
-                        # Reset scan for next revolution
-                        scan = scan_cls(self._sensor_info)
+                    # Reset scan for next frame
+                    scan = scan_cls(self._sensor_info)
 
             except Exception as e:
                 logger.warning(f"[{self.name}] Transient error in packet iteration: {e}")
@@ -243,58 +227,17 @@ class OusterSR128(BaseDevice):
             except Exception as e:
                 logger.error(f"[{self.name}] Publish error: {e}")
 
-    def filter_points(self, points: np.ndarray) -> np.ndarray:
-        """
-        Filter point cloud array (N, 3 or N, 4) based on azimuth angle [min_angle, max_angle] in degrees.
-        Azimuth angle is calculated as arctan2(y, x) in degrees, normalized to [-180, 180].
-        """
-        if points is None or len(points) == 0:
-            return np.empty((0, 4), dtype=np.float32)
-
-        # Compute azimuth in degrees [-180, 180]
-        azimuth_deg = np.degrees(np.arctan2(points[:, 1], points[:, 0]))
-
-        if self.min_angle <= self.max_angle:
-            mask = (azimuth_deg >= self.min_angle) & (azimuth_deg <= self.max_angle)
-        else:
-            # Wrapped angle range across +/-180 deg boundary
-            mask = (azimuth_deg >= self.min_angle) | (azimuth_deg <= self.max_angle)
-
-        return points[mask]
-
-    def receive_and_filter(self) -> np.ndarray:
-        """
-        Receive packet from socket, parse raw points, apply angle filter, and return filtered points.
-        """
-        if not self.is_connected or not self.sock:
-            return np.empty((0, 4), dtype=np.float32)
-
-        try:
-            packet, addr = self.sock.recvfrom(65535)
-
-            raw_points = self.parse_packet(packet)
-            filtered_points = self.filter_points(raw_points)
-            self._last_points = filtered_points
-            return filtered_points
-
-        except socket.timeout:
-            return np.empty((0, 4), dtype=np.float32)
-        except Exception as e:
-            logger.error(f"[{self.name}] Error receiving packet: {e}")
-            return np.empty((0, 4), dtype=np.float32)
-
     def get_status(self) -> Dict[str, Any]:
         return {
             "name": self.name,
             "model": self.model,
             "vertical_fov": self.vertical_fov,
             "ip": self.ip,
+            "bind_ip": self.bind_ip,
             "port": self.port,
             "connected": self.is_connected,
-            "min_angle": self.min_angle,
-            "max_angle": self.max_angle,
+            "last_packet_time": self.last_packet_time,
             "ipc_address": self.ipc_address,
-            "last_point_count": len(self._last_points) if self._last_points is not None else 0
         }
 
 

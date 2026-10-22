@@ -147,8 +147,10 @@ class SynerexRTK(BaseDevice):
                 stopbits=serial.STOPBITS_ONE,
                 timeout=0.5
             )
-            return self.serial_connection.is_open
+            self.is_connected = self.serial_connection.is_open
+            return self.is_connected
         except Exception as e:
+            self.is_connected = False
             logger.warning(f"[{self.name}] Serial connection failed on {self.port}: {e}")
             return False
 
@@ -159,6 +161,7 @@ class SynerexRTK(BaseDevice):
             except Exception:
                 pass
         self.serial_connection = None
+        self.is_connected = False
 
     def connect(self) -> bool:
         """Start serial reader thread, periodic publisher thread, and WebSocket server if enabled."""
@@ -167,7 +170,7 @@ class SynerexRTK(BaseDevice):
             logger.info(f"[{self.name}] Device is DISABLED in config (enable=False).")
             return False
 
-        self.is_connected = True
+        self.is_connected = False
         self._running = True
 
         # 1. Start asynchronous Serial NMEA reader thread
@@ -497,9 +500,9 @@ class SynerexRTK(BaseDevice):
         return {
             "name": self.name,
             "connected": self.is_connected,
-            "latitude": round(lat, 7) if lat is not None else self.default_lat,
-            "longitude": round(lon, 7) if lon is not None else self.default_lon,
-            "altitude": round(alt, 2) if alt is not None else self.default_alt,
+            "latitude": round(lat, 7) if lat is not None else None,
+            "longitude": round(lon, 7) if lon is not None else None,
+            "altitude": round(alt, 2) if alt is not None else None,
             "heading": round(hdg, 1) if hdg is not None else 0.0,
             "fix_quality": fq,
             "quality_str": fq_str,

@@ -254,11 +254,11 @@
     </collision>
   </link>
 
-  <!-- 4. Ouster SR-128 LiDAR Sensor (Mounted on top center of Mission Module structure: Z = +0.240m, Roll 90 deg around X axis) -->
+  <!-- Ouster: sensor +Z points toward robot +Y; rotate 180 degrees about robot Y so returns face down. -->
   <joint name="ouster_joint" type="fixed">
     <parent link="mission_module_link"/>
     <child link="ouster_link"/>
-    <origin xyz="0.0 0.0355 0.240" rpy="1.5708 0 0"/>
+    <origin xyz="0.0 0.0355 0.240" rpy="1.57079632679 0 3.14159265359"/>
   </joint>
 
   <link name="ouster_link">

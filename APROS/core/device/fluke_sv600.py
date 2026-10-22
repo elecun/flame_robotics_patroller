@@ -1,17 +1,16 @@
-"""Fluke SV600 acoustic imager REST/WebSocket integration.
+"""Fluke SV600 acoustic imager REST integration.
 
-The SV600 exposes a device hosted HTTP REST API and WebSocket streams. API
-paths vary with firmware/API document revision, so paths are configurable.
-Frames are retained as bytes and optionally written per frame to disk.
+Poll the device's SoundMap capture API for images containing the acoustic
+overlay. Frames are retained as bytes and can optionally be saved to disk.
 """
 import base64
+import copy
 import json
 import os
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from core.device.base import BaseDevice
@@ -19,35 +18,32 @@ from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
 
-try:
-    import websockets.sync.client
-except ImportError:
-    websockets = None
-else:
-    import websockets
-
-
 class FlukeSV600(BaseDevice):
     """Control frequency bands and receive/save SV600 acoustic image frames."""
     def __init__(self, name="fluke_sv600", host="192.168.100.20", port=80,
                  username="admin", password="", frequency_ranges="20000-28000",
-                 image_output_dir="datalog/fluke_sv600", stream_path="/api/v1/stream",
+                 image_output_dir="datalog/fluke_sv600", api_port=9011,
+                 capture_interval_sec=1.0, save_frames=False,
                  frequency_path="/api/v1/frequency-ranges", timeout=5.0,
                  enable=True, on_frame: Optional[Callable[[bytes, dict], None]]=None, **kwargs):
         super().__init__(name, enable=enable)
         self.base_url = f"http://{host}:{int(port)}"
-        self.stream_url = f"ws://{host}:{int(port)}{stream_path}"
+        self.api_url = f"http://{host}:{int(api_port)}"
         self.username, self.password = username, password
         self.frequency_path = frequency_path
         self.frequency_ranges = self._parse_ranges(frequency_ranges)
+        self.active_frequency_ranges = None
         self.image_output_dir = image_output_dir
         self.timeout = float(timeout)
+        self.capture_interval_sec = max(0.1, float(capture_interval_sec))
+        self.save_frames = bool(save_frames)
         self.on_frame = on_frame
         self.last_frame: Optional[bytes] = None
         self.last_frame_metadata: dict = {}
         self.frame_count = 0
         self._running = False
         self._thread = None
+        self._settings_lock = threading.Lock()
 
     @staticmethod
     def _parse_ranges(value):
@@ -69,17 +65,11 @@ class FlukeSV600(BaseDevice):
         headers = {"Accept": "application/json"}
         if data is not None:
             headers["Content-Type"] = "application/json"
-        req = Request(self.base_url + path, data=data, headers=headers, method=method)
-        # Basic auth is supported by firmware versions configured for HTTP auth.
         if self.username:
-            import urllib.request
-            manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-            manager.add_password(None, self.base_url, self.username, self.password)
-            opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(manager))
-            response = opener.open(req, timeout=self.timeout)
-        else:
-            response = urlopen(req, timeout=self.timeout)
-        with response:
+            credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            headers["Authorization"] = f"Basic {credentials}"
+        req = Request(self.api_url + path, data=data, headers=headers, method=method)
+        with urlopen(req, timeout=self.timeout) as response:
             body = response.read()
         if not body:
             return None
@@ -89,11 +79,31 @@ class FlukeSV600(BaseDevice):
             return body
 
     def set_frequency_ranges(self, ranges):
-        """Set selected Hz bands through the configurable SV600 REST endpoint."""
+        """Apply the requested bands to the active SoundMap on the SV600."""
         parsed = self._parse_ranges(ranges)
-        result = self._request(self.frequency_path, "PUT", {"frequencyRanges": parsed})
-        self.frequency_ranges = parsed
-        return result
+        with self._settings_lock:
+            surfaces = self._request("/soundsurfaces")
+            surface = next((item for item in surfaces if item.get("settings", {}).get("properties", {}).get("type") == "Data"), None)
+            if surface is None:
+                raise RuntimeError("No active SoundMap data surface is available")
+            settings = copy.deepcopy(surface["settings"])
+            settings["frequencyRanges"] = [{"from": low, "to": high} for low, high in parsed]
+            self._request(f"/soundsurfaces/{surface['id']}", "PUT", settings)
+            updated_surfaces = self._request("/soundsurfaces")
+            updated = next((item for item in updated_surfaces if item.get("id") == surface["id"]), None)
+            if updated is None:
+                raise RuntimeError("Updated SoundMap was not found on the SV600")
+            applied = [[item["from"], item["to"]] for item in updated["settings"]["frequencyRanges"]]
+            # The SV600 snaps requested frequencies to its measurement bins.
+            if len(applied) != len(parsed) or any(
+                abs(actual - requested) > 100
+                for actual_range, requested_range in zip(applied, parsed)
+                for actual, requested in zip(actual_range, requested_range)
+            ):
+                raise RuntimeError(f"SV600 did not apply the requested frequency range: {applied}")
+            self.frequency_ranges = parsed
+            self.active_frequency_ranges = applied
+            return applied
 
     def receive_frame(self, frame, metadata=None, save=True):
         """Accept an image frame (bytes or JSON with image/data base64) and save it."""
@@ -123,30 +133,46 @@ class FlukeSV600(BaseDevice):
     def _stream_loop(self):
         while self._running:
             try:
-                headers = {"Authorization": "Basic " + base64.b64encode(f"{self.username}:{self.password}".encode()).decode()} if self.username else None
-                with websockets.sync.client.connect(self.stream_url, additional_headers=headers, open_timeout=self.timeout) as ws:
-                    while self._running:
-                        message = ws.recv(timeout=self.timeout)
-                        if isinstance(message, bytes):
-                            self.receive_frame(message)
-                        else:
-                            payload = json.loads(message)
-                            self.receive_frame(payload)
+                headers = {"Authorization": "Basic " + base64.b64encode(
+                    f"{self.username}:{self.password}".encode()).decode()} if self.username else {}
+                request = Request(self.api_url + "/soundsurfaces", headers=headers)
+                with urlopen(request, timeout=self.timeout) as response:
+                    surfaces = json.load(response)
+                surface = next((item for item in surfaces if item.get("settings", {}).get("properties", {}).get("type") == "Data"), None)
+                if surface is None:
+                    raise RuntimeError("No active SoundMap data surface is available")
+                surface_id = surface["id"]
+                self.active_frequency_ranges = [
+                    [item["from"], item["to"]]
+                    for item in surface.get("settings", {}).get("frequencyRanges", [])
+                ]
+                capture_url = (f"{self.api_url}/data/soundsurface/{surface_id}/capture"
+                               "?captureFormat=jpeg&frequencyVisualization=Spectrogram")
+                while self._running:
+                    start_time = time.monotonic()
+                    with urlopen(Request(capture_url, headers=headers), timeout=self.timeout) as response:
+                        if not response.headers.get("Content-Type", "").startswith("image/jpeg"):
+                            raise ValueError("SoundMap capture did not return a JPEG image")
+                        frame = response.read()
+                    if not frame.startswith(b"\xff\xd8"):
+                        raise ValueError("SoundMap capture returned invalid JPEG data")
+                    self.receive_frame(frame, {"format": "jpg", "sound_surface_id": surface_id}, save=self.save_frames)
+                    self.is_connected = True
+                    remaining = self.capture_interval_sec - (time.monotonic() - start_time)
+                    if remaining > 0:
+                        time.sleep(remaining)
             except Exception as exc:
+                self.is_connected = False
                 if self._running:
-                    logger.warning(f"[{self.name}] Stream disconnected; retrying: {exc}")
+                    logger.warning(f"[{self.name}] SoundMap capture failed; retrying: {exc}")
                     time.sleep(1)
 
     def connect(self):
         if not self.enable:
             return False
-        if websockets is None:
-            logger.error(f"[{self.name}] websockets package is required for live image streaming")
-            return False
         self._running = True
         self._thread = threading.Thread(target=self._stream_loop, daemon=True, name=f"{self.name}_stream")
         self._thread.start()
-        self.is_connected = True
         return True
 
     def disconnect(self):
@@ -159,5 +185,5 @@ class FlukeSV600(BaseDevice):
 
     def get_status(self):
         return {"connected": self.is_connected, "frame_count": self.frame_count,
-                "frequency_ranges": self.frequency_ranges,
+                "frequency_ranges": self.active_frequency_ranges or self.frequency_ranges,
                 "last_frame_metadata": self.last_frame_metadata}

@@ -33,6 +33,7 @@ class IAEPatrolV2:
         "synerex_syn3100": ("synerex_syn3100", "SynerexSyn3100"),
         "fluke_sv600": ("fluke_sv600", "FlukeSV600"),
         "xsens_mti_630r": ("xsens_mti_630r", "XsensMTi630R"),
+        "tabos_bmu": ("tabos_bmu", "TabosBMU"),
         "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
@@ -47,6 +48,8 @@ class IAEPatrolV2:
         self.drive_base: Optional[BaseDevice] = None
         self.vlp16_connector: Optional[Any] = None
         self.last_vlp16_points: Optional[Any] = None
+        self.ouster_connector: Optional[Any] = None
+        self.last_ouster_points: Optional[Any] = None
         self.synerex_rtk_connector: Optional[Any] = None
         self.last_rtk_data: Optional[Dict[str, Any]] = None
         self.basler_camera_connector: Optional[Any] = None
@@ -196,7 +199,7 @@ class IAEPatrolV2:
         kwargs = {}
         if self.config and self.config.has_section("PLATFORM"):
             plat_sec = self.config["PLATFORM"]
-            if dev_name in ["vlp-16", "ouster-sr-128"]:
+            if dev_name in ["vlp-16", "ouster-sr-128", "synerex_syn2000", "synerex_syn3100"]:
                 robot_model = plat_sec.get("robot_model", fallback="iae_patrol_v2")
                 kwargs["robot_model"] = robot_model
             for key in ("default_lat", "default_lon", "default_alt"):
@@ -286,6 +289,10 @@ class IAEPatrolV2:
         """Callback invoked when VLP16_Connector receives point cloud data over ZPipe IPC."""
         self.last_vlp16_points = points
 
+    def _on_ouster_data_received(self, points: Any):
+        """Store Ouster points for the Viser scene update loop."""
+        self.last_ouster_points = points
+
     def _on_rtk_data_received(self, data: Dict[str, Any]):
         """Callback invoked when SynerexRTK_Connector receives GNSS position data over ZPipe IPC."""
         self.last_rtk_data = data
@@ -324,6 +331,20 @@ class IAEPatrolV2:
                 self.vlp16_connector.start()
             except Exception as e:
                 logger.error(f"[IAEPatrolV2] Error initializing VLP16_Connector: {e}")
+
+        if "ouster-sr-128" in self.devices:
+            try:
+                mod = importlib.import_module("APROS.core.device.ouster-sr-128" if __name__.startswith("APROS") else "core.device.ouster-sr-128")
+                connector_class = getattr(mod, "OusterSR128_Connector")
+                robot_model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2") if self.config and self.config.has_section("PLATFORM") else "iae_patrol_v2"
+                self.ouster_connector = connector_class(
+                    robot_model=robot_model,
+                    zpipe_ctx=self.zpipe_ctx,
+                    on_data_received=self._on_ouster_data_received,
+                )
+                self.ouster_connector.start()
+            except Exception as e:
+                logger.error(f"[IAEPatrolV2] Error initializing OusterSR128_Connector: {e}")
 
         # Initialize SynerexRTK_Connector for IPC reception
         synerex_name = next((name for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk") if name in self.devices), None)
@@ -365,6 +386,12 @@ class IAEPatrolV2:
             except Exception:
                 pass
             self.vlp16_connector = None
+        if self.ouster_connector:
+            try:
+                self.ouster_connector.stop()
+            except Exception:
+                pass
+            self.ouster_connector = None
         if self.synerex_rtk_connector:
             try:
                 self.synerex_rtk_connector.stop()

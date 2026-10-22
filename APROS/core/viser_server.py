@@ -15,6 +15,7 @@ import viser.transforms as tf
 from typing import Any, Optional
 from pyproj import Transformer
 from core.data_logger import DataLogger
+from core.gnss_rtk_recorder import GNSSRTKRecorder
 from util.logger.console import ConsoleLogger
 
 logger = ConsoleLogger.get_logger()
@@ -43,6 +44,7 @@ class ViserServerManager:
 
         # Data Logger
         self._data_logger = DataLogger(robot=self.robot)
+        self._gnss_rtk_recorder = GNSSRTKRecorder(robot=self.robot)
 
         # Title configuration & Theme setup (control_layout="fixed" docks panel to the right side)
         self.server.gui.configure_theme(
@@ -373,7 +375,10 @@ class ViserServerManager:
         )
 
         # 6. Ouster-SR-128 Point Cloud visualization attached to Mission Module ouster_link frame (URDF Link Frame)
-        ouster_frame_path = "/robot/visual/base_link/upper_chassis_link/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
+        ouster_base_path = "/robot/visual/base_link"
+        if robot_model == "iae_patrol_v2":
+            ouster_base_path += "/upper_chassis_link"
+        ouster_frame_path = ouster_base_path + "/mast_stage1_link/mast_stage2_link/mast_stage3_link/mast_stage4_link/mast_stage5_link/mast_stage6_link/mission_pan_link/mission_module_link/ouster_link/points"
         self.ouster_pc_handle = self.server.scene.add_point_cloud(
             name=ouster_frame_path,
             points=np.zeros((1, 3), dtype=np.float32),
@@ -664,11 +669,11 @@ class ViserServerManager:
         client.camera.position = (init_x - 6.0, init_y - 3.5, 3.5)
         client.camera.look_at = (init_x, init_y, 0.5)
 
-        # Left dock: live vehicle and camera status. The main control center remains on the right.
+        # Left dock: live device status and camera stream.
         status_panel = client.gui.add_panel()
         with status_panel.add_tab("Status Monitor", viser.Icon.CHART_BAR):
             with client.gui.add_folder("Robot Drive Status", expand_by_default=True):
-                robot_drive_status_md = client.gui.add_markdown(self._format_robot_drive_status_text())
+                robot_drive_status_md = client.gui.add_markdown(self._format_status_text(sensor_only=False))
 
             with client.gui.add_folder("Camera Stream", expand_by_default=True):
                 init_cam_img = np.zeros((240, 320, 3), dtype=np.uint8)
@@ -700,6 +705,13 @@ class ViserServerManager:
                     cam_dev = self.robot.devices.get("basler_gige_camera") if hasattr(self.robot, "devices") and self.robot.devices else None
                     if cam_dev and hasattr(cam_dev, "set_auto_exposure"):
                         cam_dev.set_auto_exposure(bool(event.target.value))
+
+            with client.gui.add_folder("AIC Stream", expand_by_default=True):
+                init_aic_img = np.zeros((240, 320, 3), dtype=np.uint8)
+                gui_aic_image = client.gui.add_image(image=init_aic_img, format="jpeg")
+        with status_panel.add_tab("Sensor", viser.Icon.RADAR):
+            with client.gui.add_folder("Sensor Status", expand_by_default=True):
+                sensor_status_md = client.gui.add_markdown(self._format_status_text(sensor_only=True))
         status_panel.dock_left()
         status_panel.set_width(360)
 
@@ -1004,6 +1016,42 @@ class ViserServerManager:
                     des_status_md.content = "**Status**: ⏹️ Stopped"
                     logger.info("[ViserUI] DES Control -> Stop clicked.")
 
+            with client.gui.add_folder("AIC Control", expand_by_default=True):
+                fluke_dev = self.robot.devices.get("fluke_sv600") if hasattr(self.robot, "devices") and self.robot.devices else None
+                configured_ranges = getattr(fluke_dev, "frequency_ranges", None) or [[20000, 28000]]
+                active_ranges = getattr(fluke_dev, "active_frequency_ranges", None)
+                initial_range = active_ranges[0] if active_ranges else configured_ranges[0]
+                aic_min_frequency = client.gui.add_number(
+                    "Min Frequency (Hz)", initial_value=float(initial_range[0]), min=2000, max=52000, step=100
+                )
+                aic_max_frequency = client.gui.add_number(
+                    "Max Frequency (Hz)", initial_value=float(initial_range[1]), min=2000, max=52000, step=100
+                )
+                aic_range_status_md = client.gui.add_markdown(
+                    f"**Active Range:** `{active_ranges[0][0]:.0f}–{active_ranges[0][1]:.0f} Hz`"
+                    if active_ranges else "**Active Range:** `Waiting for SoundMap`"
+                )
+                aic_apply_btn = client.gui.add_button("Apply Frequency Range", color="blue")
+
+                @aic_apply_btn.on_click
+                def _(_):
+                    min_hz = int(aic_min_frequency.value)
+                    max_hz = int(aic_max_frequency.value)
+                    if min_hz < 2000 or max_hz > 52000 or min_hz >= max_hz or max_hz - min_hz > 8000:
+                        aic_range_status_md.content = "**Error:** Use 2000–52000 Hz with a range of at most 8000 Hz."
+                        return
+                    device = self.robot.devices.get("fluke_sv600") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if device is None:
+                        aic_range_status_md.content = "**Error:** Fluke SV600 is unavailable."
+                        return
+                    try:
+                        applied = device.set_frequency_ranges([[min_hz, max_hz]])
+                        aic_range_status_md.content = f"**Active Range:** `{applied[0][0]:.0f}–{applied[0][1]:.0f} Hz`"
+                        logger.info(f"[ViserUI] Fluke SV600 frequency range applied: {min_hz}–{max_hz} Hz")
+                    except Exception as exc:
+                        aic_range_status_md.content = f"**Error:** Could not apply frequency range: `{exc}`"
+                        logger.error(f"[ViserUI] Fluke SV600 frequency range update failed: {exc}")
+
         # Mission Control Tab (Native Viser GUI Window)
         with tabs.add_tab("Mission", viser.Icon.TARGET):
             with client.gui.add_folder("📌 Patrol Route & Task Execution"):
@@ -1126,27 +1174,6 @@ class ViserServerManager:
                         drive_exec.abort_mission()
                     mission_status_md.content = "**Mission Status**: `Aborted`"
                     logger.info("[ViserUI] Abort Mission clicked -> Aborted MissionManager / DriveExecutor.")
-
-            # Data Logger Folder (bottom of Mission Control tab)
-            with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
-                datalog_status_md = client.gui.add_markdown(
-                    "**Status**: ⏹️ Stopped"
-                )
-
-                datalog_mode_group = client.gui.add_button_group(
-                    "Action",
-                    options=["⏺️ Record", "⏹️ Stop"]
-                )
-
-                @datalog_mode_group.on_click
-                def _(event: viser.GuiEvent) -> None:
-                    selected = datalog_mode_group.value
-                    if selected == "⏺️ Record":
-                        if not self._data_logger.is_recording:
-                            self._data_logger.start_recording()
-                    elif selected == "⏹️ Stop":
-                        if self._data_logger.is_recording:
-                            self._data_logger.stop_recording()
 
             # Route Builder (RTK) Folder
             with client.gui.add_folder("🗺️ Route Builder (RTK)", expand_by_default=True):
@@ -1329,6 +1356,36 @@ class ViserServerManager:
                         poi_sampler_status_md.content = f"**Status**: ❌ Error: `{gen_err}`"
                         logger.error(f"[ViserUI] Failed to generate POI: {gen_err}")
 
+        with tabs.add_tab("Data Manage", viser.Icon.DATABASE):
+            with client.gui.add_folder("💾 Data Logger", expand_by_default=True):
+                datalog_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+                datalog_mode_group = client.gui.add_button_group("Action", options=["⏺️ Record", "⏹️ Stop"])
+
+                @datalog_mode_group.on_click
+                def _(event: viser.GuiEvent) -> None:
+                    selected = datalog_mode_group.value
+                    if selected == "⏺️ Record" and not self._data_logger.is_recording:
+                        self._data_logger.start_recording()
+                    elif selected == "⏹️ Stop" and self._data_logger.is_recording:
+                        self._data_logger.stop_recording()
+
+            with client.gui.add_folder("GNSS/RTK", expand_by_default=True):
+                gnss_rtk_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+                gnss_rtk_mode_group = client.gui.add_button_group(
+                    "Action", options=["⏺️ Record", "⏹️ Stop"]
+                )
+
+                @gnss_rtk_mode_group.on_click
+                def _(event: viser.GuiEvent) -> None:
+                    if gnss_rtk_mode_group.value == "⏺️ Record":
+                        try:
+                            self._gnss_rtk_recorder.start()
+                        except Exception as error:
+                            gnss_rtk_status_md.content = f"**Status**: ❌ {error}"
+                            logger.error(f"[ViserUI] GNSS/RTK recording failed to start: {error}")
+                    elif gnss_rtk_mode_group.value == "⏹️ Stop":
+                        self._gnss_rtk_recorder.stop()
+
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
         dummy_cam_img[::30, :] = [40, 40, 50]
@@ -1423,10 +1480,12 @@ class ViserServerManager:
         def ui_update_loop():
             nonlocal vehicle_controls_enabled, syncing_vehicle_controls, reset_motion_controls_on_auto
             last_camera_frame_id = None
+            last_aic_frame_count = 0
             last_mission_done_state = False
             while self._running:
                 try:
-                    robot_drive_status_md.content = self._format_robot_drive_status_text()
+                    robot_drive_status_md.content = self._format_status_text(sensor_only=False)
+                    sensor_status_md.content = self._format_status_text(sensor_only=True)
 
                     # Update the selected mode and mission actions from drive status.
                     try:
@@ -1527,6 +1586,14 @@ class ViserServerManager:
                     except Exception:
                         pass
 
+                    recorder = self._gnss_rtk_recorder
+                    if recorder.last_error:
+                        gnss_rtk_status_md.content = f"**Status**: ❌ {recorder.last_error}"
+                    elif recorder.is_recording:
+                        gnss_rtk_status_md.content = f"**Status**: 🔴 Recording (`{os.path.basename(recorder.file_path)}`)"
+                    else:
+                        gnss_rtk_status_md.content = "**Status**: ⏹️ Stopped"
+
                     # Update RTK Route Builder recording logic
                     try:
                         if rtk_recording_state["is_recording"] and rtk_recording_state["file_handle"]:
@@ -1568,6 +1635,19 @@ class ViserServerManager:
                         except Exception as cam_err:
                             logger.error(f"[ViserUI] Camera image update error: {cam_err}")
 
+                    fluke_dev = self.robot.devices.get("fluke_sv600") if hasattr(self.robot, "devices") and self.robot.devices else None
+                    if fluke_dev is not None:
+                        frame_count = getattr(fluke_dev, "frame_count", 0)
+                        if frame_count != last_aic_frame_count:
+                            frame_bytes = getattr(fluke_dev, "last_frame", None)
+                            if frame_bytes:
+                                decoded_bgr = cv2.imdecode(np.frombuffer(frame_bytes, np.uint8), cv2.IMREAD_COLOR)
+                                if decoded_bgr is not None:
+                                    gui_aic_image.image = cv2.cvtColor(decoded_bgr, cv2.COLOR_BGR2RGB)
+                                else:
+                                    logger.warning("[ViserUI] Fluke SV600 frame is not a supported image.")
+                            last_aic_frame_count = frame_count
+
                     time.sleep(0.1)
                 except Exception as e:
                     logger.error(f"[ViserUI] ui_update_loop error: {e}")
@@ -1588,11 +1668,13 @@ class ViserServerManager:
             "brake_light": bool(drive_status.get("brake_light", False)),
         }
 
-    def _format_robot_drive_status_text(self) -> str:
+    def _format_status_text(self, *, sensor_only: bool) -> str:
         devices = getattr(self.robot, "devices", {}) or {}
         config = getattr(self.robot, "config", None)
         configured = config.get("PLATFORM", "devices", fallback="") if config and config.has_section("PLATFORM") else ""
         device_names = [name.strip() for name in configured.split(",") if name.strip()] if configured else list(devices)
+        sensor_names = {"vlp-16", "ouster-sr-128", "xsens_mti_630r", "basler_gige_camera", "fluke_sv600"}
+        device_names = [name for name in device_names if (name in sensor_names) == sensor_only]
         lines = []
 
         def formatted(value):
@@ -1612,7 +1694,7 @@ class ViserServerManager:
             if not isinstance(status, dict):
                 status = {}
             connected = bool(status.get("connected"))
-            if name == "vlp-16":
+            if name in ("vlp-16", "ouster-sr-128"):
                 last_packet = status.get("last_packet_time")
                 connected = connected and last_packet is not None and time.time() - last_packet < 2.0
             elif name == "xsens_mti_630r":
@@ -1677,6 +1759,13 @@ class ViserServerManager:
                     "last_frame_timestamp": ("Timestamp", timestamp_text),
                     "resolution": ("Resolution", f"{resolution[0]} × {resolution[1]}" if resolution else None),
                 }
+            elif name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk"):
+                latitude = status.get("latitude") if connected else None
+                longitude = status.get("longitude") if connected else None
+                special = {
+                    "latitude": ("Latitude", f"{latitude:.7f}" if latitude is not None else None),
+                    "longitude": ("Longitude", f"{longitude:.7f}" if longitude is not None else None),
+                }
 
             for key in selected_keys:
                 if key in special:
@@ -1734,6 +1823,7 @@ class ViserServerManager:
         """Update robot kinematics for driving simulation and render real-time VLP-16 point cloud."""
         dt = 0.05
         t = 0.0
+        last_ouster_points = None
         while self._running:
             start_time = time.time()
             t += dt
@@ -1745,7 +1835,8 @@ class ViserServerManager:
             rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
                             if hasattr(self.robot, "devices") and self.robot.devices and name in self.robot.devices), None)
             rtk_status = rtk_dev.get_status() if rtk_dev and hasattr(rtk_dev, "get_status") else {}
-            if rtk_status.get("connected") and rtk_status.get("fix_quality", 0) != 0:
+            if (rtk_status.get("connected") and rtk_status.get("fix_quality", 0) != 0
+                    and rtk_status.get("latitude") is not None and rtk_status.get("longitude") is not None):
                 self._last_valid_visual_pose = (
                     rtk_status.get("latitude", self.default_lat),
                     rtk_status.get("longitude", self.default_lon),
@@ -1829,7 +1920,7 @@ class ViserServerManager:
             # Real-time Ouster-SR-128 point cloud visualization
             if hasattr(self.robot, 'last_ouster_points') and self.robot.last_ouster_points is not None:
                 pts = self.robot.last_ouster_points
-                if len(pts) > 0:
+                if pts is not last_ouster_points and len(pts) > 0:
                     xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
                     # Bright purple color for Ouster points (200, 80, 255)
                     colors = np.zeros((len(pts), 3), dtype=np.uint8)
@@ -1840,6 +1931,7 @@ class ViserServerManager:
 
                     self.ouster_pc_handle.points = xyz
                     self.ouster_pc_handle.colors = colors
+                    last_ouster_points = pts
 
             # Real-time local planner path as a translucent robot-width green strip.
             local_planner = getattr(self.robot, "local_planner", None)
@@ -1887,6 +1979,7 @@ class ViserServerManager:
 
     def stop(self):
         self._running = False
+        self._gnss_rtk_recorder.stop()
         if self._data_logger and self._data_logger.is_recording:
             self._data_logger.stop_recording()
         if self._thread:

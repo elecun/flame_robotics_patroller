@@ -308,6 +308,24 @@
     </collision>
   </link>
 
+  <!-- Ouster: sensor +Z points toward robot +Y; rotate 180 degrees about robot Y so returns face down. -->
+  <joint name="ouster_joint" type="fixed">
+    <parent link="mission_module_link"/>
+    <child link="ouster_link"/>
+    <origin xyz="0.0 0.0355 0.240" rpy="1.57079632679 0 3.14159265359"/>
+  </joint>
+
+  <link name="ouster_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.0425" length="0.073"/>
+      </geometry>
+      <material name="ouster_mat">
+        <color rgba="0.27 0.51 0.71 1.0"/>
+      </material>
+    </visual>
+  </link>
 
   <!-- ================= WHEELS & ACKERMANN STEERING LINKAGE ================= -->
   <!-- 125/65R12 tires: nominal diameter 467.3 mm, width 125 mm; wheelbase 1080 mm. -->

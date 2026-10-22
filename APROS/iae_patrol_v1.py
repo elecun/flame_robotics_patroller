@@ -33,6 +33,7 @@ class IAEPatrolV1:
         "synerex_syn3100": ("synerex_syn3100", "SynerexSyn3100"),
         "fluke_sv600": ("fluke_sv600", "FlukeSV600"),
         "xsens_mti_630r": ("xsens_mti_630r", "XsensMTi630R"),
+        "tabos_bmu": ("tabos_bmu", "TabosBMU"),
         "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
     }
@@ -216,7 +217,7 @@ class IAEPatrolV1:
         kwargs = {}
         if self.config and self.config.has_section("PLATFORM"):
             plat_sec = self.config["PLATFORM"]
-            if dev_name in ["vlp-16", "ouster-sr-128", "baumer_incline"]:
+            if dev_name in ["vlp-16", "ouster-sr-128", "baumer_incline", "synerex_syn2000", "synerex_syn3100"]:
                 robot_model = plat_sec.get("robot_model", fallback="iae_patrol_v1")
                 kwargs["robot_model"] = robot_model
             for key in ("default_lat", "default_lon", "default_alt"):
