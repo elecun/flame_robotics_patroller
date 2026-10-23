@@ -12,6 +12,7 @@ class BaseLocalPlanner(ABC):
     Computes real-time velocity (v) and steering angle (delta) control commands
     based on current pose, reference global path, and obstacle observations.
     """
+    steering_output_unit = "rad"
 
     def __init__(self, config: RobotConfig):
         """
@@ -42,6 +43,6 @@ class BaseLocalPlanner(ABC):
         Returns:
             Tuple[float, float]: Control command pair (v, delta):
                 - v: Forward linear velocity in m/s
-                - delta: Front wheel steering angle in radians [-max_steer_angle, +max_steer_angle]
+                - delta: Front wheel steering angle in steering_output_unit
         """
         pass

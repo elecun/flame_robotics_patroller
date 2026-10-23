@@ -12,23 +12,29 @@ class MPPILocalPlanner(BaseLocalPlanner):
 
     ``best_local_path`` is a global-frame ribbon centerline for visualization.
     Obstacle points and path points use the global route frame, as in DWA.
+    The steering command, steering noise, and steering rate use degrees.
+    ``current_pose`` may include the last commanded ``steering_deg`` and
+    the command period ``control_dt`` in seconds.
     """
+    steering_output_unit = "deg"
 
     def __init__(self, config, samples: int = 96, horizon: int = 36,
                  iterations: int = 2, temperature: float = 1.0,
-                 steering_noise: float = 0.16, velocity_noise: float = 0.22,
-                 initial_velocity_mps: float = 0.6, obstacle_limit: int = 192,
+                 steering_noise_deg: float = math.degrees(0.16), velocity_noise: float = 0.22,
+                 initial_velocity_kmh: float = 2.0, obstacle_limit: int = 192,
                  obstacle_range_margin: float = 1.0,
                  path_distance_weight: float = 1.4, heading_weight: float = 0.25,
                  clearance_weight: float = 2.0, collision_cost: float = 1e4,
                  velocity_weight: float = 0.12, steering_weight: float = 0.08,
+                 max_steer_rate_deg_s: float = 30.0,
+                 steering_change_weight: float = 0.01,
                  terminal_distance_weight: float = 2.0):
         super().__init__(config)
         self.samples = max(16, int(samples))
         self.horizon = max(8, int(horizon))
         self.iterations = max(1, int(iterations))
         self.temperature = max(1e-3, float(temperature))
-        self.steering_noise = float(steering_noise)
+        self.steering_noise_deg = float(steering_noise_deg)
         self.velocity_noise = float(velocity_noise)
         self.obstacle_limit = max(1, int(obstacle_limit))
         self.obstacle_range_margin = float(obstacle_range_margin)
@@ -38,10 +44,14 @@ class MPPILocalPlanner(BaseLocalPlanner):
         self.collision_cost = float(collision_cost)
         self.velocity_weight = float(velocity_weight)
         self.steering_weight = float(steering_weight)
+        self.max_steer_rate_deg_s = float(max_steer_rate_deg_s)
+        self.steering_change_weight = float(steering_change_weight)
+        if self.max_steer_rate_deg_s <= 0.0 or self.steering_change_weight < 0.0:
+            raise ValueError("MPPI steering rate must be positive and change weight nonnegative")
         self.terminal_distance_weight = float(terminal_distance_weight)
         self.best_local_path: List[Dict[str, float]] = []
-        self._nominal_v = np.full(self.horizon, min(config.max_velocity, initial_velocity_mps), dtype=np.float64)
-        self._nominal_delta = np.zeros(self.horizon, dtype=np.float64)
+        self._nominal_v = np.full(self.horizon, min(config.max_velocity, initial_velocity_kmh / 3.6), dtype=np.float64)
+        self._nominal_delta_deg = np.zeros(self.horizon, dtype=np.float64)
         self._rng = np.random.default_rng()
 
     def compute_velocity_commands(self, current_pose: Dict[str, float], current_vel: float,
@@ -59,6 +69,8 @@ class MPPILocalPlanner(BaseLocalPlanner):
         max_lookahead = float(getattr(cfg, "lookahead_distance", 3.0))
         max_distance = max_lookahead + float(cfg.length) / 2.0
         rollout_dt = max(dt, max_lookahead / (max(float(cfg.max_velocity), 0.1) * horizon))
+        control_dt = float(current_pose.get("control_dt", dt))
+        current_steer_deg = float(current_pose.get("steering_deg", 0.0))
 
         path = np.asarray([[p["x"], p["y"], p.get("heading", 0.0),
                             p.get("v_ref", cfg.max_velocity)] for p in local_path], dtype=np.float64)
@@ -81,27 +93,35 @@ class MPPILocalPlanner(BaseLocalPlanner):
             obs_local = obs
 
         nominal_v = self._nominal_v.copy()
-        nominal_delta = self._nominal_delta.copy()
+        nominal_delta_deg = self._nominal_delta_deg.copy()
         trajectories = None
         costs = None
-        noise_v = noise_delta = None
+        noise_v = noise_delta_deg = None
         for _ in range(self.iterations):
             noise_v = self._rng.normal(0.0, self.velocity_noise, (k, horizon))
-            noise_delta = self._rng.normal(0.0, self.steering_noise, (k, horizon))
+            noise_delta_deg = self._rng.normal(0.0, self.steering_noise_deg, (k, horizon))
             velocities = np.clip(nominal_v[None, :] + noise_v, cfg.min_velocity, cfg.max_velocity)
             # Include a small set of recovery samples around the nominal sequence.
-            steering_min = float(cfg.min_steer_angle)
-            steering_max = float(cfg.max_steer_angle)
-            deltas = np.clip(nominal_delta[None, :] + noise_delta, steering_min, steering_max)
+            steering_min_deg = math.degrees(cfg.min_steer_angle)
+            steering_max_deg = math.degrees(cfg.max_steer_angle)
+            deltas_deg = np.clip(nominal_delta_deg[None, :] + noise_delta_deg,
+                                 steering_min_deg, steering_max_deg)
+            previous_delta_deg = np.full(k, current_steer_deg, dtype=np.float64)
             costs = np.zeros(k, dtype=np.float64)
             x = np.zeros(k); y = np.zeros(k); theta = np.zeros(k)
             trajectories = np.zeros((k, horizon, 3), dtype=np.float64)
             for t in range(horizon):
                 v = velocities[:, t]
-                delta = deltas[:, t]
+                step_dt = control_dt if t == 0 else rollout_dt
+                max_delta_change = self.max_steer_rate_deg_s * step_dt
+                delta_deg = np.clip(deltas_deg[:, t], previous_delta_deg - max_delta_change,
+                                    previous_delta_deg + max_delta_change)
+                deltas_deg[:, t] = delta_deg
+                delta_change_deg = delta_deg - previous_delta_deg
+                previous_delta_deg = delta_deg
                 x += v * np.cos(theta) * rollout_dt
                 y += v * np.sin(theta) * rollout_dt
-                theta += v / max(1e-6, cfg.wheelbase) * np.tan(delta) * rollout_dt
+                theta += v / max(1e-6, cfg.wheelbase) * np.tan(np.deg2rad(delta_deg)) * rollout_dt
                 theta = np.arctan2(np.sin(theta), np.cos(theta))
                 trajectories[:, t, :] = np.column_stack((x, y, theta))
 
@@ -126,7 +146,8 @@ class MPPILocalPlanner(BaseLocalPlanner):
                     costs += collision.astype(np.float64) * self.collision_cost
 
                 costs += self.velocity_weight * np.abs(v - target_speed)
-                costs += self.steering_weight * (delta ** 2)
+                costs += self.steering_weight * (np.deg2rad(delta_deg) ** 2)
+                costs += self.steering_change_weight * (delta_change_deg ** 2)
             costs += self.terminal_distance_weight * np.hypot(trajectories[:, -1, 0] - px[target_idx],
                                     trajectories[:, -1, 1] - py[target_idx])
 
@@ -135,8 +156,8 @@ class MPPILocalPlanner(BaseLocalPlanner):
             weights /= max(float(weights.sum()), 1e-12)
             nominal_v = np.clip(nominal_v + np.sum(weights[:, None] * noise_v, axis=0),
                                 cfg.min_velocity, cfg.max_velocity)
-            nominal_delta = np.clip(nominal_delta + np.sum(weights[:, None] * noise_delta, axis=0),
-                                    steering_min, steering_max)
+            # A weighted average of rate-limited candidates remains rate-limited.
+            nominal_delta_deg = np.sum(weights[:, None] * deltas_deg, axis=0)
 
         best_idx = int(np.argmin(costs))
         if costs[best_idx] >= self.collision_cost:
@@ -156,6 +177,6 @@ class MPPILocalPlanner(BaseLocalPlanner):
 
         self._nominal_v[:-1] = nominal_v[1:]
         self._nominal_v[-1] = nominal_v[-1]
-        self._nominal_delta[:-1] = nominal_delta[1:]
-        self._nominal_delta[-1] = nominal_delta[-1]
-        return float(nominal_v[0]), float(nominal_delta[0])
+        self._nominal_delta_deg[:-1] = nominal_delta_deg[1:]
+        self._nominal_delta_deg[-1] = nominal_delta_deg[-1]
+        return float(nominal_v[0]), float(nominal_delta_deg[0])

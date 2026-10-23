@@ -143,8 +143,20 @@ class IAEPatrolV2:
             section = self.config["iae_patrol_v2"] if self.config and self.config.has_section("iae_patrol_v2") else {}
             gp_name = section.get("global_planner", "cubic_spline_global_planner").strip()
             lp_name = section.get("local_planner", "mppi_local_planner").strip()
+            drive_cfg = self.config["mobile_drive_s1"] if self.config and self.config.has_section("mobile_drive_s1") else {}
             if self.config:
                 self.robot_config.update_from_config(self.config, planner_section=lp_name)
+            if lp_name == "mppi_local_planner" and drive_cfg:
+                drive_min = float(drive_cfg.get("min_velocity", 0.0))
+                drive_max = float(drive_cfg.get("max_velocity", 5.0))
+                planner_min = self.robot_config.min_velocity * 3.6
+                planner_max = self.robot_config.max_velocity * 3.6
+                if not (0.0 <= drive_min <= planner_min <= planner_max <= drive_max):
+                    raise ValueError(
+                        "MPPI speed range must fit within mobile_drive_s1 speed range "
+                        f"(MPPI {planner_min:.2f}..{planner_max:.2f} km/h, "
+                        f"drive {drive_min:.2f}..{drive_max:.2f} km/h)"
+                    )
             pkg = "APROS.core.plugin.path_planner" if __name__.startswith("APROS") else "core.plugin.path_planner"
 
             gp_mod = importlib.import_module(f"{pkg}.{gp_name}")
@@ -163,19 +175,20 @@ class IAEPatrolV2:
                         self.robot_config,
                         **{key: cast(mppi.get(key, default)) for key, cast, default in (
                             ("samples", int, 96), ("horizon", int, 36), ("iterations", int, 2),
-                            ("temperature", float, 1.0), ("steering_noise", float, 0.16),
-                            ("velocity_noise", float, 0.22), ("initial_velocity_mps", float, 0.6),
+                            ("temperature", float, 1.0), ("steering_noise_deg", float, math.degrees(0.16)),
+                            ("velocity_noise", float, 0.22), ("initial_velocity_kmh", float, 2.0),
                             ("obstacle_limit", int, 192), ("obstacle_range_margin", float, 1.0),
                             ("path_distance_weight", float, 1.4), ("heading_weight", float, 0.25),
                             ("clearance_weight", float, 2.0), ("collision_cost", float, 1e4),
                             ("velocity_weight", float, 0.12), ("steering_weight", float, 0.08),
+                            ("max_steer_rate_deg_s", float, 30.0),
+                            ("steering_change_weight", float, 0.01),
                             ("terminal_distance_weight", float, 2.0),
                         )},
                     )
                 else:
                     self.local_planner = lp_cls(self.robot_config)
 
-            drive_cfg = self.config["mobile_drive_s1"] if self.config and self.config.has_section("mobile_drive_s1") else {}
             mod_exec = importlib.import_module("APROS.core.plugin.drive_executor" if __name__.startswith("APROS") else "core.plugin.drive_executor")
             DriveExecutor = getattr(mod_exec, "DriveExecutor")
             self.drive_executor = DriveExecutor(

@@ -588,21 +588,25 @@ class DriveExecutor(BasePlugin):
             # 3. Compute controls with the configured local planner to track the route.
             obstacles = self._get_obstacle_points()
             if self.local_planner is not None:
+                # Anchor the first predicted steering step to the last issued CAN command.
+                pose["steering_deg"] = float(getattr(drive_dev, "cmd_steering_angle", 0.0))
+                pose["control_dt"] = self.control_period
                 # The current window is capped by point count; MPPI applies lookahead later.
                 lookahead_dist = getattr(self.local_planner.config, "lookahead_distance", 3.0) if hasattr(self.local_planner, "config") else 3.0
                 local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=50)
-                target_v_ms, target_delta_rad = self.local_planner.compute_velocity_commands(
+                target_v_ms, target_delta = self.local_planner.compute_velocity_commands(
                     current_pose=pose,
                     current_vel=vel_ms,
                     local_path=local_window,
                     obstacle_points=obstacles
                 )
             else:
-                target_v_ms = 1.0
-                target_delta_rad = 0.0
+                target_v_ms = 0.0
+                target_delta = 0.0
 
             target_v_kmh = max(0.0, target_v_ms * 3.6)
-            target_delta_deg = math.degrees(target_delta_rad)
+            steering_unit = getattr(self.local_planner, "steering_output_unit", "rad")
+            target_delta_deg = target_delta if steering_unit == "deg" else math.degrees(target_delta)
 
             # Steer angle polarity (ISO 8855 / ROS convention):
             # + is Counter-Clockwise / Left turn, - is Clockwise / Right turn

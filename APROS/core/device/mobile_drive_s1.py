@@ -6,6 +6,7 @@ Protocol referenced from PatrolCar_SlideBar.py (CAN ID 0x502).
 import os
 import time
 import threading
+import math
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Callable
 import numpy as np
@@ -130,6 +131,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         # Velocity bounds (km/h) - soft limit bounds for input velocity control
         self.MIN_VELOCITY_KMH = float(min_velocity)
         self.MAX_VELOCITY_KMH = float(max_velocity)
+        if not (0.0 <= self.MIN_VELOCITY_KMH <= self.MAX_VELOCITY_KMH):
+            raise ValueError("mobile_drive_s1 velocity range must satisfy 0 <= min_velocity <= max_velocity")
 
         # Lookahead distance & predict time & corridor boundary for local path planning (meters, seconds)
         self.lookahead_distance = float(lookahead_distance)
@@ -434,7 +437,10 @@ class MobileDriveS1(BaseDevice, MobileS1API):
 
             raw_accde = 0  # ad_acc_de = 0
             raw_torque = 0 # ad_torque_control = 0
-            raw_speed = int(round(abs(float(self.cmd_speed)) / 0.1))
+            # Apply the drive envelope again at the CAN boundary, even if cmd_speed
+            # was changed without going through set_speed().
+            command_speed_kmh = self._clamp_speed_kmh(self.cmd_speed)
+            raw_speed = int(round(command_speed_kmh / 0.1))
             raw_speed = max(0, min(0xFFFF, raw_speed))
             data_504 = [byte0_504, 0, work_mode, gear_code, raw_accde, raw_torque, raw_speed & 0xFF, (raw_speed >> 8) & 0xFF]
             msg_504 = Frame(id_=0x504, data=bytes(data_504))
@@ -538,10 +544,16 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         logger.info(f"[{self.name}] Target gear set to '{target_g}'.")
         return True
 
+    def _clamp_speed_kmh(self, speed_kmh: float) -> float:
+        """Clamp a forward speed command to the configured drive range, allowing stop."""
+        requested = float(speed_kmh)
+        if not math.isfinite(requested) or requested <= 0.01:
+            return 0.0
+        return max(self.MIN_VELOCITY_KMH, min(requested, self.MAX_VELOCITY_KMH))
+
     def set_speed(self, speed_kmh: float):
         """Set target velocity; zero remains zero and preserves the current gear."""
-        requested_speed = float(speed_kmh)
-        clamped_speed = 0.0 if abs(requested_speed) <= 0.01 else max(self.MIN_VELOCITY_KMH, min(requested_speed, self.MAX_VELOCITY_KMH))
+        clamped_speed = self._clamp_speed_kmh(speed_kmh)
         self.cmd_speed = clamped_speed
         self.speed = clamped_speed
         if clamped_speed < -0.01:

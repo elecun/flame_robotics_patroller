@@ -1761,6 +1761,7 @@ class ViserServerManager:
                 special = {
                     "latitude": ("Latitude", f"{latitude:.7f}" if latitude is not None else None),
                     "longitude": ("Longitude", f"{longitude:.7f}" if longitude is not None else None),
+                    "fix_quality": ("Fix Quality", status.get("quality_str")),
                 }
 
             for key in selected_keys:

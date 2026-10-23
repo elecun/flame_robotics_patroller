@@ -90,12 +90,16 @@ class RobotConfig:
         if "lookahead_distance" in sec:
             self.lookahead_distance = float(sec["lookahead_distance"])
 
-        if "min_velocity_mps" in sec:
+        if "min_velocity_kmh" in sec:
+            self.min_velocity = float(sec["min_velocity_kmh"]) / 3.6
+        elif "min_velocity_mps" in sec:
             self.min_velocity = float(sec["min_velocity_mps"])
         elif "min_velocity" in sec:
             val = float(sec["min_velocity"])
             self.min_velocity = val / 3.6 if val > 0.5 else val
-        if "max_velocity_mps" in sec:
+        if "max_velocity_kmh" in sec:
+            self.max_velocity = float(sec["max_velocity_kmh"]) / 3.6
+        elif "max_velocity_mps" in sec:
             self.max_velocity = float(sec["max_velocity_mps"])
         elif "max_velocity" in sec:
             val = float(sec["max_velocity"])
