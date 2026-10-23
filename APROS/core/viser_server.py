@@ -950,71 +950,75 @@ class ViserServerManager:
                 finally:
                     syncing_vehicle_controls = False
 
-            # DES Control Folder (Telescopic Mast Target Height Control & Telemetry)
+            # DES service controls. Sliders only stage values; buttons send commands.
             with client.gui.add_folder("DES Control", expand_by_default=True):
-                mast_target_number = client.gui.add_number(
-                    label="Target Height (mm)",
-                    initial_value=2900,
-                    min=2900,
-                    max=9100,
-                    step=100
-                )
-                mast_current_height_md = client.gui.add_markdown("**Current Height**: `2900 mm` (2.90 m)")
-                des_status_md = client.gui.add_markdown("**Status**: ⏹️ Stopped")
+                des_status_md = client.gui.add_markdown("**DES**: 대기")
 
-                des_action_group = client.gui.add_button_group(
-                    "Action",
-                    options=["⬆️ Extend", "⬇️ Retract"]
-                )
-                des_stop_btn = client.gui.add_button("⏹️ Stop", color="red")
-
-                @des_action_group.on_click
-                def _(_):
-                    selected = des_action_group.value
-                    target_val = float(mast_target_number.value)
-
-                    # Validate target mast height range (2900 ~ 9100 mm)
-                    if target_val < 2900.0 or target_val > 9100.0:
-                        modal = client.gui.add_modal("⚠️ Target Height 범위 오류")
-                        with modal:
-                            client.gui.add_markdown(
-                                "### ⚠️ Target Mast Height 범위 오류\n\n"
-                                "Target Mast Height 범위는 **2900 ~ 9100 mm** 입니다.\n\n"
-                                "유효한 높이(2900 ~ 9100 mm)를 입력한 후 다시 시도하십시오."
-                            )
-                            close_btn = client.gui.add_button("확인", color="red")
-                            @close_btn.on_click
-                            def _(_):
-                                modal.close()
-                        logger.warning(f"[ViserUI] Invalid target mast height {target_val} mm. Range must be 2900~9100 mm.")
+                def des_call(method: str, *args):
+                    des = self.robot.devices.get("des_control") if self.robot and self.robot.devices else None
+                    if des is None:
+                        des_status_md.content = "**DES**: 장치가 설정되지 않았습니다"
                         return
+                    try:
+                        result = getattr(des, method)(*args)
+                        des_status_md.content = f"**DES**: {method} 응답 수신 (동작 완료 상태는 별도 확인)"
+                        logger.info(f"[ViserUI] DES {method}: {result}")
+                    except Exception as exc:
+                        des_status_md.content = f"**DES 오류**: {exc}"
+                        logger.error(f"[ViserUI] DES {method} failed: {exc}")
 
-                    mast_exec = getattr(self.robot, "mast_executor", None)
-                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
+                des_mode = client.gui.add_button_group("Mode", options=["Program", "Manual"])
 
-                    if "Extend" in selected:
-                        if mast_exec and hasattr(mast_exec, "start_target_extend"):
-                            mast_exec.start_target_extend(target_val)
-                        elif mast_dev and hasattr(mast_dev, "move_up"):
-                            mast_dev.move_up()
-                        logger.info(f"[ViserUI] DES Control -> Extend target {target_val} mm clicked.")
-                    elif "Retract" in selected:
-                        if mast_exec and hasattr(mast_exec, "start_target_retract"):
-                            mast_exec.start_target_retract(target_val)
-                        elif mast_dev and hasattr(mast_dev, "move_down"):
-                            mast_dev.move_down()
-                        logger.info(f"[ViserUI] DES Control -> Retract target {target_val} mm clicked.")
-
-                @des_stop_btn.on_click
+                @des_mode.on_click
                 def _(_):
-                    mast_exec = getattr(self.robot, "mast_executor", None)
-                    mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                    if mast_exec and hasattr(mast_exec, "stop_target_control"):
-                        mast_exec.stop_target_control()
-                    elif mast_dev and hasattr(mast_dev, "move_stop"):
-                        mast_dev.move_stop()
-                    des_status_md.content = "**Status**: ⏹️ Stopped"
-                    logger.info("[ViserUI] DES Control -> Stop clicked.")
+                    des_call("set_mode_program" if des_mode.value == "Program" else "set_mode_manual")
+
+                with client.gui.add_folder("PTU", expand_by_default=True):
+                    ptu_pan = client.gui.add_slider("Pan (deg)", min=-180.0, max=180.0,
+                                                    step=1.0, initial_value=0.0)
+                    ptu_tilt = client.gui.add_slider("Tilt (deg)", min=-90.0, max=90.0,
+                                                     step=1.0, initial_value=0.0)
+                    ptu_action = client.gui.add_button_group("PTU Action", options=["Move", "Stop"])
+                    ptu_speed = client.gui.add_slider("Speed Code", min=0, max=63,
+                                                      step=1, initial_value=32)
+                    ptu_speed_apply = client.gui.add_button("Set Speed")
+
+                    @ptu_action.on_click
+                    def _(_):
+                        if ptu_action.value == "Move":
+                            des_call("set_ptu_move", float(ptu_pan.value), float(ptu_tilt.value))
+                        else:
+                            des_call("set_ptu_stop")
+
+                    @ptu_speed_apply.on_click
+                    def _(_):
+                        des_call("set_ptu_vel", int(ptu_speed.value))
+
+                with client.gui.add_folder("Mast", expand_by_default=True):
+                    mast_target = client.gui.add_slider("Target Height (mm)", min=2900,
+                                                        max=9000, step=100, initial_value=2900)
+                    mast_current_height_md = client.gui.add_markdown("**Current Height**: 확인 전")
+                    mast_action = client.gui.add_button_group(
+                        "Mast Action", options=["Extend", "Retract", "Stop"])
+
+                    @mast_action.on_click
+                    def _(_):
+                        action = mast_action.value
+                        if action == "Extend":
+                            des_call("set_mast_extend", float(mast_target.value))
+                        elif action == "Retract":
+                            des_call("set_mast_retract", float(mast_target.value))
+                        else:
+                            des_call("set_mast_stop")
+
+                with client.gui.add_folder("Erector", expand_by_default=True):
+                    erector_action = client.gui.add_button_group(
+                        "Erector Action", options=["Fold", "Unfold", "Stop"])
+
+                    @erector_action.on_click
+                    def _(_):
+                        des_call({"Fold": "set_erector_fold", "Unfold": "set_erector_unfold",
+                                  "Stop": "set_erector_stop"}[erector_action.value])
 
             with client.gui.add_folder("AIC Control", expand_by_default=True):
                 fluke_dev = self.robot.devices.get("fluke_sv600") if hasattr(self.robot, "devices") and self.robot.devices else None
@@ -1482,6 +1486,7 @@ class ViserServerManager:
             last_camera_frame_id = None
             last_aic_frame_count = 0
             last_mission_done_state = False
+            last_des_height_poll = 0.0
             while self._running:
                 try:
                     robot_drive_status_md.content = self._format_status_text(sensor_only=False)
@@ -1551,24 +1556,15 @@ class ViserServerManager:
                     except Exception:
                         pass
 
-                    # Update Control tab mast status and current height from telescopic_mast device
+                    # Update current mast height from the DES service when available.
                     try:
-                        mast_dev = self.robot.devices.get("telescopic_mast") if hasattr(self.robot, "devices") and self.robot.devices else None
-                        if mast_dev:
-                            curr_h_mm = getattr(mast_dev, "current_height_mm", 2900.0)
-                            curr_h_m = curr_h_mm / 1000.0
-                            mast_state = getattr(mast_dev, "mast_action_state", "stopped")
-
-                            mast_current_height_md.content = f"**Current Height**: `{curr_h_mm:.0f} mm` ({curr_h_m:.2f} m)"
-
-                            if mast_state == "raising":
-                                des_status_md.content = "**Status**: ⬆️ Extending..."
-                            elif mast_state == "lowering":
-                                des_status_md.content = "**Status**: ⬇️ Retracting..."
-                            else:
-                                des_status_md.content = "**Status**: ⏹️ Stopped"
+                        des_dev = self.robot.devices.get("des_control") if self.robot and self.robot.devices else None
+                        if des_dev and des_dev.is_connected and time.monotonic() - last_des_height_poll >= 2.0:
+                            last_des_height_poll = time.monotonic()
+                            curr_h_mm = des_dev.get_mast_height()
+                            mast_current_height_md.content = f"**Current Height**: `{curr_h_mm:.0f} mm`"
                     except Exception:
-                        pass
+                        mast_current_height_md.content = "**Current Height**: 확인 불가"
 
                     # Update Data Logger status
                     try:

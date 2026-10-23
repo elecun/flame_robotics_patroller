@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "component": "api-gui",
+  "release_id": "20261019-183830-0d81213",
+  "source_commit": "0d812138108e94e4cb7054b43133b73a0fb1bff9",
+  "source_ref": "HEAD",
+  "client_common": {
+    "source_commit": "0d812138108e94e4cb7054b43133b73a0fb1bff9",
+    "source_ref": "HEAD",
+    "last_changed_commit": "1bd4505ddfe4293065be39737a4afecac99c6764",
+    "trees": {
+      "src/patrol_robot_client": "c1af3b8d47755a1c65a7105c3516b89fb8899957",
+      "src/patrol_robot_common": "936f1e2efa954abc188eaea5440d2b569d75dd89"
+    }
+  },
+  "built_at": "2026-10-19T09:38:30+00:00",
+  "built_on": "Windows 10",
+  "python": {
+    "requires": ">=3.10"
+  },
+  "dependency_source": "online",
+  "dependencies": [
+    {
+      "name": "pyzmq",
+      "version": "27.2.0"
+    }
+  ],
+  "dependency_lock": {
+    "file": "payload/requirements.lock",
+    "sha256": "3a6bda7837656f43701d734ca3200b25b17c2f8def6519427da4eaea73586adc"
+  },
+  "os_dependencies": [
+    "python3 (>=3.10)",
+    "python3-venv(ensurepip) 또는 virtualenv",
+    "python3-tk",
+    "데스크톱 화면(X11/Xwayland, 실행 시)"
+  ],
+  "entrypoint": "payload/app/tools/api_test_gui.py",
+  "checksum_note": "SHA256SUMS와 .sha256은 전송 손상 확인용이며 배포자 인증·서명이 아니다."
+}

@@ -36,6 +36,7 @@ class IAEPatrolV1:
         "tabos_bmu": ("tabos_bmu", "TabosBMU"),
         "basler_gige_camera": ("basler_gige_camera", "BaslerGigECamera"),
         "robot_controller": ("robot_controller", "RobotController"),
+        "des_control": ("des_control", "DesControl"),
     }
 
     def __init__(self, config: Optional[Any] = None, zpipe_ctx: Optional[Any] = None, simulation_mode: bool = False):
@@ -488,9 +489,14 @@ class IAEPatrolV1:
             except Exception:
                 pass
             self.basler_camera_connector = None
+        success = True
         for name, device in self.devices.items():
-            device.disconnect()
-        return True
+            try:
+                success = bool(device.disconnect()) and success
+            except Exception as exc:
+                success = False
+                logger.error(f"[IAEPatrolV1] Device '{name}' disconnect failed: {exc}")
+        return success
 
     def get_status(self) -> Dict[str, Any]:
         """Aggregate status across all components for dashboard & telemetry."""

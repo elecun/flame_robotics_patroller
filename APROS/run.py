@@ -7,8 +7,9 @@ Creates global ZPipe context and loads the main robot platform (IAEPatrolV1).
 import argparse
 import configparser
 import os
+import signal
 import sys
-import time
+import threading
 
 from core.zpipe import zpipe_create_pipe, zpipe_destroy_pipe
 from iae_patrol_v1 import IAEPatrolV1
@@ -90,23 +91,33 @@ def main():
     robot = robot_cls(config=config, zpipe_ctx=zpipe_ctx, simulation_mode=args.simulation)
     if args.simulation:
         logger.info("Simulation mode enabled; external device connections are disabled.")
-    robot.connect()
-
-    # 3. Start Viser 3D visualization dashboard server
-    viser_mgr = ViserServerManager(host=host, port=port, robot=robot)
-    viser_mgr.start()
-
-    logger.info(f"System initialized successfully. Web UI server listening on http://{host}:{port}")
-    logger.info("Press Ctrl+C to exit.")
-
+    stop_requested = threading.Event()
+    previous_sigterm = signal.signal(signal.SIGTERM, lambda *_: stop_requested.set())
+    viser_mgr = None
     try:
-        while True:
-            time.sleep(1.0)
+        robot.connect()
+
+        # 3. Start Viser 3D visualization dashboard server
+        viser_mgr = ViserServerManager(host=host, port=port, robot=robot)
+        viser_mgr.start()
+
+        logger.info(f"System initialized successfully. Web UI server listening on http://{host}:{port}")
+        logger.info("Press Ctrl+C to exit.")
+        while not stop_requested.wait(1.0):
+            pass
     except KeyboardInterrupt:
+        pass
+    finally:
         logger.info("Shutting down APROS system...")
-        viser_mgr.stop()
-        robot.disconnect()
-        zpipe_destroy_pipe()
+        try:
+            if viser_mgr is not None:
+                viser_mgr.stop()
+        finally:
+            try:
+                robot.disconnect()
+            finally:
+                zpipe_destroy_pipe()
+                signal.signal(signal.SIGTERM, previous_sigterm)
         logger.info("Terminated cleanly.")
 
 

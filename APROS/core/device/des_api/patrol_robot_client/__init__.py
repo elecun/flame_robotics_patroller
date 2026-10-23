@@ -1,0 +1,39 @@
+"""고객사용 Python Client 패키지. (04)
+
+```python
+from core.device.des_api.patrol_robot_client import PatrolRobotClient
+
+with PatrolRobotClient(acquire_control=True) as robot:
+    robot.set_control_mode(ControlMode.PROGRAM)
+    receipt = robot.mast.home()
+    if receipt.accepted:
+        result = robot.wait_command(receipt.command_id, timeout=30)
+```
+"""
+
+from core.device.des_api.patrol_robot_client.client import ErectorApi, MastApi, PatrolRobotClient, PtuApi
+from core.device.des_api.patrol_robot_client.errors import (
+    CommandWaitTimeoutError,
+    PatrolRobotClientError,
+    PatrolRobotServiceUnavailableError,
+    ProtocolVersionError,
+    RequestTimeoutError,
+    ResponseFormatError,
+    ServiceRequestError,
+    UnknownCommandError,
+)
+
+__all__ = [
+    "CommandWaitTimeoutError",
+    "ErectorApi",
+    "MastApi",
+    "PatrolRobotClient",
+    "PatrolRobotClientError",
+    "PatrolRobotServiceUnavailableError",
+    "ProtocolVersionError",
+    "PtuApi",
+    "RequestTimeoutError",
+    "ResponseFormatError",
+    "ServiceRequestError",
+    "UnknownCommandError",
+]

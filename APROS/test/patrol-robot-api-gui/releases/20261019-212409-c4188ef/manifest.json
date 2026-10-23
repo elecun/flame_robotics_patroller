@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "component": "api-gui",
+  "release_id": "20261019-212409-c4188ef",
+  "source_commit": "c4188ef5d83febed3b74a405b7eda5832a745825",
+  "source_ref": "c4188ef5d83febed3b74a405b7eda5832a745825",
+  "client_common": {
+    "source_commit": "34d2e1fab9342db10568d0fe169d8f6f61da4c64",
+    "source_ref": "34d2e1fab9342db10568d0fe169d8f6f61da4c64",
+    "last_changed_commit": "34d2e1fab9342db10568d0fe169d8f6f61da4c64",
+    "trees": {
+      "src/patrol_robot_client": "7ee0563ed878015f912d3ae32a79155c0565e8bc",
+      "src/patrol_robot_common": "936f1e2efa954abc188eaea5440d2b569d75dd89"
+    }
+  },
+  "built_at": "2026-10-19T12:24:09+00:00",
+  "built_on": "Windows 10",
+  "python": {
+    "requires": ">=3.10"
+  },
+  "dependency_source": "online",
+  "dependencies": [
+    {
+      "name": "pyzmq",
+      "version": "27.2.0"
+    }
+  ],
+  "dependency_lock": {
+    "file": "payload/requirements.lock",
+    "sha256": "3a6bda7837656f43701d734ca3200b25b17c2f8def6519427da4eaea73586adc"
+  },
+  "os_dependencies": [
+    "python3 (>=3.10)",
+    "python3-venv(ensurepip) 또는 virtualenv",
+    "python3-tk",
+    "데스크톱 화면(X11/Xwayland, 실행 시)"
+  ],
+  "entrypoint": "payload/app/tools/api_test_gui.py",
+  "checksum_note": "SHA256SUMS와 .sha256은 전송 손상 확인용이며 배포자 인증·서명이 아니다."
+}
