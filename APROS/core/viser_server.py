@@ -421,12 +421,12 @@ class ViserServerManager:
             visible=True
         )
 
-        # Local planner footprint corridor, sized to the robot width and placed on the ground.
+        # Local planner centerline, drawn as a visible ground-level strip.
         self.local_path_handle = self.server.scene.add_mesh_simple(
             name="/world/local_planner_path",
-            vertices=np.array([[0, 0, 0.015], [0, 0, 0.015], [0.01, 0, 0.015], [0.01, 0, 0.015]], dtype=np.float32),
+            vertices=np.array([[0, 0, 0.04], [0, 0, 0.04], [0.01, 0, 0.04], [0.01, 0, 0.04]], dtype=np.float32),
             faces=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.uint32),
-            color=(0, 220, 80), opacity=0.38, side="double", visible=False
+            color=(255, 200, 0), opacity=1.0, side="double", visible=False
         )
 
         # 10. Corridor Boundary Handle (Orange boundary lines on ground plane)
@@ -1929,7 +1929,7 @@ class ViserServerManager:
                     self.ouster_pc_handle.colors = colors
                     last_ouster_points = pts
 
-            # Real-time local planner path as a translucent robot-width green strip.
+            # Real-time local planner trajectory as a thick yellow line on the ground.
             local_planner = getattr(self.robot, "local_planner", None)
             if local_planner is None and hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
                 local_planner = getattr(self.robot.drive_executor, "local_planner", None)
@@ -1943,14 +1943,22 @@ class ViserServerManager:
                         anchor_x, anchor_y = self._wgs84_to_tm_viser(route_lat, route_lon)
                     else:
                         anchor_x, anchor_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
-                    half_width = self.robot_width / 2.0
+                    half_width = 0.10  # 20 cm line width in world coordinates
                     vertices = []
-                    for pt in lpath:
-                        h = float(pt.get("heading", 0.0))
-                        nx, ny = -math.sin(h), math.cos(h)
+                    for i, pt in enumerate(lpath):
+                        prev_pt = lpath[max(0, i - 1)]
+                        next_pt = lpath[min(len(lpath) - 1, i + 1)]
+                        tx = float(next_pt["x"]) - float(prev_pt["x"])
+                        ty = float(next_pt["y"]) - float(prev_pt["y"])
+                        length = math.hypot(tx, ty)
+                        if length > 1e-6:
+                            nx, ny = -ty / length, tx / length
+                        else:
+                            h = float(pt.get("heading", 0.0))
+                            nx, ny = -math.sin(h), math.cos(h)
                         cx, cy = anchor_x + float(pt["x"]), anchor_y + float(pt["y"])
-                        vertices.append([cx - nx * half_width, cy - ny * half_width, 0.015])
-                        vertices.append([cx + nx * half_width, cy + ny * half_width, 0.015])
+                        vertices.append([cx - nx * half_width, cy - ny * half_width, 0.04])
+                        vertices.append([cx + nx * half_width, cy + ny * half_width, 0.04])
                     faces = []
                     for i in range(len(lpath) - 1):
                         a = 2 * i

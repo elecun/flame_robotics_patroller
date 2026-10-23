@@ -1,6 +1,6 @@
 """
 Drive Executor Plugin for APROS Autonomous Mobile Robot Platform.
-Integrates Global Path Planning, Local Path Planning (DWA), and Vehicle Control Execution.
+Integrates global path planning, the configured local planner, and vehicle control.
 Runs at control_freq (default 10 Hz).
 """
 import os
@@ -24,7 +24,7 @@ logger = ConsoleLogger.get_logger()
 class DriveExecutor(BasePlugin):
     """
     Drive Executor Plugin.
-    Manages autonomous mission route loading, global path generation, real-time local path planning (DWA),
+    Manages autonomous mission route loading, global path generation, real-time local path planning,
     and periodic vehicle speed/steering command dispatching.
     """
 
@@ -466,7 +466,7 @@ class DriveExecutor(BasePlugin):
         return {"x": rx, "y": ry, "heading": rheading}, rvel
 
     def _get_obstacle_points(self) -> List[Tuple[float, float]]:
-        """Get current obstacle points from VLP-16 or Ouster LiDAR point cloud."""
+        """Get current obstacle points from the VLP-16 point cloud."""
         obstacles: List[Tuple[float, float]] = []
 
         # When HIL Simulation mode is enabled, ignore VLP-16 LiDAR obstacles
@@ -490,8 +490,11 @@ class DriveExecutor(BasePlugin):
         return obstacles
 
     def _get_local_path_window(self, pose: Dict[str, float], global_path: List[Dict[str, float]], lookahead: float = 5.0, max_points: int = 50) -> List[Dict[str, float]]:
-        """Extract a local window of the global path around the robot's current position.
-        Returns at most max_points path points within lookahead distance ahead of the nearest point."""
+        """Return up to max_points around the closest route point.
+
+        The lookahead argument is currently unused; MPPI applies it when choosing
+        its target and trimming the path exposed for visualization.
+        """
         if not global_path:
             return global_path
 
@@ -506,8 +509,8 @@ class DriveExecutor(BasePlugin):
                 min_dist = d
                 nearest_idx = i
 
-        # Extract window: from nearest_idx to nearest_idx + max_points (or until lookahead distance exceeded)
-        start_idx = max(0, nearest_idx - 2)  # Include 2 points behind for corridor boundary context
+        # Include two points behind the nearest point for corridor context.
+        start_idx = max(0, nearest_idx - 2)
         end_idx = min(len(global_path), start_idx + max_points)
 
         return global_path[start_idx:end_idx]
@@ -582,10 +585,10 @@ class DriveExecutor(BasePlugin):
                 self._apply_stop_command()
                 break
 
-            # 3. Compute Local Planner (Ackermann DWA) controls to track route
+            # 3. Compute controls with the configured local planner to track the route.
             obstacles = self._get_obstacle_points()
             if self.local_planner is not None:
-                # Extract local path window using configured lookahead_distance
+                # The current window is capped by point count; MPPI applies lookahead later.
                 lookahead_dist = getattr(self.local_planner.config, "lookahead_distance", 3.0) if hasattr(self.local_planner, "config") else 3.0
                 local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=50)
                 target_v_ms, target_delta_rad = self.local_planner.compute_velocity_commands(

@@ -140,12 +140,11 @@ class IAEPatrolV2:
             model = self.config.get("PLATFORM", "robot_model", fallback="iae_patrol_v2").strip().lower() if self.config else "iae_patrol_v2"
             urdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "urdf", f"{model}.urdf")
             self.robot_config = RobotConfig.from_urdf(urdf_path)
-            if self.config:
-                self.robot_config.update_from_config(self.config)
-
             section = self.config["iae_patrol_v2"] if self.config and self.config.has_section("iae_patrol_v2") else {}
             gp_name = section.get("global_planner", "cubic_spline_global_planner").strip()
             lp_name = section.get("local_planner", "mppi_local_planner").strip()
+            if self.config:
+                self.robot_config.update_from_config(self.config, planner_section=lp_name)
             pkg = "APROS.core.plugin.path_planner" if __name__.startswith("APROS") else "core.plugin.path_planner"
 
             gp_mod = importlib.import_module(f"{pkg}.{gp_name}")
@@ -158,16 +157,23 @@ class IAEPatrolV2:
             lp_cls = next((getattr(lp_mod, n) for n in dir(lp_mod)
                            if n.lower().endswith("localplanner") and n != "BaseLocalPlanner"), None)
             if lp_cls:
-                mppi = self.config["mppi_local_planner"] if self.config and self.config.has_section("mppi_local_planner") else {}
-                self.local_planner = lp_cls(
-                    self.robot_config,
-                    samples=int(mppi.get("samples", 96)),
-                    horizon=int(mppi.get("horizon", 36)),
-                    iterations=int(mppi.get("iterations", 2)),
-                    temperature=float(mppi.get("temperature", 1.0)),
-                    steering_noise=float(mppi.get("steering_noise", 0.16)),
-                    velocity_noise=float(mppi.get("velocity_noise", 0.22)),
-                )
+                if lp_name == "mppi_local_planner":
+                    mppi = self.config[lp_name] if self.config and self.config.has_section(lp_name) else {}
+                    self.local_planner = lp_cls(
+                        self.robot_config,
+                        **{key: cast(mppi.get(key, default)) for key, cast, default in (
+                            ("samples", int, 96), ("horizon", int, 36), ("iterations", int, 2),
+                            ("temperature", float, 1.0), ("steering_noise", float, 0.16),
+                            ("velocity_noise", float, 0.22), ("initial_velocity_mps", float, 0.6),
+                            ("obstacle_limit", int, 192), ("obstacle_range_margin", float, 1.0),
+                            ("path_distance_weight", float, 1.4), ("heading_weight", float, 0.25),
+                            ("clearance_weight", float, 2.0), ("collision_cost", float, 1e4),
+                            ("velocity_weight", float, 0.12), ("steering_weight", float, 0.08),
+                            ("terminal_distance_weight", float, 2.0),
+                        )},
+                    )
+                else:
+                    self.local_planner = lp_cls(self.robot_config)
 
             drive_cfg = self.config["mobile_drive_s1"] if self.config and self.config.has_section("mobile_drive_s1") else {}
             mod_exec = importlib.import_module("APROS.core.plugin.drive_executor" if __name__.startswith("APROS") else "core.plugin.drive_executor")

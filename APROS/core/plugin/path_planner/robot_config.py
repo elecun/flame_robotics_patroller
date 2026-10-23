@@ -60,16 +60,18 @@ class RobotConfig:
         (-1.0275, 0.500)   # Rear Left
     ])
 
-    def update_from_config(self, config: any) -> None:
+    def update_from_config(self, config: any, planner_section: Optional[str] = None) -> None:
         """
         Update RobotConfig parameters from ConfigParser object (e.g. apros.cfg).
-        Supports section [ackermann_dwa_local_planner] and fallback [mobile_drive_s1].
+        Use the selected planner section, falling back to the legacy DWA or drive section.
         """
         if not config:
             return
 
         sec = None
-        if config.has_section("ackermann_dwa_local_planner"):
+        if planner_section and config.has_section(planner_section):
+            sec = config[planner_section]
+        elif config.has_section("ackermann_dwa_local_planner"):
             sec = config["ackermann_dwa_local_planner"]
         elif config.has_section("mobile_drive_s1"):
             sec = config["mobile_drive_s1"]
@@ -88,19 +90,27 @@ class RobotConfig:
         if "lookahead_distance" in sec:
             self.lookahead_distance = float(sec["lookahead_distance"])
 
-        if "min_velocity" in sec:
+        if "min_velocity_mps" in sec:
+            self.min_velocity = float(sec["min_velocity_mps"])
+        elif "min_velocity" in sec:
             val = float(sec["min_velocity"])
             self.min_velocity = val / 3.6 if val > 0.5 else val
-        if "max_velocity" in sec:
+        if "max_velocity_mps" in sec:
+            self.max_velocity = float(sec["max_velocity_mps"])
+        elif "max_velocity" in sec:
             val = float(sec["max_velocity"])
             self.max_velocity = val / 3.6 if val > 0.5 else val
         if "max_accel" in sec:
             self.max_accel = float(sec["max_accel"])
 
-        if "min_steer_angle" in sec:
+        if "min_steer_angle_deg" in sec:
+            self.min_steer_angle = math.radians(float(sec["min_steer_angle_deg"]))
+        elif "min_steer_angle" in sec:
             val = float(sec["min_steer_angle"])
             self.min_steer_angle = math.radians(val) if abs(val) > 1.5 else val
-        if "max_steer_angle" in sec or "max_steering_angle" in sec:
+        if "max_steer_angle_deg" in sec:
+            self.max_steer_angle = math.radians(float(sec["max_steer_angle_deg"]))
+        elif "max_steer_angle" in sec or "max_steering_angle" in sec:
             val_str = sec.get("max_steer_angle", sec.get("max_steering_angle"))
             val = float(val_str)
             self.max_steer_angle = math.radians(val) if abs(val) > 1.5 else val

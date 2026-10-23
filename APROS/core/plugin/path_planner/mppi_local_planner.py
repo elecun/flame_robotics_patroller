@@ -16,7 +16,13 @@ class MPPILocalPlanner(BaseLocalPlanner):
 
     def __init__(self, config, samples: int = 96, horizon: int = 36,
                  iterations: int = 2, temperature: float = 1.0,
-                 steering_noise: float = 0.16, velocity_noise: float = 0.22):
+                 steering_noise: float = 0.16, velocity_noise: float = 0.22,
+                 initial_velocity_mps: float = 0.6, obstacle_limit: int = 192,
+                 obstacle_range_margin: float = 1.0,
+                 path_distance_weight: float = 1.4, heading_weight: float = 0.25,
+                 clearance_weight: float = 2.0, collision_cost: float = 1e4,
+                 velocity_weight: float = 0.12, steering_weight: float = 0.08,
+                 terminal_distance_weight: float = 2.0):
         super().__init__(config)
         self.samples = max(16, int(samples))
         self.horizon = max(8, int(horizon))
@@ -24,8 +30,17 @@ class MPPILocalPlanner(BaseLocalPlanner):
         self.temperature = max(1e-3, float(temperature))
         self.steering_noise = float(steering_noise)
         self.velocity_noise = float(velocity_noise)
+        self.obstacle_limit = max(1, int(obstacle_limit))
+        self.obstacle_range_margin = float(obstacle_range_margin)
+        self.path_distance_weight = float(path_distance_weight)
+        self.heading_weight = float(heading_weight)
+        self.clearance_weight = float(clearance_weight)
+        self.collision_cost = float(collision_cost)
+        self.velocity_weight = float(velocity_weight)
+        self.steering_weight = float(steering_weight)
+        self.terminal_distance_weight = float(terminal_distance_weight)
         self.best_local_path: List[Dict[str, float]] = []
-        self._nominal_v = np.full(self.horizon, min(config.max_velocity, 0.6), dtype=np.float64)
+        self._nominal_v = np.full(self.horizon, min(config.max_velocity, initial_velocity_mps), dtype=np.float64)
         self._nominal_delta = np.zeros(self.horizon, dtype=np.float64)
         self._rng = np.random.default_rng()
 
@@ -59,9 +74,9 @@ class MPPILocalPlanner(BaseLocalPlanner):
         obs = np.asarray(obstacle_points, dtype=np.float64).reshape(-1, 2) if obstacle_points else np.empty((0, 2))
         if len(obs):
             # LiDAR points arrive in the robot/sensor frame (same convention as DWA).
-            obs_local = obs[np.hypot(obs[:, 0], obs[:, 1]) <= max_distance + 1.0]
-            if len(obs_local) > 192:
-                obs_local = obs_local[::max(1, len(obs_local) // 192)][:192]
+            obs_local = obs[np.hypot(obs[:, 0], obs[:, 1]) <= max_distance + self.obstacle_range_margin]
+            if len(obs_local) > self.obstacle_limit:
+                obs_local = obs_local[::max(1, len(obs_local) // self.obstacle_limit)][:self.obstacle_limit]
         else:
             obs_local = obs
 
@@ -95,7 +110,7 @@ class MPPILocalPlanner(BaseLocalPlanner):
                 path_error = np.hypot(x - px[nearest], y - py[nearest])
                 heading_error = np.abs(np.arctan2(np.sin(theta - local_headings[nearest]),
                                                   np.cos(theta - local_headings[nearest])))
-                costs += 1.4 * path_error + 0.25 * heading_error
+                costs += self.path_distance_weight * path_error + self.heading_weight * heading_error
 
                 if len(obs_local):
                     ox = obs_local[None, :, 0] - x[:, None]
@@ -107,12 +122,12 @@ class MPPILocalPlanner(BaseLocalPlanner):
                     inside = (np.abs(oxr) <= half_l) & (np.abs(oyr) <= half_w)
                     collision = inside.any(axis=1)
                     clearance = np.sqrt(ox * ox + oy * oy).min(axis=1)
-                    costs += 2.0 / np.maximum(clearance - half_w, 0.05)
-                    costs += collision.astype(np.float64) * 1e4
+                    costs += self.clearance_weight / np.maximum(clearance - half_w, 0.05)
+                    costs += collision.astype(np.float64) * self.collision_cost
 
-                costs += 0.12 * np.abs(v - target_speed)
-                costs += 0.08 * (delta ** 2)
-            costs += 2.0 * np.hypot(trajectories[:, -1, 0] - px[target_idx],
+                costs += self.velocity_weight * np.abs(v - target_speed)
+                costs += self.steering_weight * (delta ** 2)
+            costs += self.terminal_distance_weight * np.hypot(trajectories[:, -1, 0] - px[target_idx],
                                     trajectories[:, -1, 1] - py[target_idx])
 
             baseline = float(np.min(costs))
@@ -124,7 +139,7 @@ class MPPILocalPlanner(BaseLocalPlanner):
                                     steering_min, steering_max)
 
         best_idx = int(np.argmin(costs))
-        if costs[best_idx] >= 1e4:
+        if costs[best_idx] >= self.collision_cost:
             self.best_local_path = []
             return 0.0, 0.0
         best = trajectories[best_idx]
