@@ -1388,7 +1388,16 @@ class ViserServerManager:
                             gnss_rtk_status_md.content = f"**Status**: ❌ {error}"
                             logger.error(f"[ViserUI] GNSS/RTK recording failed to start: {error}")
                     elif gnss_rtk_mode_group.value == "⏹️ Stop":
-                        self._gnss_rtk_recorder.stop()
+                        try:
+                            result = self._gnss_rtk_recorder.stop()
+                            if result and result.get("route_path"):
+                                routes = get_route_files()
+                                mission_route_dropdown.options = routes
+                                mission_route_dropdown.value = os.path.basename(result["route_path"])
+                                poi_sampler_route_dropdown.options = routes
+                        except Exception as error:
+                            gnss_rtk_status_md.content = f"**Status**: ❌ {error}"
+                            logger.error(f"[ViserUI] GNSS/RTK export failed: {error}")
 
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -1587,6 +1596,25 @@ class ViserServerManager:
                         gnss_rtk_status_md.content = f"**Status**: ❌ {recorder.last_error}"
                     elif recorder.is_recording:
                         gnss_rtk_status_md.content = f"**Status**: 🔴 Recording (`{os.path.basename(recorder.file_path)}`)"
+                    elif recorder.last_result:
+                        result = recorder.last_result
+                        if result.get("route_path"):
+                            route_name = os.path.basename(result["route_path"])
+                            if route_name not in mission_route_dropdown.options:
+                                routes = get_route_files()
+                                mission_route_dropdown.options = routes
+                                poi_sampler_route_dropdown.options = routes
+                            gnss_rtk_status_md.content = (
+                                f"**Status**: ✅ Saved {result['point_count']} route points\n\n"
+                                f"**CSV**: `{os.path.basename(result['csv_path'])}` · "
+                                f"**KML**: `{os.path.basename(result['kml_path'])}` · "
+                                f"**Route**: `{route_name}`"
+                            )
+                        else:
+                            gnss_rtk_status_md.content = (
+                                f"**Status**: ⏹️ Saved raw CSV ({result['raw_count']} sentences); "
+                                "at least two distinct valid fixes are needed for a route."
+                            )
                     else:
                         gnss_rtk_status_md.content = "**Status**: ⏹️ Stopped"
 
@@ -1893,11 +1921,14 @@ class ViserServerManager:
             # Real-time VLP-16 point cloud visualization centered at robot frame
             if hasattr(self.robot, 'last_vlp16_points') and self.robot.last_vlp16_points is not None:
                 pts = self.robot.last_vlp16_points
-                if len(pts) > 0:
+                vlp_dev = getattr(self.robot, "devices", {}).get("vlp-16")
+                scan_time = getattr(vlp_dev, "last_scan_time", None)
+                if len(pts) > 0 and scan_time is not None and time.time() - scan_time <= 2.0:
                     xyz = np.ascontiguousarray(pts[:, :3], dtype=np.float32)
                     colors = np.zeros((len(pts), 3), dtype=np.uint8)
 
-                    # If ground flag column (5th column) exists
+                    # Sensor-frame cloud is placed under the URDF LiDAR link.
+                    # The fifth column is the ground-height classification flag.
                     if pts.shape[1] >= 5:
                         is_ground = (pts[:, 4] > 0.5)
                         # Ground points: White (255, 255, 255)
@@ -1905,7 +1936,7 @@ class ViserServerManager:
                         # Obstacle / Non-ground points: Red (255, 0, 0)
                         colors[~is_ground] = [255, 0, 0]
                     else:
-                        colors[:, 0] = 255  # Red channel default
+                        colors[:, :] = [255, 255, 255]
                     colors = np.ascontiguousarray(colors, dtype=np.uint8)
                 else:
                     xyz = np.empty((0, 3), dtype=np.float32)

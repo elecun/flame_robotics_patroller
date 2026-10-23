@@ -42,11 +42,10 @@ class VLP16(BaseDevice):
         port: int = 2368,
         min_angle: float = -90.0,
         max_angle: float = 90.0,
-        ground_removal: Optional[Any] = None,
-        ground_removal_params: Optional[Dict[str, Any]] = None,
-        offset_x: float = 1.027,
+        offset_x: float = 1.015,
         offset_y: float = 0.0,
-        offset_z: float = 0.32,
+        sensor_height_m: float = 0.61,
+        min_obstacle_height_m: float = 0.10,
         roll_deg: float = 0.0,
         pitch_deg: float = 15.0,
         yaw_deg: float = 0.0,
@@ -59,13 +58,13 @@ class VLP16(BaseDevice):
         self.port = int(port)
         self.min_angle = float(min_angle)
         self.max_angle = float(max_angle)
-        self.ground_removal = str(ground_removal).strip() if ground_removal not in (None, False, "") else None
-        self.ground_removal_params = ground_removal_params if isinstance(ground_removal_params, dict) else {}
-
-        # Installation offset relative to robot origin frame (meters)
+        # Sensor X/Y offset is relative to base_link; Z is measured from ground.
         self.offset_x = float(offset_x)
         self.offset_y = float(offset_y)
-        self.offset_z = float(offset_z)
+        self.sensor_height_m = float(sensor_height_m)
+        self.min_obstacle_height_m = float(min_obstacle_height_m)
+        if self.sensor_height_m <= 0 or self.min_obstacle_height_m < 0:
+            raise ValueError("VLP-16 sensor height must be positive and obstacle height nonnegative")
 
         # Installation orientation relative to robot origin frame (degrees)
         self.roll_deg = float(roll_deg)
@@ -75,44 +74,11 @@ class VLP16(BaseDevice):
         # Compute 3x3 rotation matrix from Roll, Pitch, Yaw
         self.R = self._compute_rotation_matrix(self.roll_deg, self.pitch_deg, self.yaw_deg)
 
-        # Initialize GroundRemovalFilter plugin if configured
-        self.ground_filter: Optional[Any] = None
-        self.current_tilt_x: float = 0.0
-
-        if self.ground_removal:
-            try:
-                import importlib
-                module_name = self.ground_removal.lower()
-                pkg_path = "APROS.core.plugin.ground_removal" if __name__.startswith("APROS") else "core.plugin.ground_removal"
-                mod = importlib.import_module(f"{pkg_path}.{module_name}")
-                
-                # Find class inside module that inherits from BaseGroundRemoval or matches module_name
-                filter_cls = None
-                for attr_name in dir(mod):
-                    attr = getattr(mod, attr_name)
-                    if isinstance(attr, type) and attr_name.lower() == module_name.replace("_", "").replace("-", ""):
-                        filter_cls = attr
-                        break
-                if filter_cls is None:
-                    # Fallback to standard class name lookup (e.g. PatchworkPP for patchworkpp)
-                    for attr_name in dir(mod):
-                        attr = getattr(mod, attr_name)
-                        if isinstance(attr, type) and attr_name != "BaseGroundRemoval" and hasattr(attr, "remove_ground"):
-                            filter_cls = attr
-                            break
-
-                if filter_cls:
-                    self.ground_filter = filter_cls(**self.ground_removal_params)
-                    logger.info(f"[{self.name}] Ground removal plugin '{self.ground_removal}' loaded successfully with params: {self.ground_removal_params}")
-                else:
-                    logger.error(f"[{self.name}] Ground removal class not found in module '{self.ground_removal}'.")
-            except Exception as e:
-                logger.error(f"[{self.name}] Failed to load '{self.ground_removal}' ground removal module: {e}")
-
         self.sock: Optional[socket.socket] = None
-        self._last_points: Optional[np.ndarray] = None  # Array of shape (N, 4) -> [x, y, z, intensity]
+        self._last_points: Optional[np.ndarray] = None  # Sensor XYZ, intensity, ignored/ground flag
         self.packet_count = 0
         self.last_packet_time = None
+        self.last_scan_time = None
 
         # AsyncZSocket for publishing IPC
         self.pub_socket: Optional[AsyncZSocket] = None
@@ -125,8 +91,8 @@ class VLP16(BaseDevice):
     def _compute_rotation_matrix(self, roll_deg: float, pitch_deg: float, yaw_deg: float) -> np.ndarray:
         """Compute 3x3 rotation matrix R = Rz(yaw) * Ry(pitch) * Rx(roll)."""
         r = np.radians(roll_deg)
-        # Note: Since Y-axis is inverted (Left/Right mirroring), Y-axis rotation (Pitch down) direction is inverted (-p)
-        p = -np.radians(pitch_deg)
+        # Positive URDF pitch rotates forward X downward in Z.
+        p = np.radians(pitch_deg)
         y = np.radians(yaw_deg)
 
         Rx = np.array([
@@ -150,11 +116,16 @@ class VLP16(BaseDevice):
         return Rz @ Ry @ Rx
 
     def transform_points_to_robot_frame(self, points: np.ndarray) -> np.ndarray:
-        """Return raw sensor-relative point cloud. Transformations are handled by URDF frame links."""
+        """Transform sensor-frame XYZ into ground-referenced robot coordinates."""
         if points is None or len(points) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        return points
+        transformed = np.asarray(points, dtype=np.float32).copy()
+        transformed[:, :3] = transformed[:, :3] @ self.R.T
+        transformed[:, 0] += self.offset_x
+        transformed[:, 1] += self.offset_y
+        transformed[:, 2] += self.sensor_height_m
+        return transformed
 
     def set_zpipe_context(self, zpipe_ctx: Any):
         """Set ZPipe context and create/join IPC publish socket."""
@@ -237,7 +208,7 @@ class VLP16(BaseDevice):
         """
         Worker thread loop: collects UDP packets over one complete 360-degree revolution cycle,
         parses & filters point cloud, and publishes the full revolution scan via ZPipe IPC.
-        If no hardware packets are received (timeout), generates a full 360-degree simulated revolution.
+        If no hardware packets are received, waits for the next live scan.
         """
         logger.info(f"[{self.name}] Worker loop active (Revolution cycle mode).")
         last_azimuth = -1
@@ -270,36 +241,25 @@ class VLP16(BaseDevice):
                     cycle_blocks.append(packet)
 
             except socket.timeout:
-                # Hardware timeout: emit simulated full revolution scan
-                simulated_points = self._generate_simulated_points()
-                self._publish_points(simulated_points)
-                time.sleep(0.1)
+                # Discard an incomplete revolution after a gap in live packets.
+                cycle_blocks = []
+                last_azimuth = -1
+                continue
 
     def set_vehicle_tilt_x(self, tilt_x_deg: float):
         """Set current vehicle pitch tilt X from Baumer Incline Sensor."""
         self.current_tilt_x = float(tilt_x_deg)
 
     def _publish_points(self, raw_points: np.ndarray):
-        """Transform points to robot center origin frame, apply ground removal if enabled, and publish full scan points over ZPipe IPC."""
-        points = self.transform_points_to_robot_frame(raw_points)
-
-        # Apply GroundRemovalFilter if enabled
-        if self.ground_removal and self.ground_filter is not None and len(points) > 0:
-            if hasattr(self.ground_filter, "estimate_ground"):
-                res = self.ground_filter.estimate_ground(points)
-                if isinstance(res, tuple):
-                    is_ground, fitted_planes = res
-                    self.ground_planes = fitted_planes
-                else:
-                    is_ground = res
-                    self.ground_planes = []
-                # Attach ground flag as 5th column (1.0 for ground, 0.0 for non-ground)
-                ground_col = is_ground.astype(np.float32).reshape(-1, 1)
-                points = np.hstack((points[:, :4], ground_col))
-            else:
-                points = self.ground_filter.remove_ground(points)
+        """Publish sensor-frame points with a ground-relative height flag."""
+        if raw_points is None or len(raw_points) == 0:
+            return
+        ground_z = self.transform_points_to_robot_frame(raw_points)[:, 2]
+        is_ground = (ground_z < self.min_obstacle_height_m).astype(np.float32)
+        points = np.column_stack((raw_points[:, :4], is_ground)).astype(np.float32)
 
         self._last_points = points
+        self.last_scan_time = time.time()
         if self.pub_socket and self.pub_socket.is_joined and len(points) > 0:
             try:
                 payload = pickle.dumps(points)
@@ -328,10 +288,7 @@ class VLP16(BaseDevice):
     def _parse_cycle_blocks(self, packet_list: List[bytes]) -> np.ndarray:
         """
         Parse accumulated 1206-byte VLP-16 UDP packets into a complete 360-degree revolution point cloud array.
-        Coordinate mapping for Viser (ROS/ISO Standard LiDAR frame):
-          X_viser = distance * cos(vertical) * sin(azimuth)    [Right / Left]
-          Y_viser = distance * sin(vertical)                   [Up / Down]
-          Z_viser = distance * cos(vertical) * cos(azimuth)    [Front / Forward]
+        Coordinates are sensor-local, with X forward, Y lateral, and Z up.
         """
         points = []
         vert_rad = np.radians(self.VERTICAL_ANGLES)
@@ -405,32 +362,6 @@ class VLP16(BaseDevice):
             return np.empty((0, 4), dtype=np.float32)
         except Exception:
             return np.empty((0, 4), dtype=np.float32)
-
-    def _generate_simulated_points(self) -> np.ndarray:
-        """Generate simulated 16-channel 360-degree revolution point cloud."""
-        num_points = 1600
-        min_rad = np.radians(self.min_angle)
-        max_rad = np.radians(self.max_angle)
-        angles = np.linspace(min_rad, max_rad, num_points)
-        distances = 3.0 + 1.5 * np.cos(angles * 2)
-
-        points = []
-        vert_rad = np.radians(self.VERTICAL_ANGLES)
-
-        for i, angle in enumerate(angles):
-            dist = distances[i]
-            # Cycle through 16 vertical laser channels
-            omega = vert_rad[i % 16]
-            xy = dist * math.cos(omega)
-            x_sensor = xy * math.cos(angle)
-            y_sensor = -xy * math.sin(angle)
-            z_sensor = dist * math.sin(omega)
-
-            intensity = float(100 + (i % 155))
-
-            points.append([x_sensor, y_sensor, z_sensor, intensity])
-
-        return np.array(points, dtype=np.float32)
 
     def get_status(self) -> Dict[str, Any]:
         return {

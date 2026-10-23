@@ -95,6 +95,8 @@ class SynerexRTK(BaseDevice):
         self._serial_thread: Optional[threading.Thread] = None
         self._publisher_thread: Optional[threading.Thread] = None
         self._ws_thread: Optional[threading.Thread] = None
+        self._nmea_listeners: List[Callable[[str], None]] = []
+        self._nmea_listeners_lock = threading.Lock()
 
         # Connected WebSocket clients
         self._ws_clients = set()
@@ -123,6 +125,25 @@ class SynerexRTK(BaseDevice):
                         logger.info(f"[{self.name}] ZPipe IPC Publisher bound to ipc://{self.ipc_address}")
             except Exception as e:
                 logger.error(f"[{self.name}] Error creating ZPipe PUB socket: {e}")
+
+    def add_nmea_listener(self, callback: Callable[[str], None]) -> None:
+        with self._nmea_listeners_lock:
+            if callback not in self._nmea_listeners:
+                self._nmea_listeners.append(callback)
+
+    def remove_nmea_listener(self, callback: Callable[[str], None]) -> None:
+        with self._nmea_listeners_lock:
+            if callback in self._nmea_listeners:
+                self._nmea_listeners.remove(callback)
+
+    def _notify_nmea_listeners(self, line: str) -> None:
+        with self._nmea_listeners_lock:
+            listeners = tuple(self._nmea_listeners)
+        for callback in listeners:
+            try:
+                callback(line)
+            except Exception as error:
+                logger.error(f"[{self.name}] NMEA listener failed: {error}")
 
     def update_pose(self, lat: float, lon: float, alt: float = 45.0, heading: float = 0.0, fix_quality: int = 4):
         """Update current RTK position, heading and fix quality coordinates in a thread-safe manner."""
@@ -402,6 +423,7 @@ class SynerexRTK(BaseDevice):
                 try:
                     line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
                     if line and line.startswith('$'):
+                        self._notify_nmea_listeners(line)
                         self.parse_nmea_line(line)
                 except Exception as e:
                     logger.error(f"[{self.name}] Serial read error on '{self.port}': {e}")

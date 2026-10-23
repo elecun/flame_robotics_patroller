@@ -476,16 +476,15 @@ class DriveExecutor(BasePlugin):
         if not self.robot:
             return obstacles
 
-        # Use VLP-16 points if available
+        # Use height-classified VLP-16 points, transformed into the robot frame.
         if hasattr(self.robot, "last_vlp16_points") and self.robot.last_vlp16_points is not None:
             pts = self.robot.last_vlp16_points
-            if len(pts) > 0:
-                if pts.shape[1] >= 5:
-                    non_ground = pts[pts[:, 4] < 0.5]
-                    if len(non_ground) > 0:
-                        obstacles.extend([(float(p[0]), float(p[1])) for p in non_ground[::10]])
-                else:
-                    obstacles.extend([(float(p[0]), float(p[1])) for p in pts[::20]])
+            vlp = getattr(self.robot, "devices", {}).get("vlp-16")
+            if vlp is not None and len(pts) > 0 and pts.shape[1] >= 5:
+                non_ground = pts[pts[:, 4] < 0.5]
+                if len(non_ground) > 0:
+                    robot_points = vlp.transform_points_to_robot_frame(non_ground[::10])
+                    obstacles.extend((float(p[0]), float(p[1])) for p in robot_points)
 
         return obstacles
 
@@ -567,6 +566,16 @@ class DriveExecutor(BasePlugin):
 
             if not self.is_active:
                 break
+
+            vlp = getattr(self.robot, "devices", {}).get("vlp-16") if self.robot else None
+            if vlp is not None and getattr(vlp, "enable", False):
+                packet_time = getattr(vlp, "last_packet_time", None)
+                scan_time = getattr(vlp, "last_scan_time", None)
+                if (packet_time is None or scan_time is None
+                        or time.time() - min(packet_time, scan_time) > 2.0):
+                    self._apply_stop_command()
+                    time.sleep(self.control_period)
+                    continue
 
             # If MissionManager is performing POI mast inspection, hold vehicle stopped
             if self.is_paused_for_poi:
