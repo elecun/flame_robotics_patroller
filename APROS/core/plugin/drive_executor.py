@@ -476,20 +476,26 @@ class DriveExecutor(BasePlugin):
                 dlon = rtk_dev.longitude - self.origin_lon
                 rx = dlat * 111000.0
                 ry = -dlon * 111000.0 * np.cos(np.radians(self.origin_lat))
-                # Note: RTK heading (rtk_dev.heading) is NOT used.
-                # Compute vehicle heading from position motion displacement delta.
-                if self._prev_pose_x is not None and self._prev_pose_y is not None:
-                    dx_m = rx - self._prev_pose_x
-                    dy_m = ry - self._prev_pose_y
-                    if math.hypot(dx_m, dy_m) > 0.02:
-                        cand_hdg = math.atan2(dy_m, dx_m)
-                        # Assume forward-only movement: filter out reverse displacement vectors (> 90 deg diff) caused by RTK noise
-                        hdg_diff = math.atan2(math.sin(cand_hdg - self._current_motion_heading), math.cos(cand_hdg - self._current_motion_heading))
-                        if abs(hdg_diff) <= math.pi / 2.0:
-                            self._current_motion_heading = cand_hdg
+
+                # Use dual-antenna RTK True Heading (from $GPTHS / $GNTHS: 0 deg = North/+X, 90 deg = East/-Y)
+                # Convert clockwise compass heading (deg) to counter-clockwise planner yaw (rad): yaw = -radians(heading_deg)
+                rtk_hdg_deg = getattr(rtk_dev, "heading", None)
+                if rtk_hdg_deg is not None:
+                    rheading = math.atan2(math.sin(-math.radians(float(rtk_hdg_deg))), math.cos(-math.radians(float(rtk_hdg_deg))))
+                    self._current_motion_heading = rheading
+                else:
+                    # Fallback to motion displacement delta if THS heading is unavailable
+                    if self._prev_pose_x is not None and self._prev_pose_y is not None:
+                        dx_m = rx - self._prev_pose_x
+                        dy_m = ry - self._prev_pose_y
+                        if math.hypot(dx_m, dy_m) > 0.02:
+                            cand_hdg = math.atan2(dy_m, dx_m)
+                            hdg_diff = math.atan2(math.sin(cand_hdg - self._current_motion_heading), math.cos(cand_hdg - self._current_motion_heading))
+                            if abs(hdg_diff) <= math.pi / 2.0:
+                                self._current_motion_heading = cand_hdg
+                    rheading = self._current_motion_heading
                 self._prev_pose_x = rx
                 self._prev_pose_y = ry
-                rheading = self._current_motion_heading
 
                 # Update simulated pose so Viser robot visualization tracks position
                 if hasattr(self.robot, "simulated_x"):

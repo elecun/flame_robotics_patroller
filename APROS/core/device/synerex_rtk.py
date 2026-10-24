@@ -296,69 +296,42 @@ class SynerexRTK(BaseDevice):
             pass
 
     def parse_hdt(self, parts: list):
-        if len(parts) < 2:
-            return
-        try:
-            if parts[1]:
-                hdg_val = float(parts[1])
-                with self._lock:
-                    self.heading = hdg_val
-                    self.new_updated = True
-        except (ValueError, IndexError):
-            pass
+        """Ignored: Dual-antenna heading is parsed exclusively from THS ($GPTHS / $GNTHS)."""
+        return
 
     def parse_rmc(self, parts: list):
-        if len(parts) < 9:
+        if len(parts) < 7:
             return
         try:
             lat_raw, lat_dir = parts[3], parts[4]
             lon_raw, lon_dir = parts[5], parts[6]
             lat_val = self._convert_to_decimal_degrees(lat_raw, lat_dir) if (lat_raw and lat_dir) else None
             lon_val = self._convert_to_decimal_degrees(lon_raw, lon_dir) if (lon_raw and lon_dir) else None
-            hdg_val = float(parts[8]) if parts[8] else None
 
             with self._lock:
                 if lat_val is not None:
                     self.latitude = lat_val
                 if lon_val is not None:
                     self.longitude = lon_val
-                if hdg_val is not None:
-                    self.heading = hdg_val
                 self.new_updated = True
         except (ValueError, IndexError):
             pass
 
     def parse_vtg(self, parts: list):
-        if len(parts) < 2:
-            return
-        try:
-            if parts[1]:
-                hdg_val = float(parts[1])
-                with self._lock:
-                    self.heading = hdg_val
-                    self.new_updated = True
-        except (ValueError, IndexError):
-            pass
+        """Ignored: Dual-antenna heading is parsed exclusively from THS ($GPTHS / $GNTHS)."""
+        return
 
     def parse_pashr(self, parts: list):
-        """Parse $PASHR Ashtech/Hemisphere NMEA sentence containing Heading & Roll/Pitch telemetry."""
-        if len(parts) < 3:
-            return
-        try:
-            if parts[2]:
-                hdg_val = float(parts[2])
-                with self._lock:
-                    self.heading = hdg_val
-                    self.new_updated = True
-        except (ValueError, IndexError):
-            pass
+        """Ignored: Dual-antenna heading is parsed exclusively from THS ($GPTHS / $GNTHS)."""
+        return
 
     def parse_ths(self, parts: list):
-        """Parse $GPTHS / $GNTHS True Heading and Status NMEA sentence."""
+        """Parse $GPTHS / $GNTHS True Heading and Status NMEA sentence (dual-antenna heading)."""
         if len(parts) < 3:
             return
         try:
-            if parts[1] and parts[2] != 'V':
+            status_mode = parts[2].split('*')[0].strip().upper()
+            if parts[1] and status_mode != 'V':
                 hdg_val = float(parts[1])
                 with self._lock:
                     self.heading = hdg_val
@@ -367,40 +340,24 @@ class SynerexRTK(BaseDevice):
             pass
 
     def parse_ksxt(self, parts: list):
-        """Parse $KSXT NMEA sentence."""
-        if len(parts) < 5:
-            return
-        try:
-            if parts[4]:
-                hdg_val = float(parts[4])
-                with self._lock:
-                    self.heading = hdg_val
-                    self.new_updated = True
-        except (ValueError, IndexError):
-            pass
+        """Ignored: Dual-antenna heading is parsed exclusively from THS ($GPTHS / $GNTHS)."""
+        return
 
     def parse_nmea_line(self, line: str):
         line = line.strip()
         if not line.startswith('$'):
             return
-        parts = line.split(',')
+        body = line.split('*')[0]
+        parts = body.split(',')
         if len(parts) < 2:
             return
-        sentence_id = parts[0][1:]
+        sentence_id = parts[0][1:].upper()
         if sentence_id.endswith('GGA'):
             self.parse_gga(parts)
-        elif sentence_id.endswith('HDT'):
-            self.parse_hdt(parts)
-        elif sentence_id.endswith('THS'):
+        elif sentence_id in ('GPTHS', 'GNTHS') or sentence_id.endswith('THS'):
             self.parse_ths(parts)
-        elif sentence_id.endswith('PASHR'):
-            self.parse_pashr(parts)
-        elif sentence_id.endswith('KSXT'):
-            self.parse_ksxt(parts)
         elif sentence_id.endswith('RMC'):
             self.parse_rmc(parts)
-        elif sentence_id.endswith('VTG'):
-            self.parse_vtg(parts)
 
     def _serial_reader_loop(self):
         """Thread 1: Asynchronous Serial NMEA Reader Loop. Continously reads incoming NMEA lines and updates shared telemetry state."""
