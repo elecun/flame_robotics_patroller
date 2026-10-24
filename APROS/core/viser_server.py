@@ -657,6 +657,34 @@ class ViserServerManager:
                 self.poi_mast_line_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
                 self.poi_mast_line_handle.visible = False
 
+        if origin_lat is not None and origin_lon is not None and self.robot and getattr(self.robot, "simulation_mode", False):
+            init_h = 0.0
+            if len(route_waypoints) >= 2:
+                lat0, lon0 = route_waypoints[0]
+                lat1, lon1 = route_waypoints[1]
+                dx0 = (lat1 - lat0) * 111000.0
+                dy0 = -(lon1 - lon0) * 111000.0 * math.cos(math.radians(lat0))
+                if math.hypot(dx0, dy0) > 0.001:
+                    init_h = math.atan2(dy0, dx0)
+            self.robot.simulated_x = 0.0
+            self.robot.simulated_y = 0.0
+            self.robot.simulated_heading = init_h
+            if hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                self.robot.drive_base.simulated_heading = init_h
+                self.robot.drive_base.lat = origin_lat
+                self.robot.drive_base.lon = origin_lon
+            if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                self.robot.drive_executor.origin_lat = origin_lat
+                self.robot.drive_executor.origin_lon = origin_lon
+            # Center connected Viser client cameras on the selected route origin
+            target_rx, target_ry = self._wgs84_to_tm_viser(origin_lat, origin_lon)
+            for cl in self.server.get_clients().values():
+                try:
+                    cl.camera.position = (target_rx - 6.0, target_ry - 3.5, 4.5)
+                    cl.camera.look_at = (target_rx, target_ry, 0.5)
+                except Exception:
+                    pass
+
         logger.info(f"[ViserServerManager] Preview updated for Route '{route_file_name}' ({len(route_waypoints)} pts) & POI '{poi_file_name}' ({len(poi_waypoints)} pts)")
 
 
@@ -1111,6 +1139,7 @@ class ViserServerManager:
                         matching_poi = f"{base_name}.poi"
                         if matching_poi in poi_files:
                             mission_poi_dropdown.value = matching_poi
+                        self._update_mission_preview(mission_route_dropdown.value, mission_poi_dropdown.value)
 
                 @mission_poi_dropdown.on_update
                 def _(_):
@@ -1154,6 +1183,7 @@ class ViserServerManager:
                         @confirm_btn.on_click
                         def _(_):
                             modal.close()
+                            self._update_mission_preview(route_file, poi_file)
                             mission_mgr = getattr(self.robot, "mission_manager", None)
                             drive_exec = getattr(self.robot, "drive_executor", None)
                             if mission_mgr and hasattr(mission_mgr, "start_mission"):

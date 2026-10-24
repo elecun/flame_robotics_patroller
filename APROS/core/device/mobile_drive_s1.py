@@ -122,10 +122,11 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         self.ch = None
         self.parser = CANParser()
 
-        # Steering angle bounds (degrees) - Default: 30.0 deg (min_steering_angle = -1 * max_steering_angle)
+        # Steering angle bounds (degrees) - Default: 30.0 deg (strictly bounded within [-30.0, +30.0] deg)
+        # Polarity: - is Right turn (CW), + is Left turn (CCW)
         if "max_steer_angle" in kwargs:
             max_steering_angle = kwargs["max_steer_angle"]
-        self.max_steering_angle = abs(float(max_steering_angle))
+        self.max_steering_angle = min(30.0, abs(float(max_steering_angle)))
         self.min_steering_angle = -self.max_steering_angle
 
         # Velocity bounds (km/h) - soft limit bounds for input velocity control

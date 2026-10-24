@@ -23,12 +23,12 @@ class RobotConfig:
     tread: float = 0.834       # 834 mm (Track width: 2 * 0.417m)
     
     # Steering and Velocity Limits
-    max_steer_angle: float = math.radians(30.0)  # 28 deg = 0.4886 rad
-    min_steer_angle: float = math.radians(-30.0)
+    max_steer_angle: float = math.radians(30.0)  # +30 deg = +0.5236 rad (Left turn / CCW)
+    min_steer_angle: float = math.radians(-30.0) # -30 deg = -0.5236 rad (Right turn / CW)
     max_velocity: float = 3.0 / 3.6              # 3.0 km/h = 0.833 m/s
     min_velocity: float = 0.0                    # Forward only (or negative if reverse allowed)
     max_accel: float = 1.0                       # m/s^2
-    max_steer_rate: float = math.radians(45.0)   # rad/s
+    max_steer_rate: float = math.radians(15.0)   # 15 deg/s = 0.2618 rad/s
 
     # Global Planner Constraints
     max_lat_accel: float = 1.8                   # m/s^2 (Maximum lateral acceleration for curvature speed limiting)
@@ -108,17 +108,21 @@ class RobotConfig:
             self.max_accel = float(sec["max_accel"])
 
         if "min_steer_angle_deg" in sec:
-            self.min_steer_angle = math.radians(float(sec["min_steer_angle_deg"]))
+            self.min_steer_angle = max(math.radians(-30.0), math.radians(float(sec["min_steer_angle_deg"])))
         elif "min_steer_angle" in sec:
             val = float(sec["min_steer_angle"])
-            self.min_steer_angle = math.radians(val) if abs(val) > 1.5 else val
+            rad_val = math.radians(val) if abs(val) > 1.5 else val
+            self.min_steer_angle = max(math.radians(-30.0), rad_val)
         if "max_steer_angle_deg" in sec:
-            self.max_steer_angle = math.radians(float(sec["max_steer_angle_deg"]))
+            self.max_steer_angle = min(math.radians(30.0), math.radians(float(sec["max_steer_angle_deg"])))
         elif "max_steer_angle" in sec or "max_steering_angle" in sec:
             val_str = sec.get("max_steer_angle", sec.get("max_steering_angle"))
             val = float(val_str)
-            self.max_steer_angle = math.radians(val) if abs(val) > 1.5 else val
-        if "max_steer_rate" in sec:
+            rad_val = math.radians(val) if abs(val) > 1.5 else val
+            self.max_steer_angle = min(math.radians(30.0), rad_val)
+        if "max_steer_rate_deg_s" in sec:
+            self.max_steer_rate = math.radians(float(sec["max_steer_rate_deg_s"]))
+        elif "max_steer_rate" in sec:
             val = float(sec["max_steer_rate"])
             self.max_steer_rate = math.radians(val) if abs(val) > 1.5 else val
 

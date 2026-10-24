@@ -239,6 +239,25 @@ class DriveExecutor(BasePlugin):
         if poi_file_name:
             self.load_mission_poi(poi_file_name, lat0, lon0)
 
+        # In --simulation mode, place simulated robot at the route origin with initial path heading
+        if self.robot and getattr(self.robot, "simulation_mode", False) and self.global_path:
+            init_h = float(self.global_path[0].get("heading", 0.0))
+            if len(self.global_path) >= 2:
+                dx0 = self.global_path[1]["x"] - self.global_path[0]["x"]
+                dy0 = self.global_path[1]["y"] - self.global_path[0]["y"]
+                if math.hypot(dx0, dy0) > 0.001:
+                    init_h = math.atan2(dy0, dx0)
+            self.robot.simulated_x = float(self.global_path[0]["x"])
+            self.robot.simulated_y = float(self.global_path[0]["y"])
+            self.robot.simulated_heading = init_h
+            self._current_motion_heading = init_h
+            if hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                self.robot.drive_base.simulated_heading = init_h
+                self.robot.drive_base.lat = lat0
+                self.robot.drive_base.lon = lon0
+            if self.local_planner and hasattr(self.local_planner, "reset_state"):
+                self.local_planner.reset_state()
+
         return True
 
     def start_mission(self, route_file_name: Optional[str] = None, poi_file_name: Optional[str] = None) -> bool:
@@ -261,6 +280,31 @@ class DriveExecutor(BasePlugin):
 
             self.is_active = True
             self.mission_status = "Patrolling..."
+
+            # In --simulation mode, if robot is far from route or at end of previous run, reset to route start
+            if self.robot and getattr(self.robot, "simulation_mode", False) and self.global_path:
+                sim_x = float(getattr(self.robot, "simulated_x", 0.0))
+                sim_y = float(getattr(self.robot, "simulated_y", 0.0))
+                goal_pt = self.global_path[-1]
+                dist_to_start = math.hypot(self.global_path[0]["x"] - sim_x, self.global_path[0]["y"] - sim_y)
+                dist_to_goal = math.hypot(goal_pt["x"] - sim_x, goal_pt["y"] - sim_y)
+                if dist_to_goal <= self.goal_reach_threshold * 2.0 or dist_to_start > 5.0:
+                    init_h = float(self.global_path[0].get("heading", 0.0))
+                    if len(self.global_path) >= 2:
+                        dx0 = self.global_path[1]["x"] - self.global_path[0]["x"]
+                        dy0 = self.global_path[1]["y"] - self.global_path[0]["y"]
+                        if math.hypot(dx0, dy0) > 0.001:
+                            init_h = math.atan2(dy0, dx0)
+                    self.robot.simulated_x = float(self.global_path[0]["x"])
+                    self.robot.simulated_y = float(self.global_path[0]["y"])
+                    self.robot.simulated_heading = init_h
+                    if hasattr(self.robot, "drive_base") and self.robot.drive_base:
+                        self.robot.drive_base.simulated_heading = init_h
+                        if hasattr(self, "origin_lat") and self.origin_lat is not None:
+                            self.robot.drive_base.lat = self.origin_lat
+                            self.robot.drive_base.lon = self.origin_lon
+                if self.local_planner and hasattr(self.local_planner, "reset_state"):
+                    self.local_planner.reset_state()
 
             # Trim global_path from current robot position to final goal
             pose, _ = self._get_current_robot_pose()
@@ -597,12 +641,14 @@ class DriveExecutor(BasePlugin):
             # 3. Compute controls with the configured local planner to track the route.
             obstacles = self._get_obstacle_points()
             if self.local_planner is not None:
-                # Anchor the first predicted steering step to the last issued CAN command.
-                pose["steering_deg"] = float(getattr(drive_dev, "cmd_steering_angle", 0.0))
+                # Anchor the first predicted steering step to the last issued CAN / simulated command.
+                cmd_steer_deg = float(getattr(drive_dev, "cmd_steering_angle", getattr(drive_dev, "steer_angle", 0.0)))
+                pose["steering_deg"] = cmd_steer_deg
+                pose["steering_rad"] = math.radians(cmd_steer_deg)
                 pose["control_dt"] = self.control_period
                 # The current window is capped by point count; MPPI applies lookahead later.
                 lookahead_dist = getattr(self.local_planner.config, "lookahead_distance", 3.0) if hasattr(self.local_planner, "config") else 3.0
-                local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=50)
+                local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=200)
                 target_v_ms, target_delta = self.local_planner.compute_velocity_commands(
                     current_pose=pose,
                     current_vel=vel_ms,

@@ -316,7 +316,7 @@
     <child link="steer_dummy_link"/>
     <origin xyz="0.575 0 0" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-0.4886" upper="0.4886" effort="500.0" velocity="1.0"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
   </joint>
   <link name="steer_dummy_link"/>
 
@@ -326,7 +326,7 @@
     <child link="front_left_wheel_link"/>
     <origin xyz="0.575 0.417 -0.0661" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-0.4886" upper="0.4886" effort="500.0" velocity="1.0"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
     <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>
     <passive/>
   </joint>
@@ -349,7 +349,7 @@
     <child link="front_right_wheel_link"/>
     <origin xyz="0.575 -0.417 -0.0661" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-0.4886" upper="0.4886" effort="500.0" velocity="1.0"/>
+    <limit lower="-0.523599" upper="0.523599" effort="500.0" velocity="0.261799"/>
     <mimic joint="front_steer_joint" multiplier="1.0" offset="0.0"/>
     <passive/>
   </joint>

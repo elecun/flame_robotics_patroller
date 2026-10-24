@@ -176,13 +176,13 @@ class IAEPatrolV2:
                         **{key: cast(mppi.get(key, default)) for key, cast, default in (
                             ("samples", int, 96), ("horizon", int, 36), ("iterations", int, 2),
                             ("temperature", float, 1.0), ("steering_noise_deg", float, math.degrees(0.16)),
-                            ("velocity_noise", float, 0.22), ("initial_velocity_kmh", float, 2.0),
+                            ("velocity_noise", float, 0.08), ("initial_velocity_kmh", float, 2.0),
                             ("obstacle_limit", int, 192), ("obstacle_range_margin", float, 1.0),
-                            ("path_distance_weight", float, 1.4), ("heading_weight", float, 0.25),
+                            ("path_distance_weight", float, 1.4), ("heading_weight", float, 0.8),
                             ("clearance_weight", float, 2.0), ("collision_cost", float, 1e4),
-                            ("velocity_weight", float, 0.12), ("steering_weight", float, 0.08),
-                            ("max_steer_rate_deg_s", float, 30.0),
-                            ("steering_change_weight", float, 0.01),
+                            ("velocity_weight", float, 1.2), ("steering_weight", float, 0.08),
+                            ("max_steer_rate_deg_s", float, 15.0),
+                            ("steering_change_weight", float, 0.02),
                             ("terminal_distance_weight", float, 2.0),
                         )},
                     )
@@ -194,6 +194,8 @@ class IAEPatrolV2:
             self.drive_executor = DriveExecutor(
                 robot=self, global_planner=self.global_planner, local_planner=self.local_planner,
                 control_freq=float(drive_cfg.get("control_freq", 10.0)))
+            if self.drive_base and hasattr(self.drive_base, "wheelbase") and hasattr(self, "robot_config"):
+                self.drive_base.wheelbase = float(self.robot_config.wheelbase)
             self.plugins["drive_executor"] = self.drive_executor
             logger.info(f"[IAEPatrolV2] Navigation ready: global={gp_name}, local={lp_name}.")
         except Exception as e:
@@ -290,8 +292,32 @@ class IAEPatrolV2:
         try:
             mod = importlib.import_module("APROS.core.device.robot_controller" if __name__.startswith("APROS") else "core.device.robot_controller")
             cls = getattr(mod, "RobotController")
-            instance = cls(name="mobile_drive_s1")
-            logger.info("[IAEPatrolV2] Using RobotController simulation drive; MobileDriveS1/CANlib was not loaded.")
+            kwargs = {}
+            if self.config and self.config.has_section("PLATFORM"):
+                plat_sec = self.config["PLATFORM"]
+                for key in ("default_lat", "default_lon", "default_alt"):
+                    if key in plat_sec:
+                        try:
+                            kwargs[key] = float(plat_sec[key])
+                        except ValueError:
+                            pass
+            if self.config and self.config.has_section("mobile_drive_s1"):
+                sec = self.config["mobile_drive_s1"]
+                for key in ("min_velocity", "max_velocity", "max_steering_angle", "lookahead_distance", "predict_time", "corridor_boundary"):
+                    if key in sec:
+                        try:
+                            kwargs[key] = float(sec[key])
+                        except ValueError:
+                            pass
+            if self.config and self.config.has_section("mppi_local_planner"):
+                mppi_sec = self.config["mppi_local_planner"]
+                if "max_steer_rate_deg_s" in mppi_sec:
+                    try:
+                        kwargs["max_steer_rate_deg_s"] = float(mppi_sec["max_steer_rate_deg_s"])
+                    except ValueError:
+                        pass
+            instance = cls(name="mobile_drive_s1", **kwargs)
+            logger.info(f"[IAEPatrolV2] Using RobotController simulation drive ({kwargs}); MobileDriveS1/CANlib was not loaded.")
             return instance
         except Exception as e:
             logger.error(f"[IAEPatrolV2] Could not initialize simulated drive: {e}")

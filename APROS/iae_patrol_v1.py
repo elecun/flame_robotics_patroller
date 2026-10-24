@@ -4,6 +4,7 @@ Dynamically loads configured device and plugin modules from apros.cfg and inject
 """
 
 import os
+import math
 import inspect
 import importlib
 from typing import Dict, Any, Optional
@@ -93,6 +94,10 @@ class IAEPatrolV1:
         self.mast_executor = None
         self.mission_manager = None
 
+        self.simulated_x = 0.0
+        self.simulated_y = 0.0
+        self.simulated_heading = 0.0
+
         self._init_path_planners_and_executor()
 
         # Inject ZPipe context if provided
@@ -120,6 +125,9 @@ class IAEPatrolV1:
             gp_mod_name = self.config.get("iae_patrol_v1", "global_planner", fallback="cubic_spline_global_planner").strip()
             lp_mod_name = self.config.get("iae_patrol_v1", "local_planner", fallback="ackermann_dwa_local_planner").strip()
 
+        if self.config:
+            self.robot_config.update_from_config(self.config, planner_section=lp_mod_name)
+
         # 1. Dynamically load Global Planner
         try:
             gp_module_path = f"APROS.core.plugin.path_planner.{gp_mod_name}" if __name__.startswith("APROS") else f"core.plugin.path_planner.{gp_mod_name}"
@@ -146,7 +154,25 @@ class IAEPatrolV1:
                     lp_cls = getattr(mod_lp, attr_name)
                     break
             if lp_cls:
-                self.local_planner = lp_cls(self.robot_config)
+                if lp_mod_name == "mppi_local_planner":
+                    mppi = self.config[lp_mod_name] if self.config and self.config.has_section(lp_mod_name) else {}
+                    self.local_planner = lp_cls(
+                        self.robot_config,
+                        **{key: cast(mppi.get(key, default)) for key, cast, default in (
+                            ("samples", int, 96), ("horizon", int, 36), ("iterations", int, 2),
+                            ("temperature", float, 1.0), ("steering_noise_deg", float, math.degrees(0.16)),
+                            ("velocity_noise", float, 0.08), ("initial_velocity_kmh", float, 2.0),
+                            ("obstacle_limit", int, 192), ("obstacle_range_margin", float, 1.0),
+                            ("path_distance_weight", float, 1.4), ("heading_weight", float, 0.8),
+                            ("clearance_weight", float, 2.0), ("collision_cost", float, 1e4),
+                            ("velocity_weight", float, 1.2), ("steering_weight", float, 0.08),
+                            ("max_steer_rate_deg_s", float, 15.0),
+                            ("steering_change_weight", float, 0.02),
+                            ("terminal_distance_weight", float, 2.0),
+                        )},
+                    )
+                else:
+                    self.local_planner = lp_cls(self.robot_config)
                 logger.info(f"[IAEPatrolV1] Dynamically loaded Local Planner '{lp_mod_name}' ({lp_cls.__name__}).")
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Failed to load Local Planner '{lp_mod_name}': {e}")
@@ -166,6 +192,8 @@ class IAEPatrolV1:
                 local_planner=self.local_planner,
                 control_freq=control_freq
             )
+            if self.drive_base and hasattr(self.drive_base, "wheelbase") and hasattr(self, "robot_config"):
+                self.drive_base.wheelbase = float(self.robot_config.wheelbase)
             self.plugins["drive_executor"] = self.drive_executor
             logger.info(f"[IAEPatrolV1] Drive Executor plugin initialized (control_freq={control_freq}Hz).")
         except Exception as e:
@@ -288,8 +316,32 @@ class IAEPatrolV1:
         try:
             mod = importlib.import_module("APROS.core.device.robot_controller" if __name__.startswith("APROS") else "core.device.robot_controller")
             cls = getattr(mod, "RobotController")
-            instance = cls(name="mobile_drive_s1")
-            logger.info("[IAEPatrolV1] Using RobotController simulation drive; MobileDriveS1/CANlib was not loaded.")
+            kwargs = {}
+            if self.config and self.config.has_section("PLATFORM"):
+                plat_sec = self.config["PLATFORM"]
+                for key in ("default_lat", "default_lon", "default_alt"):
+                    if key in plat_sec:
+                        try:
+                            kwargs[key] = float(plat_sec[key])
+                        except ValueError:
+                            pass
+            if self.config and self.config.has_section("mobile_drive_s1"):
+                sec = self.config["mobile_drive_s1"]
+                for key in ("min_velocity", "max_velocity", "max_steering_angle", "lookahead_distance", "predict_time", "corridor_boundary"):
+                    if key in sec:
+                        try:
+                            kwargs[key] = float(sec[key])
+                        except ValueError:
+                            pass
+            if self.config and self.config.has_section("mppi_local_planner"):
+                mppi_sec = self.config["mppi_local_planner"]
+                if "max_steer_rate_deg_s" in mppi_sec:
+                    try:
+                        kwargs["max_steer_rate_deg_s"] = float(mppi_sec["max_steer_rate_deg_s"])
+                    except ValueError:
+                        pass
+            instance = cls(name="mobile_drive_s1", **kwargs)
+            logger.info(f"[IAEPatrolV1] Using RobotController simulation drive ({kwargs}); MobileDriveS1/CANlib was not loaded.")
             return instance
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Could not initialize simulated drive: {e}")
@@ -565,3 +617,9 @@ class IAEPatrolV1:
     def update_simulation_step(self, dt: float = 0.05):
         if self.drive_base and hasattr(self.drive_base, 'update_simulation_step'):
             self.drive_base.update_simulation_step(dt=dt)
+            if self.simulation_mode:
+                speed_m_s = float(getattr(self.drive_base, "speed", 0.0)) / 3.6
+                heading = float(getattr(self.drive_base, "simulated_heading", self.simulated_heading))
+                self.simulated_x += speed_m_s * math.cos(heading) * dt
+                self.simulated_y += speed_m_s * math.sin(heading) * dt
+                self.simulated_heading = heading
