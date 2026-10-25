@@ -2,8 +2,10 @@
 APROS Viser Visualization Server & UI Module.
 Handles 3D visualization, robot box model (W:1000, L:2055, H:640 mm), CAN connection status display, and MobileDriveS1 control integration.
 """
+import csv
 import math
 import os
+import random
 import importlib
 import time
 from datetime import datetime
@@ -22,12 +24,117 @@ logger = ConsoleLogger.get_logger()
 
 
 class ViserServerManager:
+    @staticmethod
+    def _ensure_viser_offline_client_bundle() -> None:
+        """Ensure Viser client bundle and Draco decoders are served locally without external CDN calls."""
+        import html
+        import pathlib
+        import re
+        import shutil
+        import zstandard
+
+        viser_build_dir = pathlib.Path(viser.__file__).resolve().parent / "client" / "build"
+        index_path = viser_build_dir / "index.html"
+        local_draco_dir = pathlib.Path(__file__).resolve().parent / "offline_assets" / "draco" / "v1" / "decoders"
+        target_draco_dir = viser_build_dir / "draco" / "v1" / "decoders"
+
+        if local_draco_dir.is_dir():
+            target_draco_dir.mkdir(parents=True, exist_ok=True)
+            for asset in local_draco_dir.iterdir():
+                if asset.is_file() and not (target_draco_dir / asset.name).exists():
+                    shutil.copy2(asset, target_draco_dir / asset.name)
+
+        if not index_path.is_file():
+            return
+        try:
+            text = index_path.read_text(encoding="utf-8")
+            m = re.search(r'data-p="(.*?)" data-ss="(\d+)" data-cs="(\d+)"', text)
+            if not m:
+                return
+            dp = html.unescape(m.group(1))
+            ss = int(m.group(2))
+            cs = int(m.group(3))
+
+            alphabet = "!#$%()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz{|}~"
+            lut = [0] * 127
+            for idx, ch in enumerate(alphabet):
+                lut[ord(ch)] = idx
+
+            n = len(dp) // 5
+            r = len(dp) % 5
+            compressed = bytearray(n * 4 + (r - 1 if r else 0))
+            i = 0
+            o = 0
+            while i + 5 <= len(dp):
+                v = 0
+                for j in range(5):
+                    v = v * 88 + lut[ord(dp[i + j])]
+                compressed[o] = (v >> 24) & 255
+                compressed[o + 1] = (v >> 16) & 255
+                compressed[o + 2] = (v >> 8) & 255
+                compressed[o + 3] = v & 255
+                o += 4
+                i += 5
+            if r:
+                v = 0
+                for j in range(r):
+                    v = v * 88 + lut[ord(dp[i + j])]
+                for j in range(r - 2, -1, -1):
+                    compressed[o + j] = v % 256
+                    v //= 256
+
+            raw = zstandard.ZstdDecompressor().decompress(bytes(compressed), max_output_size=ss + cs + 1024)
+            old_cdn = b"https://www.gstatic.com/draco/v1/decoders/"
+            if old_cdn not in raw[ss:]:
+                return
+
+            new_code = raw[ss:].replace(old_cdn, b"/draco/v1/decoders/")
+            new_cs = len(new_code)
+            new_compressed = zstandard.ZstdCompressor(level=19).compress(raw[:ss] + new_code)
+
+            out_chars = []
+            nc_len = len(new_compressed)
+            idx = 0
+            while idx + 4 <= nc_len:
+                v = (
+                    (new_compressed[idx] << 24)
+                    | (new_compressed[idx + 1] << 16)
+                    | (new_compressed[idx + 2] << 8)
+                    | new_compressed[idx + 3]
+                )
+                chunk = []
+                for _ in range(5):
+                    chunk.append(alphabet[v % 88])
+                    v //= 88
+                out_chars.extend(reversed(chunk))
+                idx += 4
+            rem = nc_len - idx
+            if rem > 0:
+                v = 0
+                for j in range(rem):
+                    v = (v << 8) | new_compressed[idx + j]
+                chunk = []
+                for _ in range(rem + 1):
+                    chunk.append(alphabet[v % 88])
+                    v //= 88
+                out_chars.extend(reversed(chunk))
+
+            new_dp = html.escape("".join(out_chars), quote=True)
+            patched = (
+                text[:m.start()]
+                + f'data-p="{new_dp}" data-ss="{ss}" data-cs="{new_cs}"'
+                + text[m.end():]
+            )
+            index_path.write_text(patched, encoding="utf-8")
+            logger.info("[ViserServerManager] Patched Viser frontend bundle for offline Draco decoding.")
+        except Exception as exc:
+            logger.warning(f"[ViserServerManager] Could not verify/patch Viser offline bundle: {exc}")
+
     def __init__(self, host: str = "0.0.0.0", port: int = 8080, robot: Any = None):
         self.host = host
         self.port = port
         self.robot = robot
-        if self.robot is not None and not getattr(self.robot, "is_connected", True):
-            self.robot.connect()
+        self._ensure_viser_offline_client_bundle()
 
         # Viser server
         self.server = viser.ViserServer(host=self.host, port=self.port)
@@ -51,7 +158,7 @@ class ViserServerManager:
             titlebar_content=None,
             control_layout="fixed",
             control_width="large",
-            dark_mode=True,
+            dark_mode=False,
             show_logo=False,
             brand_color=(30, 144, 255)
         )
@@ -92,7 +199,7 @@ class ViserServerManager:
             width: 100%;
             height: 48px;
             z-index: 10000;
-            background: rgba(15, 20, 32, 0.95);
+            background: rgba(255, 255, 255, 0.95);
             border-bottom: 1px solid rgba(30, 144, 255, 0.3);
             backdrop-filter: blur(10px);
             display: flex;
@@ -105,13 +212,12 @@ class ViserServerManager:
             <!-- Left: APROS Brand Title -->
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span style="
-                    color: #00E676;
+                    color: #00A854;
                     font-weight: 900;
                     font-size: 20px;
                     letter-spacing: 1.5px;
-                    text-shadow: 0 0 10px rgba(0,230,118,0.4);
                 ">APROS</span>
-                <span style="color: #78909C; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot Operating System</span>
+                <span style="color: #455A64; font-size: 13px; font-weight: 500;">| Autonomous Patrol Robot Operating System</span>
             </div>
         </div>
 
@@ -737,6 +843,15 @@ class ViserServerManager:
             with client.gui.add_folder("AIC Stream", expand_by_default=True):
                 init_aic_img = np.zeros((240, 320, 3), dtype=np.uint8)
                 gui_aic_image = client.gui.add_image(image=init_aic_img, format="jpeg")
+                aic_host = "192.168.10.4"
+                if hasattr(self.robot, "config") and self.robot.config and self.robot.config.has_section("fluke_sv600"):
+                    aic_host = self.robot.config.get("fluke_sv600", "host", fallback="192.168.10.4").strip()
+                client.gui.add_html(f"""
+                    <div style="padding: 4px 12px 8px 12px; font-size: 13px;">
+                        🔗 <a href="http://{aic_host}" target="_blank" rel="noopener noreferrer"
+                              style="color: #1E90FF; font-weight: 600; text-decoration: underline;">AIC Access</a>
+                    </div>
+                """)
         with status_panel.add_tab("Sensor", viser.Icon.RADAR):
             with client.gui.add_folder("Sensor Status", expand_by_default=True):
                 sensor_status_md = client.gui.add_markdown(self._format_status_text(sensor_only=True))
@@ -1371,6 +1486,11 @@ class ViserServerManager:
 
                         poi_sampler_status_md.content = f"**Status**: ✅ Generated `{poi_filename}` ({len(sampled_data)} points)"
                         logger.info(f"[ViserUI] POI file generated: {poi_file_path} ({len(sampled_data)} points)")
+                        nonlocal poi_files
+                        poi_files = get_poi_files()
+                        mission_poi_dropdown.options = poi_files
+                        if mission_route_dropdown.value == sel_route and poi_filename in poi_files:
+                            mission_poi_dropdown.value = poi_filename
 
                         modal = client.gui.add_modal("🎉 POI 생성 완료")
                         with modal:

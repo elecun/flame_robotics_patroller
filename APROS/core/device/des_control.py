@@ -60,6 +60,13 @@ class DesControl(BaseDevice):
                     logger.warning(f"[DES] Connected, but control lease denied: {control.get('reason')}")
             except Exception as exc:
                 logger.warning(f"[DES] Connected, but control lease request failed: {exc}")
+                self.is_connected = False
+                self._client = None
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                return False
             return True
 
     def disconnect(self) -> bool:
