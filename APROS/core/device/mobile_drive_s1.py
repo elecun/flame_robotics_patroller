@@ -556,7 +556,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
         """Set target velocity; zero remains zero and preserves the current gear."""
         clamped_speed = self._clamp_speed_kmh(speed_kmh)
         self.cmd_speed = clamped_speed
-        self.speed = clamped_speed
+        if "vehicle_velocity_val" not in self.parsed_can_status:
+            self.speed = clamped_speed
         if clamped_speed < -0.01:
             self.target_gear = "R"
             self.gear = "R"

@@ -8,6 +8,7 @@ import importlib
 import math
 import csv
 import time
+import random
 import threading
 import numpy as np
 from typing import Optional, List, Dict, Tuple, Any
@@ -55,12 +56,14 @@ class DriveExecutor(BasePlugin):
         self.global_path: List[Dict[str, float]] = []
         self.poi_tasks: List[Dict[str, Any]] = []  # List of {'x', 'y', 'mast_height_mm', 'executed'}
         self.poi_enabled: bool = True           # Toggle POI inspection & mast control
+        self.corridor_enabled: bool = True      # Toggle Corridor Boundary soft constraint in MPPI
         self.is_paused_for_poi: bool = False
         self.hil_simulation_enabled: bool = False  # Toggle HIL Simulation mode (1s step route pose update)
         self._hil_step_index: int = 0
         self._hil_last_update_time: float = 0.0
         self.goal_reach_threshold: float = 0.5  # meters
         self.poi_reach_threshold: float = 0.8   # meters
+        self.simulated_obstacles: List[Dict[str, Any]] = []  # Random route obstacles in --simulation mode
 
         # Motion-derived heading state (disables reliance on RTK heading)
         self._prev_pose_x: Optional[float] = None
@@ -235,9 +238,12 @@ class DriveExecutor(BasePlugin):
                 for pt, cb in zip(points_meter, corridor_boundaries)
             ]
 
-        # Load POI Tasks relative to route origin (lat0, lon0)
-        if poi_file_name:
+        # Load POI Tasks relative to route origin (lat0, lon0) only when poi_enabled and poi_file_name are set
+        if self.poi_enabled and poi_file_name and poi_file_name != "None":
             self.load_mission_poi(poi_file_name, lat0, lon0)
+        else:
+            self.poi_tasks = []
+            self.current_poi_file = None
 
         # In --simulation mode, place simulated robot at the route origin with initial path heading
         if self.robot and getattr(self.robot, "simulation_mode", False) and self.global_path:
@@ -259,6 +265,101 @@ class DriveExecutor(BasePlugin):
                 self.local_planner.reset_state()
 
         return True
+
+    def _generate_random_simulation_obstacles(self, count: int = 2):
+        """
+        Randomly place `count` obstacles along the global path in --simulation mode
+        so MPPI obstacle avoidance trajectory deflection can be observed.
+        """
+        self.simulated_obstacles = []
+        if not self.robot or not getattr(self.robot, "simulation_mode", False):
+            return
+        if not self.global_path or len(self.global_path) < 12:
+            return
+
+        total_pts = len(self.global_path)
+        # Compute cumulative arc length along global_path
+        cum_dist = [0.0]
+        for i in range(1, total_pts):
+            dx = self.global_path[i]["x"] - self.global_path[i - 1]["x"]
+            dy = self.global_path[i]["y"] - self.global_path[i - 1]["y"]
+            cum_dist.append(cum_dist[-1] + math.hypot(dx, dy))
+        total_len = cum_dist[-1]
+        if total_len < 6.0:
+            return
+
+        # Place obstacles in the early-to-mid section of the route so the user can observe
+        # MPPI obstacle avoidance shortly after clicking Start Mission, regardless of total route length.
+        first_min_s = min(8.0, total_len * 0.20)
+        first_max_s = min(18.0, total_len * 0.42)
+        second_min_s = min(24.0, total_len * 0.52)
+        second_max_s = min(38.0, total_len * 0.78)
+        s_ranges = [
+            (first_min_s, max(first_min_s + 1.0, first_max_s)),
+            (second_min_s, max(second_min_s + 1.0, second_max_s)),
+        ]
+        chosen_sides = [1.0, -1.0]
+        random.shuffle(chosen_sides)
+
+        for idx in range(count):
+            s_low, s_high = s_ranges[idx % len(s_ranges)]
+            target_s = random.uniform(s_low, s_high)
+            # Find path index closest to target_s
+            pt_idx = min(
+                range(total_pts),
+                key=lambda i: abs(cum_dist[i] - target_s),
+            )
+            pt = self.global_path[pt_idx]
+            # Estimate local path tangent heading
+            prev_pt = self.global_path[max(0, pt_idx - 1)]
+            next_pt = self.global_path[min(total_pts - 1, pt_idx + 1)]
+            tx = next_pt["x"] - prev_pt["x"]
+            ty = next_pt["y"] - prev_pt["y"]
+            t_len = math.hypot(tx, ty)
+            if t_len > 1e-6:
+                nx, ny = -ty / t_len, tx / t_len
+            else:
+                h = float(pt.get("heading", 0.0))
+                nx, ny = -math.sin(h), math.cos(h)
+
+            # Place obstacle near the route centerline (lateral offset 0.55m ~ 0.72m) so that:
+            # 1) Straight-line driving along the centerline (y=0) enters the robot's safety envelope
+            #    (half_w + radius = 0.485 + 0.50 + 0.15 = 1.135m > 0.72m) and MUST be avoided.
+            # 2) MPPI can smoothly steer around the opposite side within the 15 deg/s steering rate limit.
+            side = chosen_sides[idx % len(chosen_sides)]
+            lat_offset = side * random.uniform(0.55, 0.70)
+            obs_x = float(pt["x"]) + nx * lat_offset
+            obs_y = float(pt["y"]) + ny * lat_offset
+            obs_radius = 0.15  # 0.30m diameter obstacle
+            obs_height = 0.80  # 0.80m height
+
+            # Sample boundary points around the obstacle cylinder + center point for MPPI collision/clearance check
+            boundary_pts = [(obs_x, obs_y)]
+            for k in range(12):
+                ang = (2.0 * math.pi * k) / 12.0
+                boundary_pts.append((
+                    obs_x + obs_radius * math.cos(ang),
+                    obs_y + obs_radius * math.sin(ang),
+                ))
+
+            self.simulated_obstacles.append({
+                "id": idx + 1,
+                "x": obs_x,
+                "y": obs_y,
+                "radius": obs_radius,
+                "height": obs_height,
+                "s_m": cum_dist[pt_idx],
+                "lat_offset_m": lat_offset,
+                "points": boundary_pts,
+            })
+
+        logger.info(
+            f"[{self.name}] Placed {len(self.simulated_obstacles)} random simulation obstacles on route: "
+            + ", ".join(
+                f"Obs#{o['id']}(x={o['x']:.2f}m, y={o['y']:.2f}m, s={o['s_m']:.1f}m, offset={o['lat_offset_m']:+.2f}m)"
+                for o in self.simulated_obstacles
+            )
+        )
 
     def start_mission(self, route_file_name: Optional[str] = None, poi_file_name: Optional[str] = None) -> bool:
         """
@@ -306,9 +407,16 @@ class DriveExecutor(BasePlugin):
                 if self.local_planner and hasattr(self.local_planner, "reset_state"):
                     self.local_planner.reset_state()
 
-            # Trim global_path from current robot position to final goal
+            # Trim global_path from current robot position to final goal (only when valid pose is available)
+            has_valid_pose_for_trim = bool(self.robot and getattr(self.robot, "simulation_mode", False)) or self.hil_simulation_enabled
+            if not has_valid_pose_for_trim and self.robot:
+                rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                                if hasattr(self.robot, "devices") and name in self.robot.devices), None)
+                if rtk_dev and getattr(rtk_dev, "latitude", None) is not None and getattr(rtk_dev, "longitude", None) is not None and getattr(rtk_dev, "fix_quality", 0) != 0:
+                    has_valid_pose_for_trim = True
+
             pose, _ = self._get_current_robot_pose()
-            if self.global_path:
+            if self.global_path and has_valid_pose_for_trim:
                 nearest_idx = 0
                 min_dist = float("inf")
                 for i, pt in enumerate(self.global_path):
@@ -327,6 +435,12 @@ class DriveExecutor(BasePlugin):
 
             self._hil_step_index = 0
             self._hil_last_update_time = time.time()
+
+            # Generate 2 random obstacles along the active global path ONLY in --simulation mode
+            if self.robot and getattr(self.robot, "simulation_mode", False) and self.global_path:
+                self._generate_random_simulation_obstacles(count=2)
+            else:
+                self.simulated_obstacles = []
 
             # Initialize motion heading based on initial global path direction
             if self.global_path:
@@ -358,16 +472,30 @@ class DriveExecutor(BasePlugin):
     def abort_mission(self):
         """
         Abort mission route execution:
-        1. Set target input speed to 0.
-        2. Wait until vehicle speed decelerates to <= 0.01 km/h (within tolerance).
-        3. Set active brake (ad_dbs_valid=1, brake_stop), which automatically turns on brake light (0x506).
+        1. Set target input speed to 0 and steer to 0 immediately.
+        2. In --simulation mode, immediately zero out simulated speed & steer and apply brake_stop.
+        3. In real hardware mode, wait until vehicle speed decelerates to <= 0.01 km/h, then set active brake.
         """
         with self._lock:
             self.is_active = False
-            self.mission_status = "Aborted Mission"
+            self.mission_status = "Aborted"
             logger.info(f"[{self.name}] Mission abort requested.")
             if self.local_planner and hasattr(self.local_planner, "best_local_path"):
                 self.local_planner.best_local_path = []
+
+            # Immediate stop command dispatch
+            self._apply_stop_command()
+
+            # If simulation mode, immediately freeze speed and set brake
+            if self.robot and getattr(self.robot, "simulation_mode", False):
+                drive_dev = getattr(self.robot, "drive_base", None)
+                if drive_dev:
+                    if hasattr(drive_dev, "brake_stop"):
+                        drive_dev.brake_stop()
+                    elif hasattr(drive_dev, "set_speed"):
+                        drive_dev.set_speed(0.0)
+                logger.info(f"[{self.name}] Simulation robot stopped immediately on abort.")
+                return
 
         def _decelerate_and_brake_thread():
             if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
@@ -502,21 +630,27 @@ class DriveExecutor(BasePlugin):
                     self.robot.simulated_x = rx
                     self.robot.simulated_y = ry
                     self.robot.simulated_heading = rheading
-            else:
-                # Fallback to simulated pose
+            elif getattr(self.robot, "simulation_mode", False):
+                # Fallback to simulated pose ONLY in --simulation mode
                 rx = getattr(self.robot, "simulated_x", 0.0)
                 ry = getattr(self.robot, "simulated_y", 0.0)
                 rheading = getattr(self.robot, "simulated_heading", 0.0)
+            else:
+                # Real hardware mode without valid RTK fix yet
+                rx, ry, rheading = 0.0, 0.0, 0.0
 
             if hasattr(self.robot, "drive_base") and self.robot.drive_base:
                 drive_dev = self.robot.drive_base
-                if hasattr(drive_dev, "speed"):
+                # In real mode, use actual vehicle velocity feedback from CAN bus
+                if hasattr(drive_dev, "parsed_can_status") and "vehicle_velocity_val" in drive_dev.parsed_can_status:
+                    rvel = float(drive_dev.parsed_can_status["vehicle_velocity_val"]) / 3.6
+                elif hasattr(drive_dev, "speed"):
                     rvel = float(drive_dev.speed) / 3.6
 
         return {"x": rx, "y": ry, "heading": rheading}, rvel
 
-    def _get_obstacle_points(self) -> List[Tuple[float, float]]:
-        """Get current obstacle points from the VLP-16 point cloud."""
+    def _get_obstacle_points(self, pose: Optional[Dict[str, float]] = None) -> List[Tuple[float, float]]:
+        """Get current obstacle points in the robot body frame (+X forward, +Y left)."""
         obstacles: List[Tuple[float, float]] = []
 
         # When HIL Simulation mode is enabled, ignore VLP-16 LiDAR obstacles
@@ -525,6 +659,27 @@ class DriveExecutor(BasePlugin):
 
         if not self.robot:
             return obstacles
+
+        # In --simulation mode, include randomly placed route obstacles transformed to the robot body frame
+        if getattr(self.robot, "simulation_mode", False) and self.simulated_obstacles:
+            if pose is None:
+                rx = float(getattr(self.robot, "simulated_x", 0.0))
+                ry = float(getattr(self.robot, "simulated_y", 0.0))
+                rheading = float(getattr(self.robot, "simulated_heading", 0.0))
+            else:
+                rx = float(pose.get("x", 0.0))
+                ry = float(pose.get("y", 0.0))
+                rheading = float(pose.get("heading", 0.0))
+            c = math.cos(rheading)
+            s = math.sin(rheading)
+            for obs in self.simulated_obstacles:
+                for ox, oy in obs.get("points", []):
+                    dx = float(ox) - rx
+                    dy = float(oy) - ry
+                    # Transform global relative meter offset (dx, dy) into robot body frame (+X forward, +Y left)
+                    bx = dx * c + dy * s
+                    by = -dx * s + dy * c
+                    obstacles.append((bx, by))
 
         # Use height-classified VLP-16 points, transformed into the robot frame.
         if hasattr(self.robot, "last_vlp16_points") and self.robot.last_vlp16_points is not None:
@@ -617,6 +772,16 @@ class DriveExecutor(BasePlugin):
             if not self.is_active:
                 break
 
+            # In real hardware mode (not --simulation and not HIL), require valid RTK fix before moving
+            if self.robot and not getattr(self.robot, "simulation_mode", False) and not self.hil_simulation_enabled:
+                rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
+                                if hasattr(self.robot, "devices") and name in self.robot.devices), None)
+                if rtk_dev is not None and getattr(rtk_dev, "enable", False):
+                    if getattr(rtk_dev, "latitude", None) is None or getattr(rtk_dev, "longitude", None) is None or getattr(rtk_dev, "fix_quality", 0) == 0:
+                        self._apply_stop_command()
+                        time.sleep(self.control_period)
+                        continue
+
             vlp = getattr(self.robot, "devices", {}).get("vlp-16") if self.robot else None
             if vlp is not None and getattr(vlp, "enable", False):
                 packet_time = getattr(vlp, "last_packet_time", None)
@@ -645,13 +810,14 @@ class DriveExecutor(BasePlugin):
                 break
 
             # 3. Compute controls with the configured local planner to track the route.
-            obstacles = self._get_obstacle_points()
+            obstacles = self._get_obstacle_points(pose=pose)
             if self.local_planner is not None:
                 # Anchor the first predicted steering step to the last issued CAN / simulated command.
                 cmd_steer_deg = float(getattr(drive_dev, "cmd_steering_angle", getattr(drive_dev, "steer_angle", 0.0)))
                 pose["steering_deg"] = cmd_steer_deg
                 pose["steering_rad"] = math.radians(cmd_steer_deg)
                 pose["control_dt"] = self.control_period
+                pose["corridor_enabled"] = bool(getattr(self, "corridor_enabled", True))
                 # The current window is capped by point count; MPPI applies lookahead later.
                 lookahead_dist = getattr(self.local_planner.config, "lookahead_distance", 3.0) if hasattr(self.local_planner, "config") else 3.0
                 local_window = self._get_local_path_window(pose, self.global_path, lookahead=lookahead_dist, max_points=200)

@@ -82,9 +82,11 @@ class RobotController(BaseDevice):
 
     def _clamp_speed_kmh(self, speed_kmh: float) -> float:
         requested = float(speed_kmh)
-        if not math.isfinite(requested) or requested <= 0.01:
+        if not math.isfinite(requested) or abs(requested) <= 0.01:
             return 0.0
-        return max(self.MIN_VELOCITY_KMH, min(requested, self.MAX_VELOCITY_KMH))
+        if requested > 0:
+            return max(self.MIN_VELOCITY_KMH, min(requested, self.MAX_VELOCITY_KMH))
+        return min(-self.MIN_VELOCITY_KMH, max(requested, -self.MAX_VELOCITY_KMH))
 
     def set_drive_cmd(self, speed_kmh: float, steer_deg: float):
         self.set_speed(speed_kmh)
@@ -114,12 +116,20 @@ class RobotController(BaseDevice):
         self.ad_dbs_valid = 0
         self.cmd_brake = 0.0
         self.brake_light = False
-        self.set_speed(0.0)
+        self.cmd_speed = 0.0
+        self.speed = 0.0
+        self.cmd_steering_angle = 0.0
+        self.steer_angle = 0.0
 
     def brake_stop(self):
         self.ad_dbs_valid = 1
-        self.set_brake(10.0)
-        self.set_speed(0.0)
+        self.cmd_brake = 10.0
+        self.cmd_speed = 0.0
+        self.speed = 0.0
+        self.cmd_steering_angle = 0.0
+        self.steer_angle = 0.0
+        self.target_gear = "P"
+        self.gear = "P"
 
     def set_lights(
         self,

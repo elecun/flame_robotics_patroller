@@ -36,13 +36,18 @@ class MissionManager(BasePlugin):
         self,
         name: str = "mission_manager",
         robot: Optional[Any] = None,
-        poi_reach_threshold: float = 0.5,  # 0.5m tolerance
+        cpa_window_m: float = 2.0,
+        cpa_tolerance_m: float = 0.35,
+        poi_reach_threshold: Optional[float] = None,  # Kept for backward compatibility
         enable: bool = True
     ):
         super().__init__(name)
         self.enable = enable
         self.robot = robot
-        self.poi_reach_threshold = float(poi_reach_threshold)
+        self.cpa_window_m = float(cpa_window_m)
+        self.cpa_tolerance_m = float(cpa_tolerance_m)
+        self.poi_reach_threshold = float(poi_reach_threshold) if poi_reach_threshold is not None else 0.5
+        self.simulated_mast_height: float = 2900.0
 
         # Mission state variables
         self.is_active = False
@@ -55,8 +60,13 @@ class MissionManager(BasePlugin):
 
     def initialize(self, config: dict) -> bool:
         """Initialize MissionManager plugin from config."""
-        if config and "poi_reach_threshold" in config:
-            self.poi_reach_threshold = float(config["poi_reach_threshold"])
+        if config:
+            if "cpa_window_m" in config:
+                self.cpa_window_m = float(config["cpa_window_m"])
+            if "cpa_tolerance_m" in config:
+                self.cpa_tolerance_m = float(config["cpa_tolerance_m"])
+            if "poi_reach_threshold" in config:
+                self.poi_reach_threshold = float(config["poi_reach_threshold"])
         return True
 
     def process(self, data: dict) -> dict:
@@ -109,6 +119,7 @@ class MissionManager(BasePlugin):
                 return True
 
             self.is_active = True
+            self._last_path_idx = 0
             self.mission_status = "Patrolling..."
             self.current_route_file = route_file_name or getattr(drive_exec, "current_route_file", None)
             self.current_poi_file = poi_file_name or getattr(drive_exec, "current_poi_file", None)
@@ -172,69 +183,356 @@ class MissionManager(BasePlugin):
     def _running_in_general(self) -> bool:
         return self.is_active
 
+    def _ensure_poi_cpa_initialized(self, poi_tasks: List[Dict[str, Any]], global_path: List[Dict[str, Any]]):
+        """Precompute CPA (Closest Point of Approach) along the global path for each POI."""
+        if not global_path:
+            return
+
+        total_pts = len(global_path)
+        for idx, poi in enumerate(poi_tasks):
+            if "index" not in poi:
+                poi["index"] = idx
+
+            if "cpa_idx" in poi and poi["cpa_idx"] is not None:
+                continue
+
+            px = float(poi.get("x", 0.0))
+            py = float(poi.get("y", 0.0))
+
+            # Find closest point on global path
+            best_idx = 0
+            min_d_sq = float("inf")
+            for i, pt in enumerate(global_path):
+                dx = float(pt["x"]) - px
+                dy = float(pt["y"]) - py
+                d_sq = dx * dx + dy * dy
+                if d_sq < min_d_sq:
+                    min_d_sq = d_sq
+                    best_idx = i
+
+            cpa_pt = global_path[best_idx]
+
+            # Compute forward tangent vector at CPA path point
+            if best_idx < total_pts - 1:
+                tx = float(global_path[best_idx + 1]["x"]) - float(cpa_pt["x"])
+                ty = float(global_path[best_idx + 1]["y"]) - float(cpa_pt["y"])
+            elif best_idx > 0:
+                tx = float(cpa_pt["x"]) - float(global_path[best_idx - 1]["x"])
+                ty = float(cpa_pt["y"]) - float(global_path[best_idx - 1]["y"])
+            else:
+                h = float(cpa_pt.get("heading", 0.0))
+                tx, ty = math.cos(h), math.sin(h)
+
+            t_len = math.hypot(tx, ty)
+            if t_len > 1e-6:
+                tx /= t_len
+                ty /= t_len
+            else:
+                tx, ty = 1.0, 0.0
+
+            poi["cpa_idx"] = best_idx
+            poi["cpa_x"] = float(cpa_pt["x"])
+            poi["cpa_y"] = float(cpa_pt["y"])
+            poi["cpa_tx"] = tx
+            poi["cpa_ty"] = ty
+            poi["cpa_dist"] = math.sqrt(min_d_sq)
+            poi["min_dist_seen"] = float("inf")
+            poi["entered_cpa_zone"] = False
+
+    def _is_at_cpa(self, poi: Dict[str, Any], rx: float, ry: float, current_path_idx: Optional[int] = None) -> bool:
+        """
+        Check if current robot position (rx, ry) is at the Closest Point of Approach (CPA) for this POI.
+        Uses path projection and distance turning point detection rather than a fixed arbitrary radius.
+        """
+        cpa_idx = poi.get("cpa_idx")
+        # Check path index progress (prevents triggering a POI located at loop finish while still at loop start)
+        if current_path_idx is not None and cpa_idx is not None:
+            if abs(current_path_idx - cpa_idx) > 35:
+                return False
+
+        cpa_x = float(poi.get("cpa_x", 0.0))
+        cpa_y = float(poi.get("cpa_y", 0.0))
+        cpa_tx = float(poi.get("cpa_tx", 1.0))
+        cpa_ty = float(poi.get("cpa_ty", 0.0))
+        px = float(poi.get("x", 0.0))
+        py = float(poi.get("y", 0.0))
+
+        dist_to_cpa_pt = math.hypot(rx - cpa_x, ry - cpa_y)
+        dist_to_poi = math.hypot(rx - px, ry - py)
+
+        # Vector from CPA path point to robot
+        dx = rx - cpa_x
+        dy = ry - cpa_y
+        s_proj = dx * cpa_tx + dy * cpa_ty  # Longitudinal progress along path tangent
+
+        # If outside approach window, not at CPA yet
+        if dist_to_cpa_pt > self.cpa_window_m:
+            return False
+
+        poi["entered_cpa_zone"] = True
+        min_seen = poi.get("min_dist_seen", float("inf"))
+        if dist_to_poi < min_seen:
+            poi["min_dist_seen"] = dist_to_poi
+            min_seen = dist_to_poi
+
+        # Case 1: POI is located at route origin (cpa_idx == 0) and robot is at origin
+        if poi.get("cpa_idx", 0) == 0 and dist_to_cpa_pt <= 0.4:
+            logger.info(f"[{self.name}] CPA reached for POI #{poi.get('index', 0)} at route origin (dist_to_cpa={dist_to_cpa_pt:.2f}m).")
+            return True
+
+        # Case 2: Longitudinal crossing through CPA perpendicular plane (-0.05m <= s_proj <= cpa_tolerance_m)
+        if -0.05 <= s_proj <= self.cpa_tolerance_m:
+            logger.info(
+                f"[{self.name}] CPA reached for POI #{poi.get('index', '?')} via perpendicular plane "
+                f"(s_proj={s_proj:.2f}m, dist_to_poi={dist_to_poi:.2f}m, min_path_dist={poi.get('cpa_dist', 0.0):.2f}m)."
+            )
+            return True
+
+        # Case 3: Distance turning point (distance to POI was decreasing and is now increasing past closest point)
+        if dist_to_poi > min_seen + 0.05 and s_proj > 0.0:
+            logger.info(
+                f"[{self.name}] CPA reached for POI #{poi.get('index', '?')} via turning point "
+                f"(curr_d={dist_to_poi:.2f}m > min_d={min_seen:.2f}m, s_proj={s_proj:.2f}m)."
+            )
+            return True
+
+        return False
+
     def _execute_poi_mast_inspection(self, poi_task: Dict[str, Any]) -> bool:
         """
-        Execute POI Mast Inspection sequence:
+        Execute POI Mast & PTU Inspection sequence:
         1. Pause vehicle movement (DriveExecutor stop).
-        2. Extend mast to target height (poi_task['mast_height_mm']).
-        3. Hold at target height for 3.0 seconds.
-        4. Retract mast back to 2900 mm.
-        5. Wait until retraction completes.
+        2. Extend or retract mast to target height (poi_task['mast_height_mm']).
+        3. Once target height is reached, perform PTU scan:
+           - Pan: current -> Left +15 deg -> Right -30 deg (relative -30) -> Left +15 deg -> return to original.
+        4. Retract mast back to home position (2900 mm).
+        5. Resume drive navigation.
         """
         target_h = float(poi_task.get("mast_height_mm", 2900.0))
-        logger.info(f"[{self.name}] Arrived at POI task ({poi_task['x']:.2f}m, {poi_task['y']:.2f}m). Pausing drive for mast inspection (target height: {target_h:.0f}mm)...")
+        target_h = max(2900.0, min(9000.0, target_h))
+        logger.info(f"[{self.name}] Arrived at POI #{poi_task.get('index', '?')} CPA ({poi_task['x']:.2f}m, {poi_task['y']:.2f}m). Pausing drive for mast inspection (target height: {target_h:.0f}mm)...")
 
         drive_exec = self._get_drive_executor()
         mast_exec = self._get_mast_executor()
         mast_dev = self.robot.devices.get("telescopic_mast") if self.robot and hasattr(self.robot, "devices") and self.robot.devices else None
+        des_dev = self.robot.devices.get("des_control") if self.robot and hasattr(self.robot, "devices") and self.robot.devices else None
+        is_sim = bool(self.robot and getattr(self.robot, "simulation_mode", False))
 
-        # 1. Pause vehicle movement via DriveExecutor
+        # Helper to read current mast height
+        def _get_current_height() -> float:
+            if is_sim:
+                return float(getattr(self, "simulated_mast_height", 2900.0))
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    return float(des_dev.get_mast_height())
+                except Exception:
+                    pass
+            if mast_dev and hasattr(mast_dev, "current_height_mm"):
+                return float(mast_dev.current_height_mm)
+            return 2900.0
+
+        # Helper to execute PTU inspection sequence (+15 deg left, -30 deg right, +15 deg back)
+        def _perform_ptu_inspection_scan():
+            logger.info(f"[{self.name}] Starting PTU inspection scan (Left +15° -> Right -30° -> Return to original)...")
+            initial_pan = 0.0
+            initial_tilt = 0.0
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    des_status = des_dev._require_connected_client().get_status(timeout=5)
+                    ptu_meas = des_status.get("devices", {}).get("ptu", {}).get("measurements", {})
+                    pan_val = ptu_meas.get("pan_deg", {}).get("value")
+                    tilt_val = ptu_meas.get("tilt_deg", {}).get("value")
+                    if pan_val is not None:
+                        initial_pan = float(pan_val)
+                    if tilt_val is not None:
+                        initial_tilt = float(tilt_val)
+                except Exception:
+                    pass
+
+            # Step 3-1: Pan Left +15 deg (CCW: +15 deg)
+            target_pan_left = initial_pan + 15.0
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    des_dev.set_ptu_move(target_pan_left, initial_tilt)
+                except Exception as pe:
+                    logger.warning(f"[{self.name}] PTU move left error: {pe}")
+            for _ in range(3 if is_sim else 20):
+                if not self.is_active:
+                    return
+                time.sleep(0.1)
+
+            # Step 3-2: Pan Right 30 deg (from +15 to -15, relative -30 deg)
+            target_pan_right = target_pan_left - 30.0
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    des_dev.set_ptu_move(target_pan_right, initial_tilt)
+                except Exception as pe:
+                    logger.warning(f"[{self.name}] PTU move right error: {pe}")
+            for _ in range(5 if is_sim else 30):
+                if not self.is_active:
+                    return
+                time.sleep(0.1)
+
+            # Step 3-3: Pan Left +15 deg back to original position
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    des_dev.set_ptu_move(initial_pan, initial_tilt)
+                except Exception as pe:
+                    logger.warning(f"[{self.name}] PTU return move error: {pe}")
+            for _ in range(3 if is_sim else 20):
+                if not self.is_active:
+                    return
+                time.sleep(0.1)
+
+            logger.info(f"[{self.name}] PTU inspection scan completed. Returning mast to home position (2900mm)...")
+
+        # 1. Pause vehicle movement via DriveExecutor and confirm complete vehicle stop
         if drive_exec:
             drive_exec.is_paused_for_poi = True
             if hasattr(drive_exec, "_apply_stop_command"):
                 drive_exec._apply_stop_command()
 
+            # Ensure vehicle speed strictly decelerates to 0.0 km/h before extending mast
+            drive_dev = getattr(self.robot, "drive_base", None) if self.robot else None
+            if drive_dev and not is_sim:
+                start_halt_t = time.time()
+                while time.time() - start_halt_t < 2.5 and self.is_active:
+                    curr_spd = abs(getattr(drive_dev, "speed", 0.0))
+                    if curr_spd <= 0.05:
+                        break
+                    time.sleep(0.05)
+
         try:
-            # 2. Extend Mast to target height
-            if mast_exec and hasattr(mast_exec, "start_target_extend"):
-                mast_exec.start_target_extend(target_h)
-            elif mast_dev and hasattr(mast_dev, "move_up"):
-                mast_dev.move_up()
-
-            # Wait for extension to reach target height (or timeout 15s)
-            start_t = time.time()
+            curr_h = _get_current_height()
             stop_bound = getattr(mast_exec, "stop_trig_bound", 15.0) if mast_exec else 15.0
-            while self.is_active and time.time() - start_t < 15.0:
-                curr_h = getattr(mast_dev, "current_height_mm", 2900.0) if mast_dev else 2900.0
-                if curr_h >= target_h - stop_bound - 50.0:  # near target height
-                    break
-                time.sleep(0.1)
 
-            logger.info(f"[{self.name}] Mast extension reached target height ({target_h:.0f}mm). Holding for 3 seconds...")
+            # Simulation Mode: Fast and smooth virtual mast & PTU execution (~3s total)
+            if is_sim:
+                logger.info(f"[{self.name}] [SIMULATION] Extending mast from {curr_h:.0f}mm to target {target_h:.0f}mm...")
+                steps = 5
+                dh = (target_h - curr_h) / steps
+                for _ in range(steps):
+                    if not self.is_active:
+                        return False
+                    curr_h += dh
+                    self.simulated_mast_height = curr_h
+                    if self.robot:
+                        self.robot.simulated_mast_height = curr_h
+                    time.sleep(0.2)
+                self.simulated_mast_height = target_h
+                if self.robot:
+                    self.robot.simulated_mast_height = target_h
 
-            # 3. Hold at target height for 3.0 seconds
-            for _ in range(30):
-                if not self.is_active:
-                    return False
-                time.sleep(0.1)
+                _perform_ptu_inspection_scan()
 
-            # 4. Retract Mast back to 2900 mm origin position
-            logger.info(f"[{self.name}] Retracting mast back to 2900 mm origin position...")
-            if mast_exec and hasattr(mast_exec, "start_target_retract"):
-                mast_exec.start_target_retract(2900.0)
-            elif mast_dev and hasattr(mast_dev, "move_down"):
-                mast_dev.move_down()
+                logger.info(f"[{self.name}] [SIMULATION] Retracting mast back to home position (2900 mm)...")
+                dh = (2900.0 - curr_h) / steps
+                for _ in range(steps):
+                    if not self.is_active:
+                        return False
+                    curr_h += dh
+                    self.simulated_mast_height = curr_h
+                    if self.robot:
+                        self.robot.simulated_mast_height = curr_h
+                    time.sleep(0.2)
+                self.simulated_mast_height = 2900.0
+                if self.robot:
+                    self.robot.simulated_mast_height = 2900.0
 
-            # Wait for retraction to strictly reach 2900 mm origin (or timeout 15s)
-            start_t = time.time()
-            while self.is_active and time.time() - start_t < 15.0:
-                curr_h = getattr(mast_dev, "current_height_mm", 2900.0) if mast_dev else 2900.0
-                if curr_h <= 2900.0 + stop_bound + 50.0:  # fully returned to 2900mm origin
-                    break
-                time.sleep(0.1)
+                poi_task["executed"] = True
+                logger.info(f"[{self.name}] [SIMULATION] POI #{poi_task.get('index', '?')} inspection completed. Resuming drive navigation.")
+                return True
+
+            # Real Hardware Mode: Hardware commands and sensor feedback monitoring
+            if des_dev and getattr(des_dev, "is_connected", False):
+                try:
+                    des_dev.acquire_control()
+                except Exception as ce:
+                    logger.warning(f"[{self.name}] DES acquire control lease check: {ce}")
+
+            if abs(curr_h - target_h) > stop_bound + 10.0:
+                if target_h > curr_h:
+                    logger.info(f"[{self.name}] Extending mast from {curr_h:.0f}mm to target {target_h:.0f}mm...")
+                    if des_dev and getattr(des_dev, "is_connected", False):
+                        try:
+                            des_dev.set_mast_extend(target_h)
+                        except Exception as de_err:
+                            logger.warning(f"[{self.name}] DES extend failed, fallback: {de_err}")
+                    elif mast_exec and hasattr(mast_exec, "start_target_extend"):
+                        mast_exec.start_target_extend(target_h)
+                    elif mast_dev and hasattr(mast_dev, "move_up"):
+                        mast_dev.move_up()
+                else:
+                    logger.info(f"[{self.name}] Retracting mast from {curr_h:.0f}mm to target {target_h:.0f}mm...")
+                    if des_dev and getattr(des_dev, "is_connected", False):
+                        try:
+                            des_dev.set_mast_retract(target_h)
+                        except Exception as de_err:
+                            logger.warning(f"[{self.name}] DES retract failed, fallback: {de_err}")
+                    elif mast_exec and hasattr(mast_exec, "start_target_retract"):
+                        mast_exec.start_target_retract(target_h)
+                    elif mast_dev and hasattr(mast_dev, "move_down"):
+                        mast_dev.move_down()
+
+                # Wait for mast to reach target height with progress tracking (up to 120s or 8s without movement)
+                start_t = time.time()
+                last_h = curr_h
+                last_progress_t = time.time()
+                while self.is_active:
+                    curr_h = _get_current_height()
+                    if target_h >= curr_h and curr_h >= target_h - stop_bound - 50.0:
+                        break
+                    if target_h <= curr_h and curr_h <= target_h + stop_bound + 50.0:
+                        break
+                    if abs(curr_h - last_h) >= 2.0:
+                        last_h = curr_h
+                        last_progress_t = time.time()
+                    elif time.time() - last_progress_t > 8.0:
+                        logger.warning(f"[{self.name}] Mast height unchanged for 8s (curr={curr_h:.0f}mm, target={target_h:.0f}mm). Moving to next step.")
+                        break
+                    if time.time() - start_t > 120.0:
+                        logger.warning(f"[{self.name}] Mast target reach timed out (120s).")
+                        break
+                    time.sleep(0.1)
+
+            # 3. Perform PTU Inspection Scan at target height
+            _perform_ptu_inspection_scan()
+
+            # 4. Retract Mast back to home position (2900 mm)
+            curr_h = _get_current_height()
+            if curr_h > 2950.0:
+                logger.info(f"[{self.name}] Retracting mast back to home position (2900 mm)...")
+                if des_dev and getattr(des_dev, "is_connected", False):
+                    try:
+                        des_dev.set_mast_retract(2900.0)
+                    except Exception as de_err:
+                        logger.warning(f"[{self.name}] DES home retract failed: {de_err}")
+                elif mast_exec and hasattr(mast_exec, "start_target_retract"):
+                    mast_exec.start_target_retract(2900.0)
+                elif mast_dev and hasattr(mast_dev, "move_down"):
+                    mast_dev.move_down()
+
+                # Wait for retraction to strictly reach 2900 mm home with progress tracking
+                start_t = time.time()
+                last_h = curr_h
+                last_progress_t = time.time()
+                while self.is_active:
+                    curr_h = _get_current_height()
+                    if curr_h <= 2900.0 + stop_bound + 50.0:
+                        break
+                    if abs(curr_h - last_h) >= 2.0:
+                        last_h = curr_h
+                        last_progress_t = time.time()
+                    elif time.time() - last_progress_t > 8.0:
+                        logger.warning(f"[{self.name}] Mast home retraction unchanged for 8s. Resuming navigation.")
+                        break
+                    if time.time() - start_t > 120.0:
+                        logger.warning(f"[{self.name}] Mast home retraction timed out (120s).")
+                        break
+                    time.sleep(0.1)
 
             poi_task["executed"] = True
-            logger.info(f"[{self.name}] POI mast inspection completed (mast returned to 2900mm origin). Resuming drive navigation.")
+            logger.info(f"[{self.name}] POI mast & PTU inspection completed (mast returned to 2900mm home). Resuming drive navigation.")
             return True
         finally:
             # Resume vehicle autonomous driving only after mast safely returned to 2900mm origin
@@ -244,29 +542,49 @@ class MissionManager(BasePlugin):
     def _mission_worker(self):
         """
         Orchestration Worker Loop:
-        1. Monitors robot current pose relative to DriveExecutor POI tasks.
-        2. Checks 0.5m arrival threshold (poi_reach_threshold).
+        1. Monitors robot current pose relative to DriveExecutor POI tasks using CPA.
+        2. Detects Closest Point of Approach (CPA) for unexecuted POIs.
         3. Invokes mast inspection sequence if POI Enable is checked.
         4. Waits for DriveExecutor completion ("Done.").
         5. Executes vehicle stop (0 km/h), updates status, and triggers 3x turn-light signal.
         """
-        logger.info(f"[{self.name}] MissionManager worker thread active.")
+        logger.info(f"[{self.name}] MissionManager worker thread active (CPA window: {self.cpa_window_m:.1f}m, tol: {self.cpa_tolerance_m:.2f}m).")
 
         while self.is_active:
             drive_exec = self._get_drive_executor()
             if not drive_exec:
                 break
 
-            # 1. Check POI Tasks Arrival (if poi_enabled in DriveExecutor is True)
+            # 1. Check POI Tasks Arrival via CPA (if poi_enabled in DriveExecutor is True)
             poi_enabled = getattr(drive_exec, "poi_enabled", True)
             poi_tasks = getattr(drive_exec, "poi_tasks", [])
+            global_path = getattr(drive_exec, "global_path", [])
 
-            if poi_enabled and poi_tasks:
+            if poi_enabled and poi_tasks and global_path:
+                self._ensure_poi_cpa_initialized(poi_tasks, global_path)
                 pose, _ = drive_exec._get_current_robot_pose()
+                rx, ry = float(pose["x"]), float(pose["y"])
+
+                # Estimate current path index along global_path advancing smoothly
+                if not hasattr(self, "_last_path_idx") or self._last_path_idx is None:
+                    self._last_path_idx = 0
+                total_pts = len(global_path)
+                search_start = max(0, self._last_path_idx - 10)
+                search_end = min(total_pts, self._last_path_idx + 60)
+                best_i = self._last_path_idx
+                min_d = float("inf")
+                for i in range(search_start, search_end):
+                    pt = global_path[i]
+                    d = math.hypot(pt["x"] - rx, pt["y"] - ry)
+                    if d < min_d:
+                        min_d = d
+                        best_i = i
+                self._last_path_idx = best_i
+                current_path_idx = best_i
+
                 for poi in poi_tasks:
                     if not poi.get("executed", False):
-                        dist_to_poi = math.hypot(poi["x"] - pose["x"], poi["y"] - pose["y"])
-                        if dist_to_poi <= self.poi_reach_threshold:  # 0.5m threshold
+                        if self._is_at_cpa(poi, rx, ry, current_path_idx=current_path_idx):
                             success = self._execute_poi_mast_inspection(poi)
                             if not success:
                                 break
@@ -300,5 +618,7 @@ class MissionManager(BasePlugin):
             "mission_status": self.mission_status,
             "current_route_file": self.current_route_file,
             "current_poi_file": self.current_poi_file,
+            "cpa_window_m": self.cpa_window_m,
+            "cpa_tolerance_m": self.cpa_tolerance_m,
             "poi_reach_threshold": self.poi_reach_threshold,
         }

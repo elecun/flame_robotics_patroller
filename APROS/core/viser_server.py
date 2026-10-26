@@ -544,6 +544,10 @@ class ViserServerManager:
             visible=True
         )
 
+        # 11. Simulated Route Obstacles Handles (--simulation mode)
+        self.sim_obstacle_handles: list = []
+        self._last_rendered_obstacle_key = None
+
     def _update_mission_preview(self, route_file_name: str, poi_file_name: str):
         """Load selected .route and .poi CSV files, convert lat/lon to relative meters from origin, and update scene."""
         import csv
@@ -566,6 +570,7 @@ class ViserServerManager:
             except Exception:
                 pass
         self.poi_label_handles.clear()
+        self._clear_simulated_obstacle_handles()
 
         self.corridor_boundary_handle.points = np.zeros((0, 2, 3), dtype=np.float32)
         self.corridor_boundary_handle.colors = np.zeros((0, 2, 3), dtype=np.uint8)
@@ -626,9 +631,15 @@ class ViserServerManager:
         if route_waypoints:
             origin_lat, origin_lon = route_waypoints[0]
 
-        # 2. Load POI Waypoints: (lat, lon, mast_height_mm [int])
+        # 2. Load POI Waypoints: (lat, lon, mast_height_mm [int]) only when POI Enable is checked
+        poi_enabled = True
+        if self.robot and hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+            poi_enabled = bool(getattr(self.robot.drive_executor, "poi_enabled", True))
+        elif hasattr(self, "_poi_enabled"):
+            poi_enabled = bool(self._poi_enabled)
+
         poi_waypoints = []
-        if poi_file_name and poi_file_name != "None":
+        if poi_enabled and poi_file_name and poi_file_name != "None":
             poi_path = os.path.join(route_dir, poi_file_name)
             if os.path.exists(poi_path):
                 try:
@@ -653,9 +664,18 @@ class ViserServerManager:
         # Update Route & Corridor Boundary Visualization in TM Coordinates
         if route_waypoints:
             points_3d = []
-            for lat, lon in route_waypoints:
-                rx, ry = self._wgs84_to_tm_viser(lat, lon)
-                points_3d.append([rx, ry, 0.002])
+            is_sim_mode = bool(self.robot and getattr(self.robot, "simulation_mode", False))
+            if is_sim_mode and origin_lat is not None and origin_lon is not None:
+                anchor_x, anchor_y = self._wgs84_to_tm_viser(origin_lat, origin_lon)
+                lon_scale = math.cos(math.radians(origin_lat))
+                for lat, lon in route_waypoints:
+                    dx = (lat - origin_lat) * 111000.0
+                    dy = -(lon - origin_lon) * 111000.0 * lon_scale
+                    points_3d.append([anchor_x + dx, anchor_y + dy, 0.002])
+            else:
+                for lat, lon in route_waypoints:
+                    rx, ry = self._wgs84_to_tm_viser(lat, lon)
+                    points_3d.append([rx, ry, 0.002])
 
             pts_arr = np.array(points_3d, dtype=np.float32)
             self.route_pc_handle.points = pts_arr
@@ -792,6 +812,46 @@ class ViserServerManager:
                     pass
 
         logger.info(f"[ViserServerManager] Preview updated for Route '{route_file_name}' ({len(route_waypoints)} pts) & POI '{poi_file_name}' ({len(poi_waypoints)} pts)")
+
+    def _clear_simulated_obstacle_handles(self):
+        for h in getattr(self, "sim_obstacle_handles", []):
+            try:
+                h.remove()
+            except Exception:
+                pass
+        if hasattr(self, "sim_obstacle_handles"):
+            self.sim_obstacle_handles.clear()
+        self._last_rendered_obstacle_key = None
+
+    def _update_simulated_obstacles_scene(self, drive_exec, anchor_x: float, anchor_y: float):
+        """Render randomly placed simulation obstacles as 3D red objects with labels in Viser."""
+        sim_obs = getattr(drive_exec, "simulated_obstacles", []) if drive_exec else []
+        obs_key = tuple((round(o["x"], 3), round(o["y"], 3), round(o.get("radius", 0.2), 3)) for o in sim_obs) if sim_obs else ()
+        if obs_key == getattr(self, "_last_rendered_obstacle_key", None):
+            return
+        self._clear_simulated_obstacle_handles()
+        self._last_rendered_obstacle_key = obs_key
+        if not sim_obs:
+            return
+
+        for idx, obs in enumerate(sim_obs):
+            ox = anchor_x + float(obs["x"])
+            oy = anchor_y + float(obs["y"])
+            radius = float(obs.get("radius", 0.20))
+            height = float(obs.get("height", 0.80))
+            diam = radius * 2.0
+            box_handle = self.server.scene.add_box(
+                name=f"/world/sim_obstacles/obs_{idx + 1}",
+                dimensions=(diam, diam, height),
+                color=(220, 40, 40),
+                position=(ox, oy, height / 2.0),
+            )
+            lbl_handle = self.server.scene.add_label(
+                name=f"/world/sim_obstacles/label_{idx + 1}",
+                text=f"🚧 Obstacle #{obs.get('id', idx + 1)}",
+                position=(ox, oy, height + 0.25),
+            )
+            self.sim_obstacle_handles.extend([box_handle, lbl_handle])
 
 
 
@@ -1229,9 +1289,26 @@ class ViserServerManager:
 
                 @poi_enable_cb.on_update
                 def _(_):
+                    self._poi_enabled = bool(poi_enable_cb.value)
                     if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
-                        self.robot.drive_executor.poi_enabled = poi_enable_cb.value
+                        self.robot.drive_executor.poi_enabled = bool(poi_enable_cb.value)
                     logger.info(f"[ViserUI] POI Enable set to {poi_enable_cb.value}.")
+
+                _init_corridor_enabled = True
+                if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                    _init_corridor_enabled = getattr(self.robot.drive_executor, "corridor_enabled", True)
+
+                corridor_enable_cb = client.gui.add_checkbox("Corridor Enable", initial_value=_init_corridor_enabled)
+
+                @corridor_enable_cb.on_update
+                def _(_):
+                    self._corridor_enabled = bool(corridor_enable_cb.value)
+                    if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
+                        self.robot.drive_executor.corridor_enabled = bool(corridor_enable_cb.value)
+                        local_pl = getattr(self.robot.drive_executor, "local_planner", None)
+                        if local_pl and hasattr(local_pl, "corridor_enabled"):
+                            local_pl.corridor_enabled = bool(corridor_enable_cb.value)
+                    logger.info(f"[ViserUI] Corridor Enable set to {corridor_enable_cb.value}.")
 
                 _init_hil_sim_enabled = False
                 if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
@@ -1244,6 +1321,7 @@ class ViserServerManager:
                     if hasattr(self.robot, "drive_executor") and self.robot.drive_executor:
                         self.robot.drive_executor.hil_simulation_enabled = hil_sim_enable_cb.value
                     logger.info(f"[ViserUI] HIL Simulation set to {hil_sim_enable_cb.value}.")
+
                 @mission_route_dropdown.on_update
                 def _(_):
                     val = mission_route_dropdown.value
@@ -1254,7 +1332,6 @@ class ViserServerManager:
                         matching_poi = f"{base_name}.poi"
                         if matching_poi in poi_files:
                             mission_poi_dropdown.value = matching_poi
-                        self._update_mission_preview(mission_route_dropdown.value, mission_poi_dropdown.value)
 
                 @mission_poi_dropdown.on_update
                 def _(_):
@@ -1281,14 +1358,14 @@ class ViserServerManager:
                 @preview_btn.on_click
                 def _(_):
                     route_file = mission_route_dropdown.value
-                    poi_file = mission_poi_dropdown.value
+                    poi_file = mission_poi_dropdown.value if poi_enable_cb.value else "None"
                     self._update_mission_preview(route_file, poi_file)
-                    logger.info(f"[ViserUI] Preview Mission clicked -> Visualized route '{route_file}' & POI '{poi_file}'")
+                    logger.info(f"[ViserUI] Preview Mission clicked -> Visualized route '{route_file}' & POI '{poi_file}' (poi_enabled={poi_enable_cb.value})")
 
                 @start_mission_btn.on_click
                 def _(_):
                     route_file = mission_route_dropdown.value
-                    poi_file = mission_poi_dropdown.value
+                    poi_file = mission_poi_dropdown.value if poi_enable_cb.value else None
                     modal = client.gui.add_modal("Mission 시작 확인")
                     with modal:
                         client.gui.add_markdown("패트롤 로봇 Mission을 시작합니다.")
@@ -1298,15 +1375,22 @@ class ViserServerManager:
                         @confirm_btn.on_click
                         def _(_):
                             modal.close()
-                            self._update_mission_preview(route_file, poi_file)
+                            active_poi = mission_poi_dropdown.value if poi_enable_cb.value else None
+                            self._update_mission_preview(route_file, active_poi or "None")
                             mission_mgr = getattr(self.robot, "mission_manager", None)
                             drive_exec = getattr(self.robot, "drive_executor", None)
+                            if drive_exec:
+                                drive_exec.poi_enabled = bool(poi_enable_cb.value)
+                                drive_exec.corridor_enabled = bool(corridor_enable_cb.value)
+                                local_pl = getattr(drive_exec, "local_planner", None)
+                                if local_pl and hasattr(local_pl, "corridor_enabled"):
+                                    local_pl.corridor_enabled = bool(corridor_enable_cb.value)
                             if mission_mgr and hasattr(mission_mgr, "start_mission"):
-                                mission_mgr.start_mission(route_file, poi_file_name=poi_file)
+                                mission_mgr.start_mission(route_file, poi_file_name=active_poi)
                             elif drive_exec and hasattr(drive_exec, "start_mission"):
-                                drive_exec.start_mission(route_file, poi_file_name=poi_file)
+                                drive_exec.start_mission(route_file, poi_file_name=active_poi)
                             mission_status_md.content = "**Mission Status**: `Patrolling...`"
-                            logger.info(f"[ViserUI] Start Mission confirmed -> Started MissionManager with route '{route_file}' & POI '{poi_file}'")
+                            logger.info(f"[ViserUI] Start Mission confirmed -> Started MissionManager with route '{route_file}' & POI '{active_poi}' (poi_enabled={poi_enable_cb.value})")
 
                         @cancel_btn.on_click
                         def _(_):
@@ -1670,7 +1754,10 @@ class ViserServerManager:
                                 ctrl.disabled = True
                             sync_vehicle_controls(drive_status, parsed_can)
                         else:
-                            if reset_motion_controls_on_auto:
+                            drive_exec_active = bool(getattr(getattr(self.robot, "drive_executor", None), "is_active", False))
+                            if drive_exec_active:
+                                sync_vehicle_controls(drive_status, parsed_can)
+                            elif reset_motion_controls_on_auto:
                                 syncing_vehicle_controls = True
                                 try:
                                     vel_slider.value = 0.0
@@ -1699,10 +1786,10 @@ class ViserServerManager:
                         # Display completion modal window when patrol mission finishes
                         if executor_status == "Done." and not last_mission_done_state:
                             last_mission_done_state = True
-                            modal = client.gui.add_modal("🎉 구간 패트롤 완료")
+                            modal = client.gui.add_modal("구간 패트롤 완료")
                             with modal:
                                 client.gui.add_markdown(
-                                    "### 🎉 구간 패트롤이 완료되었습니다.\n\n"
+                                    "### 구간 패트롤이 완료되었습니다.\n\n"
                                     "설정된 패트롤 경로(Route) 및 POI 태스크 완주가 정상 완료되었습니다."
                                 )
                                 close_btn = client.gui.add_button("확인", color="green")
@@ -1996,15 +2083,20 @@ class ViserServerManager:
 
     def _simulation_loop(self):
         """Update robot kinematics for driving simulation and render real-time VLP-16 point cloud."""
-        dt = 0.05
+        target_dt = 0.05
         t = 0.0
         last_ouster_points = None
+        prev_step_time = time.monotonic()
         while self._running:
             start_time = time.time()
-            t += dt
+            now_mono = time.monotonic()
+            actual_dt = min(0.1, max(0.005, now_mono - prev_step_time))
+            prev_step_time = now_mono
+            t += actual_dt
 
-            # Update simulated physics/kinematics in device controller
-            self.robot.update_simulation_step(dt=dt)
+            # Update simulated physics/kinematics in device controller using actual wall-clock dt (--simulation mode only)
+            if getattr(self.robot, "simulation_mode", False):
+                self.robot.update_simulation_step(dt=actual_dt)
 
             # Update real-time RTK TM Position & Heading pose of /robot node in Viser 3D scene
             rtk_dev = next((self.robot.devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk")
@@ -2024,17 +2116,25 @@ class ViserServerManager:
             drive_exec = getattr(self.robot, "drive_executor", None)
             simulation_origin_lat = getattr(drive_exec, "origin_lat", None) if drive_exec else None
             simulation_origin_lon = getattr(drive_exec, "origin_lon", None) if drive_exec else None
-            if getattr(self.robot, "simulation_mode", False) and drive_exec and simulation_origin_lat is not None and simulation_origin_lon is not None:
+            is_sim_with_origin = (
+                getattr(self.robot, "simulation_mode", False)
+                and drive_exec is not None
+                and simulation_origin_lat is not None
+                and simulation_origin_lon is not None
+            )
+            if is_sim_with_origin:
                 lat_val = simulation_origin_lat + float(self.robot.simulated_x) / 111000.0
                 lon_scale = max(0.1, math.cos(math.radians(simulation_origin_lat)))
                 lon_val = simulation_origin_lon - float(self.robot.simulated_y) / (111000.0 * lon_scale)
                 heading_val = -math.degrees(float(self.robot.simulated_heading))
-
-            rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
-            if getattr(self.robot, "simulation_mode", False) and drive_exec and simulation_origin_lat is not None and simulation_origin_lon is not None:
+                anchor_x, anchor_y = self._wgs84_to_tm_viser(simulation_origin_lat, simulation_origin_lon)
+                rx = anchor_x + float(self.robot.simulated_x)
+                ry = anchor_y + float(self.robot.simulated_y)
                 sim_h = float(self.robot.simulated_heading)
                 rwxyz = (math.cos(sim_h / 2.0), 0.0, 0.0, math.sin(sim_h / 2.0))
+                self._update_simulated_obstacles_scene(drive_exec, anchor_x, anchor_y)
             else:
+                rx, ry = self._wgs84_to_tm_viser(lat_val, lon_val)
                 rwxyz = self._heading_to_wxyz(heading_val)
 
             if self.robot_frame_handle:
@@ -2051,6 +2151,8 @@ class ViserServerManager:
                 mast = self.robot.devices["telescopic_mast"]
                 mast_status = mast.get_status() if hasattr(mast, "get_status") else {}
                 mast_height_m = mast_status.get("current_height_m", mast_height_m)
+            elif hasattr(self.robot, "simulated_mast_height") and self.robot.simulated_mast_height is not None:
+                mast_height_m = float(self.robot.simulated_mast_height) / 1000.0
 
             drive_status = self.robot.get_status() if hasattr(self.robot, "get_status") else {}
             parsed_can = drive_status.get("parsed_can_status", {}) if isinstance(drive_status.get("parsed_can_status"), dict) else {}
@@ -2154,7 +2256,7 @@ class ViserServerManager:
                 self.local_path_handle.visible = False
 
             elapsed = time.time() - start_time
-            time.sleep(max(0.0, dt - elapsed))
+            time.sleep(max(0.0, target_dt - elapsed))
 
     def start(self):
         self._running = True

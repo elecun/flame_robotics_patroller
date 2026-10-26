@@ -220,9 +220,14 @@ class IAEPatrolV1:
         try:
             mod_mm = importlib.import_module("APROS.core.plugin.mission_manager" if __name__.startswith("APROS") else "core.plugin.mission_manager")
             MissionManager = getattr(mod_mm, "MissionManager")
-            self.mission_manager = MissionManager(robot=self, poi_reach_threshold=0.5)
+            cpa_win = 2.0
+            cpa_tol = 0.35
+            if self.config and self.config.has_section("mission_manager"):
+                cpa_win = float(self.config.get("mission_manager", "cpa_window_m", fallback=2.0))
+                cpa_tol = float(self.config.get("mission_manager", "cpa_tolerance_m", fallback=0.35))
+            self.mission_manager = MissionManager(robot=self, cpa_window_m=cpa_win, cpa_tolerance_m=cpa_tol)
             self.plugins["mission_manager"] = self.mission_manager
-            logger.info(f"[IAEPatrolV1] Mission Manager plugin initialized (poi_reach_threshold=0.5m).")
+            logger.info(f"[IAEPatrolV1] Mission Manager plugin initialized with CPA criterion (window={cpa_win:.1f}m, tol={cpa_tol:.2f}m).")
         except Exception as e:
             logger.error(f"[IAEPatrolV1] Error initializing Mission Manager: {e}")
 
@@ -615,11 +620,12 @@ class IAEPatrolV1:
             self.drive_base.set_steering_angle(angle_deg)
 
     def update_simulation_step(self, dt: float = 0.05):
+        if not self.simulation_mode:
+            return
         if self.drive_base and hasattr(self.drive_base, 'update_simulation_step'):
             self.drive_base.update_simulation_step(dt=dt)
-            if self.simulation_mode:
-                speed_m_s = float(getattr(self.drive_base, "speed", 0.0)) / 3.6
-                heading = float(getattr(self.drive_base, "simulated_heading", self.simulated_heading))
-                self.simulated_x += speed_m_s * math.cos(heading) * dt
-                self.simulated_y += speed_m_s * math.sin(heading) * dt
-                self.simulated_heading = heading
+            speed_m_s = float(getattr(self.drive_base, "speed", 0.0)) / 3.6
+            heading = float(getattr(self.drive_base, "simulated_heading", self.simulated_heading))
+            self.simulated_x += speed_m_s * math.cos(heading) * dt
+            self.simulated_y += speed_m_s * math.sin(heading) * dt
+            self.simulated_heading = heading

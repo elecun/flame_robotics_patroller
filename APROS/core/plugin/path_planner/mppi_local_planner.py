@@ -47,6 +47,7 @@ class MPPILocalPlanner(BaseLocalPlanner):
         max_steer_rate_rad_s: Optional[float] = None,
         steering_change_weight: float = 0.02,
         terminal_distance_weight: float = 2.0,
+        corridor_weight: float = 5.0,
     ):
         super().__init__(config)
         self.samples = max(16, int(samples))
@@ -88,6 +89,8 @@ class MPPILocalPlanner(BaseLocalPlanner):
             raise ValueError("MPPI steering rate must be positive and change weight nonnegative")
 
         self.terminal_distance_weight = float(terminal_distance_weight)
+        self.corridor_weight = float(corridor_weight)
+        self.corridor_enabled = True
         self.best_local_path: List[Dict[str, float]] = []
 
         self.initial_velocity_kmh = float(initial_velocity_kmh)
@@ -137,7 +140,7 @@ class MPPILocalPlanner(BaseLocalPlanner):
 
         # Transform local reference path into robot body frame (+X forward, +Y left)
         path = np.asarray(
-            [[p["x"], p["y"], p.get("heading", 0.0), p.get("v_ref", cfg.max_velocity)] for p in local_path],
+            [[p["x"], p["y"], p.get("heading", 0.0), p.get("v_ref", cfg.max_velocity), p.get("corridor_boundary", 2.5)] for p in local_path],
             dtype=np.float64,
         )
         dx, dy = path[:, 0] - rx, path[:, 1] - ry
@@ -145,7 +148,13 @@ class MPPILocalPlanner(BaseLocalPlanner):
         px = dx * c + dy * s
         py = -dx * s + dy * c
         local_headings = np.arctan2(np.sin(path[:, 2] - heading), np.cos(path[:, 2] - heading))
-        target_idx = int(np.argmin(np.abs(np.hypot(px, py) - max_lookahead)))
+        corridor_half_w = path[:, 4] / 2.0
+        corridor_on = bool(current_pose.get("corridor_enabled", getattr(self, "corridor_enabled", True)))
+        # Select lookahead target strictly along the forward progression of the path from the nearest point
+        dists = np.hypot(px, py)
+        nearest_path_idx = int(np.argmin(dists))
+        forward_dists = dists[nearest_path_idx:]
+        target_idx = nearest_path_idx + int(np.argmin(np.abs(forward_dists - max_lookahead)))
         target_speed = float(np.clip(path[target_idx, 3], cfg.min_velocity, cfg.max_velocity))
 
         # Limit obstacle evaluation to the local horizon and cap point count for predictable runtime.
@@ -163,6 +172,9 @@ class MPPILocalPlanner(BaseLocalPlanner):
         steering_min_rad = max(-hard_limit_rad, float(cfg.min_steer_angle))
         steering_max_rad = min(hard_limit_rad, float(cfg.max_steer_angle))
         current_steer_rad = float(np.clip(current_steer_rad, steering_min_rad, steering_max_rad))
+
+        half_l = float(cfg.length) / 2.0 + float(cfg.inflation_radius)
+        half_w = float(cfg.width) / 2.0 + float(cfg.inflation_radius)
 
         nominal_v = self._nominal_v.copy()
         nominal_delta_rad = self._nominal_delta_rad.copy()
@@ -213,6 +225,13 @@ class MPPILocalPlanner(BaseLocalPlanner):
                     np.arctan2(np.sin(theta - local_headings[nearest]), np.cos(theta - local_headings[nearest]))
                 )
                 costs += self.path_distance_weight * path_error + self.heading_weight * heading_error
+
+                # Soft penalty for exceeding corridor boundary when corridor_enabled is True
+                if corridor_on:
+                    allowed_w = corridor_half_w[nearest]
+                    # Check if robot outer width (half_w) exceeds allowed corridor half width
+                    excess = np.maximum(0.0, (path_error + half_w) - allowed_w)
+                    costs += self.corridor_weight * (excess ** 2)
 
                 if len(obs_local):
                     ox = obs_local[None, :, 0] - x[:, None]
