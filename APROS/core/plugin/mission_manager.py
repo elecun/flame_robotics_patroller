@@ -105,6 +105,17 @@ class MissionManager(BasePlugin):
                 logger.error(f"[{self.name}] Cannot start mission: DriveExecutor plugin unavailable.")
                 return False
 
+            if getattr(drive_exec, "is_paused_for_poi", False):
+                des = (getattr(self.robot, "devices", {}) or {}).get("des_control")
+                try:
+                    if not des or not des.is_connected or abs(des.get_mast_height() - 2900.0) > 50.0:
+                        raise RuntimeError("Mast must be at 2900 mm ±50 mm before restarting")
+                except Exception as exc:
+                    self.mission_status = f"Cannot restart: {exc}"
+                    logger.error(f"[{self.name}] {self.mission_status}")
+                    return False
+                drive_exec.is_paused_for_poi = False
+
             if route_file_name:
                 success = drive_exec.load_mission_route(route_file_name, poi_file_name)
                 if not success:
@@ -298,6 +309,143 @@ class MissionManager(BasePlugin):
 
         return False
 
+    def _execute_real_poi_inspection(self, poi_task: Dict[str, Any]) -> bool:
+        """Hold the drive until verified mast and PTU operations are complete."""
+        drive = self._get_drive_executor()
+        devices = getattr(self.robot, "devices", {}) or {}
+        des = devices.get("des_control")
+        base = self._get_drive_base()
+        success = False
+        moving_mast = False
+        use_des = bool(des and getattr(des, "is_connected", False))
+        try:
+            if not drive:
+                raise RuntimeError("Drive executor unavailable")
+            drive.pause_for_poi()
+            stop_requested_at = time.monotonic()
+            if getattr(drive, "hil_simulation_enabled", False):
+                raise RuntimeError("Hardware POI inspection is disabled in HIL simulation")
+            deadline = time.monotonic() + 15.0
+            while self.is_active:
+                stamp = getattr(base, "last_velocity_feedback_time", None)
+                velocity = getattr(base, "parsed_can_status", {}).get("vehicle_velocity_val") if base else None
+                if (base and getattr(base, "is_connected", False) and stamp is not None
+                        and stamp >= stop_requested_at and time.monotonic() - stamp <= 2.0 and velocity is not None
+                        and math.isfinite(float(velocity)) and abs(float(velocity)) <= 0.05):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Vehicle stop could not be confirmed from fresh speed feedback")
+                time.sleep(0.1)
+            if not self.is_active:
+                return False
+            if not use_des:
+                raise RuntimeError("DES PTU control unavailable")
+            des.acquire_control()
+
+            def height():
+                return des.get_mast_height()
+
+            def confirm_stopped_at(target):
+                deadline = time.monotonic() + 10.0
+                while self.is_active and time.monotonic() < deadline:
+                    status = des._require_connected_client().get_status(timeout=5)
+                    mast_status = status.get("devices", {}).get("mast", {})
+                    motion = mast_status.get("motion", {})
+                    current = des._mast_height(status)
+                    if (isinstance(motion, dict) and all(motion.get(k) is True for k in ("supported", "valid", "fresh"))
+                            and str(motion.get("value", "")).upper() == "STOPPED"):
+                        if abs(current - target) <= 50.0:
+                            return
+                        raise RuntimeError(f"Mast stopped outside target tolerance: {current:.0f} mm")
+                    time.sleep(0.1)
+                raise RuntimeError("Mast stop could not be confirmed")
+
+            def move_to(target):
+                nonlocal moving_mast
+                current = height()
+                if not math.isfinite(current):
+                    raise RuntimeError("Invalid mast height")
+                if abs(current - target) <= 50.0:
+                    confirm_stopped_at(target)
+                    return
+                moving_mast = True
+                (des.set_mast_extend if target > current else des.set_mast_retract)(target)
+                deadline = time.monotonic() + 300.0
+                progress = time.monotonic()
+                last_height = current
+                while self.is_active:
+                    current = height()
+                    if not math.isfinite(current):
+                        raise RuntimeError("Invalid mast height")
+                    if abs(current - target) <= 50.0:
+                        des.set_mast_stop()
+                        moving_mast = False
+                        confirm_stopped_at(target)
+                        return
+                    if abs(current - last_height) >= 2.0:
+                        last_height, progress = current, time.monotonic()
+                    if time.monotonic() - progress > 8.0 or time.monotonic() >= deadline:
+                        raise RuntimeError(f"Mast failed to reach {target:.0f} mm (current {current:.0f} mm)")
+                    time.sleep(0.1)
+                raise RuntimeError("Mission aborted during mast motion")
+
+            target = float(poi_task.get("mast_height_mm", 2900.0))
+            if not math.isfinite(target) or not 2900.0 <= target <= 9000.0:
+                raise ValueError("POI mast height must be between 2900 and 9000 mm")
+            move_to(target)
+            status = des._require_connected_client().get_status(timeout=5)
+            measurements = status.get("devices", {}).get("ptu", {}).get("measurements", {})
+            def angle(name):
+                item = measurements.get(name, {})
+                if not isinstance(item, dict) or not all(item.get(key) is True for key in ("supported", "valid", "fresh")):
+                    raise RuntimeError(f"Fresh PTU {name} unavailable")
+                value = float(item["value"])
+                if not math.isfinite(value):
+                    raise RuntimeError(f"Invalid PTU {name}")
+                return value
+            pan, tilt = angle("pan_deg"), angle("tilt_deg")
+            for target_pan in (pan + 15.0, pan):
+                if not self.is_active:
+                    raise RuntimeError("Mission aborted during PTU scan")
+                receipt = des.set_ptu_move(target_pan, tilt)
+                deadline = time.monotonic() + 1.0
+                while self.is_active and time.monotonic() < deadline:
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                if not self.is_active:
+                    raise RuntimeError("Mission aborted during PTU scan")
+                result = des._require_connected_client().get_command_async(receipt.command_id).result(timeout=5)
+                if result is None or result.state.value != "completed":
+                    raise RuntimeError("PTU did not reach its target within one second")
+            move_to(2900.0)
+            if not self.is_active:
+                raise RuntimeError("Mission aborted before inspection completed")
+            poi_task["executed"] = True
+            success = True
+            logger.info(f"[{self.name}] POI inspection complete; mast returned to 2900 mm ±50 mm.")
+            return True
+        except Exception as exc:
+            logger.error(f"[{self.name}] POI inspection failed; drive remains stopped: {exc}")
+            if self.is_active:
+                self.mission_status = f"POI inspection failed: {exc}"
+                self.is_active = False
+                if drive:
+                    drive.abort_mission()
+            return False
+        finally:
+            if moving_mast:
+                try:
+                    if use_des:
+                        des.set_mast_stop()
+                except Exception as exc:
+                    logger.error(f"[{self.name}] Failed to stop mast: {exc}")
+            if not success and use_des:
+                try:
+                    des.set_ptu_stop()
+                except Exception as exc:
+                    logger.warning(f"[{self.name}] Failed to stop PTU: {exc}")
+            if success and drive:
+                drive.is_paused_for_poi = False
+
     def _execute_poi_mast_inspection(self, poi_task: Dict[str, Any]) -> bool:
         """
         Execute POI Mast & PTU Inspection sequence:
@@ -308,6 +456,9 @@ class MissionManager(BasePlugin):
         4. Retract mast back to home position (2900 mm).
         5. Resume drive navigation.
         """
+        if not getattr(self.robot, "simulation_mode", False):
+            return self._execute_real_poi_inspection(poi_task)
+
         target_h = float(poi_task.get("mast_height_mm", 2900.0))
         target_h = max(2900.0, min(9000.0, target_h))
         logger.info(f"[{self.name}] Arrived at POI #{poi_task.get('index', '?')} CPA ({poi_task['x']:.2f}m, {poi_task['y']:.2f}m). Pausing drive for mast inspection (target height: {target_h:.0f}mm)...")
@@ -560,7 +711,13 @@ class MissionManager(BasePlugin):
             poi_tasks = getattr(drive_exec, "poi_tasks", [])
             global_path = getattr(drive_exec, "global_path", [])
 
-            if poi_enabled and poi_tasks and global_path:
+            rtk_ok = True
+            if not getattr(self.robot, "simulation_mode", False) and not getattr(drive_exec, "hil_simulation_enabled", False):
+                devices = getattr(self.robot, "devices", {}) or {}
+                rtk = next((devices[name] for name in ("synerex_syn2000", "synerex_syn3100", "synerex_rtk") if name in devices), None)
+                rtk_ok = bool(rtk and getattr(rtk, "is_connected", False) and getattr(rtk, "fix_quality", 0)
+                              and getattr(rtk, "latitude", None) is not None and getattr(rtk, "longitude", None) is not None)
+            if poi_enabled and poi_tasks and global_path and rtk_ok:
                 self._ensure_poi_cpa_initialized(poi_tasks, global_path)
                 pose, _ = drive_exec._get_current_robot_pose()
                 rx, ry = float(pose["x"]), float(pose["y"])
@@ -584,10 +741,18 @@ class MissionManager(BasePlugin):
 
                 for poi in poi_tasks:
                     if not poi.get("executed", False):
-                        if self._is_at_cpa(poi, rx, ry, current_path_idx=current_path_idx):
+                        at_final_goal = (
+                            math.hypot(poi["x"] - global_path[-1]["x"], poi["y"] - global_path[-1]["y"]) <= 2.0
+                            and math.hypot(rx - global_path[-1]["x"], ry - global_path[-1]["y"])
+                            < drive_exec.goal_reach_threshold
+                        )
+                        if at_final_goal or self._is_at_cpa(poi, rx, ry, current_path_idx=current_path_idx):
                             success = self._execute_poi_mast_inspection(poi)
                             if not success:
                                 break
+
+            if not self.is_active:
+                break
 
             # 2. Check DriveExecutor Mission Status
             exec_status = getattr(drive_exec, "mission_status", "Idle")

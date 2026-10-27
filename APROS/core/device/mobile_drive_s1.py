@@ -150,6 +150,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
 
         # Initial State (As required: speed=0, steer=0, gear=P, drive_mode=Remote Control Mode)
         self.speed = 0.0  # km/h (monitored/actual status value or current setpoint)
+        self.last_velocity_feedback_time = None
         self.steer_angle = 0.0  # degrees (monitored/actual status value or current setpoint)
         self.cmd_speed = 0.0  # km/h (command input value with soft limit applied)
         self.cmd_steering_angle = 0.0  # degrees (command input value with soft limit applied)
@@ -330,6 +331,7 @@ class MobileDriveS1(BaseDevice, MobileS1API):
                     elif frame.id == 0x304:
                         if "vehicle_velocity_val" in parsed:
                             self.speed = parsed["vehicle_velocity_val"]
+                            self.last_velocity_feedback_time = time.monotonic()
                         if "vehicle_steer_angle_val" in parsed:
                             self.steer_angle = parsed["vehicle_steer_angle_val"]
             except canlib.CanNoMsg:

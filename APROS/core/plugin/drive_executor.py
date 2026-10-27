@@ -522,6 +522,12 @@ class DriveExecutor(BasePlugin):
 
         threading.Thread(target=_decelerate_and_brake_thread, daemon=True).start()
 
+    def pause_for_poi(self):
+        """Atomically prevent planner commands before requesting a stop."""
+        with self._lock:
+            self.is_paused_for_poi = True
+            self._apply_stop_command()
+
     def _apply_stop_command(self):
         """Send speed=0 and steer=0 command to drive base without changing gear or applying sudden brake."""
         if self.robot and hasattr(self.robot, "drive_base") and self.robot.drive_base:
@@ -803,6 +809,16 @@ class DriveExecutor(BasePlugin):
             dist_to_goal = math.hypot(goal["x"] - pose["x"], goal["y"] - pose["y"])
 
             if dist_to_goal < self.goal_reach_threshold:
+                # Leave a final POI to MissionManager before completing the route.
+                final_poi_pending = self.poi_enabled and any(
+                    not task.get("executed", False)
+                    and math.hypot(task["x"] - goal["x"], task["y"] - goal["y"]) <= 2.0
+                    for task in self.poi_tasks
+                ) and getattr(self.robot, "mission_manager", None) is not None
+                if final_poi_pending:
+                    self._apply_stop_command()
+                    time.sleep(self.control_period)
+                    continue
                 logger.info(f"[{self.name}] Goal destination reached! Stopping mission.")
                 self.is_active = False
                 self.mission_status = "Done."
@@ -842,14 +858,14 @@ class DriveExecutor(BasePlugin):
             logger.debug(f"[{self.name}] Planner command -> Target Speed: {target_v_kmh:.2f} km/h, Steer Angle: {cmd_delta_deg:.2f}°")
 
             # 4. Dispatch control command to mobile drive base (Forward-only D gear)
-            if drive_dev:
-                drive_dev.target_gear = "D"
-                drive_dev.gear = "D"
-
-                if hasattr(drive_dev, "set_speed"):
-                    drive_dev.set_speed(target_v_kmh)
-                if hasattr(drive_dev, "set_steering_angle"):
-                    drive_dev.set_steering_angle(cmd_delta_deg)
+            with self._lock:
+                if self.is_active and not self.is_paused_for_poi and drive_dev:
+                    drive_dev.target_gear = "D"
+                    drive_dev.gear = "D"
+                    if hasattr(drive_dev, "set_speed"):
+                        drive_dev.set_speed(target_v_kmh)
+                    if hasattr(drive_dev, "set_steering_angle"):
+                        drive_dev.set_steering_angle(cmd_delta_deg)
 
             elapsed = time.time() - start_time
             logger.debug(f"[{self.name}][_control_loop] Iteration elapsed: {elapsed * 1000.0:.2f} ms ({elapsed:.4f} s) / Target period: {self.control_period * 1000.0:.2f} ms")

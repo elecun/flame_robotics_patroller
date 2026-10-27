@@ -1353,19 +1353,19 @@ class ViserServerManager:
                 @mission_route_dropdown.on_update
                 def _(_):
                     val = mission_route_dropdown.value
-                    if val not in route_files:
-                        mission_route_dropdown.value = route_files[0]
+                    if val not in mission_route_dropdown.options:
+                        mission_route_dropdown.value = mission_route_dropdown.options[0]
                     else:
                         base_name = os.path.splitext(val)[0]
                         matching_poi = f"{base_name}.poi"
-                        if matching_poi in poi_files:
+                        if matching_poi in mission_poi_dropdown.options:
                             mission_poi_dropdown.value = matching_poi
 
                 @mission_poi_dropdown.on_update
                 def _(_):
                     val = mission_poi_dropdown.value
-                    if val not in poi_files:
-                        mission_poi_dropdown.value = poi_files[0]
+                    if val not in mission_poi_dropdown.options:
+                        mission_poi_dropdown.value = mission_poi_dropdown.options[0]
 
                 preview_btn = client.gui.add_button("👁️ Preview Mission", color="blue")
                 refresh_missions_btn = client.gui.add_button("🔄 Refresh Missions", color="gray")
@@ -1413,12 +1413,18 @@ class ViserServerManager:
                                 local_pl = getattr(drive_exec, "local_planner", None)
                                 if local_pl and hasattr(local_pl, "corridor_enabled"):
                                     local_pl.corridor_enabled = bool(corridor_enable_cb.value)
+                            started = False
                             if mission_mgr and hasattr(mission_mgr, "start_mission"):
-                                mission_mgr.start_mission(route_file, poi_file_name=active_poi)
+                                started = mission_mgr.start_mission(route_file, poi_file_name=active_poi)
                             elif drive_exec and hasattr(drive_exec, "start_mission"):
-                                drive_exec.start_mission(route_file, poi_file_name=active_poi)
-                            mission_status_md.content = "**Mission Status**: `Patrolling...`"
-                            logger.info(f"[ViserUI] Start Mission confirmed -> Started MissionManager with route '{route_file}' & POI '{active_poi}' (poi_enabled={poi_enable_cb.value})")
+                                started = drive_exec.start_mission(route_file, poi_file_name=active_poi)
+                            if started:
+                                mission_status_md.content = "**Mission Status**: `Patrolling...`"
+                                logger.info(f"[ViserUI] Started mission with route '{route_file}' & POI '{active_poi}'")
+                            else:
+                                status = getattr(mission_mgr, "mission_status", "Start failed")
+                                mission_status_md.content = f"**Mission Status**: `{status}`"
+                                logger.error(f"[ViserUI] Mission start failed: {status}")
 
                         @cancel_btn.on_click
                         def _(_):
@@ -1660,6 +1666,48 @@ class ViserServerManager:
                         except Exception as error:
                             gnss_rtk_status_md.content = f"**Status**: ❌ {error}"
                             logger.error(f"[ViserUI] GNSS/RTK export failed: {error}")
+
+            with client.gui.add_folder("Convert", expand_by_default=True):
+                def get_rtk_csv_files():
+                    directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
+                    if not os.path.isdir(directory):
+                        return ["None"]
+                    files = sorted(name for name in os.listdir(directory)
+                                   if name.lower().endswith(".csv") and
+                                   (name.lower().startswith("rtk") or os.path.splitext(name)[0].lower().endswith("_rtk")))
+                    return files or ["None"]
+
+                rtk_csv_dropdown = client.gui.add_dropdown("RTK CSV", options=get_rtk_csv_files())
+                convert_status = client.gui.add_markdown("**Status**: Select an RTK CSV file")
+                refresh_csv_button = client.gui.add_button("🔄 Refresh CSV files")
+                convert_button = client.gui.add_button("To route", color="green")
+
+                @refresh_csv_button.on_click
+                def _(_event):
+                    files = get_rtk_csv_files()
+                    rtk_csv_dropdown.options = files
+                    rtk_csv_dropdown.value = files[0]
+
+                @convert_button.on_click
+                def _(_event):
+                    try:
+                        filename = rtk_csv_dropdown.value
+                        if filename not in get_rtk_csv_files() or filename == "None":
+                            raise ValueError("Select an RTK CSV file")
+                        from route.rtk2route import convert_rtk_to_route
+                        directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "route")
+                        output = os.path.join(directory, os.path.splitext(filename)[0] + ".route")
+                        config = getattr(self.robot, "config", None)
+                        boundary = float(config.get("mobile_drive_s1", "corridor_boundary", fallback=3.0)) if config else 3.0
+                        count = convert_rtk_to_route(os.path.join(directory, filename), output, boundary)
+                        routes = get_route_files()
+                        mission_route_dropdown.options = routes
+                        mission_route_dropdown.value = os.path.basename(output)
+                        poi_sampler_route_dropdown.options = routes
+                        convert_status.content = f"**Status**: ✅ {os.path.basename(output)} ({count} points)"
+                    except Exception as error:
+                        convert_status.content = f"**Status**: ❌ {error}"
+                        logger.error(f"[ViserUI] RTK conversion failed: {error}")
 
         # 2. Floating/Dockable Camera View Panel
         dummy_cam_img = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -2135,7 +2183,7 @@ class ViserServerManager:
                 self._last_valid_visual_pose = (
                     rtk_status.get("latitude", self.default_lat),
                     rtk_status.get("longitude", self.default_lon),
-                    rtk_status.get("heading", self.default_heading),
+                    rtk_status.get("heading") if rtk_status.get("heading") is not None else self.default_heading,
                 )
             lat_val, lon_val, heading_val = getattr(
                 self, "_last_valid_visual_pose", (self.default_lat, self.default_lon, self.default_heading)
@@ -2250,27 +2298,33 @@ class ViserServerManager:
             if local_planner and hasattr(local_planner, "best_local_path") and local_planner.best_local_path:
                 lpath = local_planner.best_local_path
                 if len(lpath) >= 2:
-                    drive_exec = getattr(self.robot, "drive_executor", None)
-                    route_lat = getattr(drive_exec, "origin_lat", None) if drive_exec else None
-                    route_lon = getattr(drive_exec, "origin_lon", None) if drive_exec else None
-                    if route_lat is not None and route_lon is not None:
-                        anchor_x, anchor_y = self._wgs84_to_tm_viser(route_lat, route_lon)
-                    else:
-                        anchor_x, anchor_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
+                    # The planner publishes world-frame points at its last pose. Rebase
+                    # that snapshot onto the current URDF root to avoid projection and
+                    # update-rate offsets between the planner and visualization.
+                    first = lpath[0]
+                    visual_heading = 2.0 * math.atan2(rwxyz[3], rwxyz[0])
+                    angle = visual_heading - float(first.get("heading", visual_heading))
+                    cos_a, sin_a = math.cos(angle), math.sin(angle)
+                    def visual_point(point):
+                        dx = float(point["x"]) - float(first["x"])
+                        dy = float(point["y"]) - float(first["y"])
+                        return (rx + cos_a * dx - sin_a * dy,
+                                ry + sin_a * dx + cos_a * dy)
+                    visual_path = [visual_point(point) for point in lpath]
                     half_width = 0.10  # 20 cm line width in world coordinates
                     vertices = []
                     for i, pt in enumerate(lpath):
-                        prev_pt = lpath[max(0, i - 1)]
-                        next_pt = lpath[min(len(lpath) - 1, i + 1)]
-                        tx = float(next_pt["x"]) - float(prev_pt["x"])
-                        ty = float(next_pt["y"]) - float(prev_pt["y"])
+                        prev_pt = visual_path[max(0, i - 1)]
+                        next_pt = visual_path[min(len(lpath) - 1, i + 1)]
+                        tx = next_pt[0] - prev_pt[0]
+                        ty = next_pt[1] - prev_pt[1]
                         length = math.hypot(tx, ty)
                         if length > 1e-6:
                             nx, ny = -ty / length, tx / length
                         else:
-                            h = float(pt.get("heading", 0.0))
+                            h = float(pt.get("heading", 0.0)) + angle
                             nx, ny = -math.sin(h), math.cos(h)
-                        cx, cy = anchor_x + float(pt["x"]), anchor_y + float(pt["y"])
+                        cx, cy = visual_path[i]
                         vertices.append([cx - nx * half_width, cy - ny * half_width, 0.04])
                         vertices.append([cx + nx * half_width, cy + ny * half_width, 0.04])
                     faces = []

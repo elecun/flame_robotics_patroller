@@ -11,65 +11,46 @@ import sys
 import os
 import csv
 import argparse
+import itertools
 
 
-def convert_rtk_to_route(input_path: str, output_path: str, corridor_boundary: float = 3.0) -> None:
-    if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Input file not found: {input_path}")
+def convert_rtk_to_route(input_path: str, output_path: str, corridor_boundary: float = 3.0) -> int:
+    """Convert valid recorded fixes (or legacy latitude/longitude CSV rows)."""
+    import math
 
-    with open(input_path, "r", encoding="utf-8") as f_in:
-        reader = csv.reader(f_in)
+    with open(input_path, "r", encoding="utf-8-sig", newline="") as source:
+        reader = csv.reader(source)
         header = next(reader, None)
-
-        # 1st (index 0) & 2nd (index 1) columns: date and time info
-        # 3rd (index 2) column: latitude
-        # 4th (index 3) column: longitude
-        lat_idx, lon_idx = 2, 3
-
-        if header:
-            for i, col in enumerate(header):
-                col_clean = col.strip().lower()
-                if col_clean in ["latitude", "lat"]:
-                    lat_idx = i
-                elif col_clean in ["longitude", "lon", "lng"]:
-                    lon_idx = i
-
-        rows_out = []
-        idx = 0
-
-        # If header line itself contained numeric data (no text header), process it first
-        if header and len(header) > max(lat_idx, lon_idx):
-            try:
-                lat = float(header[lat_idx])
-                lon = float(header[lon_idx])
-                rows_out.append((idx, lat, lon, corridor_boundary))
-                idx += 1
-            except (ValueError, IndexError):
-                pass  # header was indeed text header
-
-        for row in reader:
-            if not row or len(row) <= max(lat_idx, lon_idx):
+        if not header:
+            raise ValueError("CSV is empty")
+        names = [name.strip().lower() for name in header]
+        lat_idx = next((i for i, name in enumerate(names) if name in ("latitude", "lat")), 2)
+        lon_idx = next((i for i, name in enumerate(names) if name in ("longitude", "lon", "lng")), 3)
+        valid_idx = names.index("valid_fix") if "valid_fix" in names else None
+        points = []
+        for row in itertools.chain((header,), reader):
+            if len(row) <= max(lat_idx, lon_idx):
+                continue
+            if valid_idx is not None and (len(row) <= valid_idx or row[valid_idx].strip().lower() not in ("true", "1")):
                 continue
             try:
-                lat = float(row[lat_idx])
-                lon = float(row[lon_idx])
-                rows_out.append((idx, lat, lon, corridor_boundary))
-                idx += 1
-            except (ValueError, IndexError):
+                lat, lon = float(row[lat_idx]), float(row[lon_idx])
+            except ValueError:
                 continue
-
-    # Ensure output parent directory exists
-    output_dir = os.path.dirname(os.path.abspath(output_path))
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-
-    with open(output_path, "w", encoding="utf-8", newline="") as f_out:
-        writer = csv.writer(f_out)
-        writer.writerow(["index", "latitude", "longitude", "corridor_boundary"])
-        for row in rows_out:
-            writer.writerow([row[0], f"{row[1]:.8f}", f"{row[2]:.8f}", row[3]])
-
-    print(f"Successfully converted '{input_path}' -> '{output_path}' ({len(rows_out)} waypoints, corridor_boundary={corridor_boundary})")
+            if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            if not points or points[-1] != (lat, lon):
+                points.append((lat, lon))
+    if len(points) < 2:
+        raise ValueError("At least two distinct valid consecutive GNSS fixes are required")
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "x", encoding="utf-8", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(("index", "latitude", "longitude", "corridor_boundary"))
+        for index, (lat, lon) in enumerate(points):
+            writer.writerow((index, f"{lat:.9f}", f"{lon:.9f}", corridor_boundary))
+    print(f"Successfully converted '{input_path}' -> '{output_path}' ({len(points)} waypoints)")
+    return len(points)
 
 
 def main():
