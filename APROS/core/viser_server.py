@@ -189,6 +189,7 @@ class ViserServerManager:
         self.ground_tile_map_tile_key = None
         self.ground_tile_map_retry_after = 0.0
         self.ground_grid_handle = None
+        self._follow_rtk_camera_controls = {}
 
         # Custom APROS titlebar. The former floating map panel has been removed.
         titlebar_html = f"""
@@ -286,6 +287,10 @@ class ViserServerManager:
         @self.server.on_client_connect
         def _(client: viser.ClientHandle):
             self._setup_client_ui(client)
+
+        @self.server.on_client_disconnect
+        def _(client: viser.ClientHandle):
+            self._follow_rtk_camera_controls.pop(client.client_id, None)
 
     def _wgs84_to_tm_viser(self, lat: float, lon: float) -> tuple[float, float]:
         """
@@ -855,13 +860,33 @@ class ViserServerManager:
 
 
 
+    def _center_client_camera(self, client: viser.ClientHandle, lat: float, lon: float) -> None:
+        """Aim a Viser client at the current geodetic position."""
+        x, y = self._wgs84_to_tm_viser(lat, lon)
+        client.camera.up_direction = (0.0, 0.0, 1.0)
+        client.camera.position = (x - 6.0, y - 3.5, 3.5)
+        client.camera.look_at = (x, y, 0.5)
+
+    def _follow_rtk_camera(self, lat: float, lon: float) -> None:
+        """Keep opted-in client views near the current RTK map tile."""
+        x, y = self._wgs84_to_tm_viser(lat, lon)
+        for client_id, client in self.server.get_clients().items():
+            control = self._follow_rtk_camera_controls.get(client_id)
+            if control is None or not control.value:
+                continue
+            look_at = client.camera.look_at
+            dx, dy = x - look_at[0], y - look_at[1]
+            if math.hypot(dx, dy) >= 0.5:
+                position = client.camera.position
+                client.camera.position = (position[0] + dx, position[1] + dy, position[2])
+                client.camera.look_at = (x, y, look_at[2])
+
     def _setup_client_ui(self, client: viser.ClientHandle):
         """Setup UI components for newly connected client."""
-        # TM Coordinate Frame Camera Orientation
-        init_x, init_y = self._wgs84_to_tm_viser(self.default_lat, self.default_lon)
-        client.camera.up_direction = (0.0, 0.0, 1.0)
-        client.camera.position = (init_x - 6.0, init_y - 3.5, 3.5)
-        client.camera.look_at = (init_x, init_y, 0.5)
+        lat, lon, _ = getattr(
+            self, "_last_valid_visual_pose", (self.default_lat, self.default_lon, self.default_heading)
+        )
+        self._center_client_camera(client, lat, lon)
 
         # Left dock: live device status and camera stream.
         status_panel = client.gui.add_panel()
@@ -949,6 +974,9 @@ class ViserServerManager:
 
         # Control Tab (Vehicle, lighting, and mast controls)
         with tabs.add_tab("Control", viser.Icon.ADJUSTMENTS):
+            self._follow_rtk_camera_controls[client.client_id] = client.gui.add_checkbox(
+                "Follow RTK Position", initial_value=True
+            )
             # The UI starts in Manual (Remote Control) until a mode change is requested.
             self._current_control_mode = "Remote"
             _is_processing_mode_change = False
@@ -2144,6 +2172,8 @@ class ViserServerManager:
             ground_map_available = self._add_ground_tile_map(lat_val, lon_val)
             if self.ground_grid_handle is not None:
                 self.ground_grid_handle.visible = not ground_map_available
+            if hasattr(self, "_last_valid_visual_pose") and not is_sim_with_origin:
+                self._follow_rtk_camera(lat_val, lon_val)
 
             # Update URDF Joint States (Mast height & Steering angle)
             mast_height_m = 2.9  # Ground-relative height in meters (default 2.9m = 2900mm)
