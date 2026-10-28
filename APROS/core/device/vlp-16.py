@@ -221,6 +221,9 @@ class VLP16(BaseDevice):
 
             try:
                 packet, addr = self.sock.recvfrom(2048)
+                recorder = getattr(self, "data_logger_packet", None)
+                if recorder:
+                    recorder(packet, addr)
                 if addr[0] != self.ip:
                     continue
                 if len(packet) == 1206:

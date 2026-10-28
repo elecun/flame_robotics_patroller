@@ -126,6 +126,9 @@ class FlukeSV600(BaseDevice):
                 image_file.write(frame)
             metadata["file"] = path
             self.last_frame_metadata = metadata
+        recorder = getattr(self, "data_logger_frame", None)
+        if recorder:
+            recorder(frame, metadata)
         if self.on_frame:
             self.on_frame(frame, metadata)
         return frame

@@ -171,6 +171,9 @@ class OusterSR128(BaseDevice):
                     raw_packet, addr = self.sock.recvfrom(65535)
                 except socket.timeout:
                     continue
+                recorder = getattr(self, "data_logger_packet", None)
+                if recorder:
+                    recorder(raw_packet, addr)
                 if len(raw_packet) != self._pf.lidar_packet_size:
                     continue
                 self.ip = addr[0]

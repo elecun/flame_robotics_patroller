@@ -329,6 +329,9 @@ class BaslerGigECamera(BaseDevice):
                 "format": "jpeg"
             }
             self.latest_frame = (header, jpeg_bytes)
+            recorder = getattr(self, "data_logger_frame", None)
+            if recorder:
+                recorder(jpeg_bytes, header)
             if self.pub_socket and self.pub_socket.is_joined:
                 header_bytes = json.dumps(header, ensure_ascii=False).encode('utf-8')
                 self.pub_socket.dispatch([b"basler_gige_camera_data", header_bytes, jpeg_bytes])

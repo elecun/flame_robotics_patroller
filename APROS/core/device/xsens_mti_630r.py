@@ -173,10 +173,16 @@ class XsensMTi630R(BaseDevice):
                 if self.interface == "rs232":
                     data = self.serial_connection.read(512)
                     if data:
+                        recorder = getattr(self, "data_logger_raw", None)
+                        if recorder:
+                            recorder(data, None)
                         self._consume_xbus(data)
                 else:
                     frame = self.can_channel_handle.read(timeout=100)
                     can_id = getattr(frame, "id", getattr(frame, "id_", None))
+                    recorder = getattr(self, "data_logger_raw", None)
+                    if recorder:
+                        recorder(bytes(getattr(frame, "data", b"")), can_id)
                     # CAN output identifiers are assigned by the sensor's CAN
                     # configuration. Without an arbitration ID there is no safe
                     # way to distinguish Euler data from other CAN output fields.

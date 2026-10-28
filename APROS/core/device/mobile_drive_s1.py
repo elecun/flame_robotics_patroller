@@ -313,8 +313,8 @@ class MobileDriveS1(BaseDevice, MobileS1API):
                 last_can_msg_time = time.time()
                 self._has_can_feedback = True
 
-                # Forward 0x301 and 0x303 CAN frames to registered frame recorder (DataLogger)
-                if frame.id in (0x301, 0x303) and hasattr(self, 'frame_recorder') and self.frame_recorder is not None:
+                # Forward every received CAN frame to the data logger.
+                if hasattr(self, 'frame_recorder') and self.frame_recorder is not None:
                     try:
                         self.frame_recorder(frame)
                     except Exception as fe:
